@@ -1,0 +1,39 @@
+// src/main/java/com/inkFront/schoolManagement/repository/SessionResultRepository.java
+package com.inkFront.schoolManagement.repository;
+
+import com.inkFront.schoolManagement.model.SessionResult;
+import com.inkFront.schoolManagement.model.Student;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.Optional;
+
+@Repository
+public interface SessionResultRepository extends JpaRepository<SessionResult, Long> {
+
+    Optional<SessionResult> findByStudentAndSession(Student student, String session);
+
+    @Query("SELECT sr FROM SessionResult sr WHERE sr.student.studentClass = :className AND sr.session = :session ORDER BY sr.annualAverage DESC")
+    List<SessionResult> findByClassAndSessionOrderByAnnualAverageDesc(@Param("className") String className,
+                                                                      @Param("session") String session);
+
+    @Query("SELECT sr FROM SessionResult sr WHERE sr.student.studentClass = :className AND sr.student.classArm = :arm AND sr.session = :session ORDER BY sr.annualAverage DESC")
+    List<SessionResult> findByClassAndArmAndSessionOrderByAnnualAverageDesc(@Param("className") String className,
+                                                                            @Param("arm") String arm,
+                                                                            @Param("session") String session);
+
+    @Query("SELECT sr FROM SessionResult sr WHERE sr.session = :session ORDER BY sr.annualAverage DESC")
+    List<SessionResult> findBySessionOrderByAnnualAverageDesc(@Param("session") String session);
+
+    @Query("SELECT sr.student.studentClass, AVG(sr.annualAverage) FROM SessionResult sr WHERE sr.session = :session GROUP BY sr.student.studentClass")
+    List<Object[]> getClassAverageBySession(@Param("session") String session);
+
+    @Query("SELECT COUNT(sr) FROM SessionResult sr WHERE sr.promoted = true AND sr.session = :session")
+    long countPromotedStudents(@Param("session") String session);
+
+    @Query("SELECT COUNT(sr) FROM SessionResult sr WHERE sr.promoted = false AND sr.session = :session")
+    long countRetainedStudents(@Param("session") String session);
+}
