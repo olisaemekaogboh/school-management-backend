@@ -39,9 +39,6 @@ public class WebConfig implements WebMvcConfigurer {
             System.out.println("URL pattern: /uploads/**");
             System.out.println("==================================================");
 
-            registry.addResourceHandler("/uploads/**")
-                    .addResourceLocations("file:" + uploadPath)
-                    .setCachePeriod(3600);
 
     }
 }
