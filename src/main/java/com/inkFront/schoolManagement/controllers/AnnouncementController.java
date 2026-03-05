@@ -2,11 +2,13 @@
 package com.inkFront.schoolManagement.controllers;
 
 import com.inkFront.schoolManagement.dto.AnnouncementDTO;
+import com.inkFront.schoolManagement.dto.SmsLogDTO;
 import com.inkFront.schoolManagement.model.Announcement;
-import com.inkFront.schoolManagement.model.SmsLog;
 import com.inkFront.schoolManagement.repository.SmsLogRepository;
+import com.inkFront.schoolManagement.repository.EmailLogRepository;
 import com.inkFront.schoolManagement.service.AnnouncementService;
 import com.inkFront.schoolManagement.service.SmsResult;
+import com.inkFront.schoolManagement.service.NotificationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -27,11 +29,19 @@ public class AnnouncementController {
 
     private final AnnouncementService announcementService;
     private final SmsLogRepository smsLogRepository;
+    private final EmailLogRepository emailLogRepository;
+    private final NotificationService notificationService;
 
     @PostMapping
     public ResponseEntity<AnnouncementDTO> createAnnouncement(@Valid @RequestBody AnnouncementDTO announcementDTO) {
         Announcement announcement = announcementService.createAnnouncement(announcementDTO);
         return new ResponseEntity<>(AnnouncementDTO.fromAnnouncement(announcement), HttpStatus.CREATED);
+    }
+    // In AnnouncementController.java
+
+    @PostMapping("/{id}/notify")
+    public ResponseEntity<SmsResult> sendNotifications(@PathVariable Long id) {
+        return ResponseEntity.ok(notificationService.sendAnnouncementNotifications(id));
     }
 
     @PutMapping("/{id}")
@@ -46,6 +56,14 @@ public class AnnouncementController {
     public ResponseEntity<Void> deleteAnnouncement(@PathVariable Long id) {
         announcementService.deleteAnnouncement(id);
         return ResponseEntity.noContent().build();
+    }
+    // In AnnouncementController.java
+    @GetMapping("/{id}/email-history")
+    public ResponseEntity<List<com.inkFront.schoolManagement.dto.EmailLogDTO>> getEmailHistory(@PathVariable Long id) {
+        var logs = emailLogRepository.findByAnnouncementId(id).stream()
+                .map(com.inkFront.schoolManagement.dto.EmailLogDTO::fromEmailLog)
+                .toList();
+        return ResponseEntity.ok(logs);
     }
 
     @GetMapping("/{id}")
@@ -143,19 +161,17 @@ public class AnnouncementController {
         Announcement announcement = announcementService.createFeeAnnouncement(description, amount, dueDate, audience);
         return new ResponseEntity<>(AnnouncementDTO.fromAnnouncement(announcement), HttpStatus.CREATED);
     }
-// In AnnouncementController.java
-
-    @PostMapping("/{id}/notify")
-    public ResponseEntity<SmsResult> sendNotifications(@PathVariable Long id) {
-        SmsResult result = announcementService.sendAnnouncementNotifications(id);
-        return ResponseEntity.ok(result);
-    }
 
     @GetMapping("/{id}/sms-history")
-    public ResponseEntity<List<SmsLog>> getSmsHistory(@PathVariable Long id) {
-        List<SmsLog> history = smsLogRepository.findByAnnouncementId(id);
+    public ResponseEntity<List<SmsLogDTO>> getSmsHistory(@PathVariable Long id) {
+        List<SmsLogDTO> history = smsLogRepository.findByAnnouncementId(id)
+                .stream()
+                .map(SmsLogDTO::fromSmsLog)
+                .toList();
+
         return ResponseEntity.ok(history);
     }
+
 
     @GetMapping("/sms-stats")
     public ResponseEntity<Map<String, Object>> getSmsStats() {

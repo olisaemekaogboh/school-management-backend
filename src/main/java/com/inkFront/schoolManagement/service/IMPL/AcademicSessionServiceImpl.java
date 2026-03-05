@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class AcademicSessionServiceImpl implements AcademicSessionService {
@@ -42,21 +43,26 @@ public class AcademicSessionServiceImpl implements AcademicSessionService {
         if (request.getStartYear() == null || request.getEndYear() == null) {
             throw new IllegalArgumentException("startYear and endYear are required.");
         }
-        if (repo.existsByName(request.getName().trim())) {
-            throw new IllegalArgumentException("Session already exists: " + request.getName());
+
+        String name = request.getName().trim();
+
+        // ✅ better: ignore case duplicates
+        if (repo.existsByNameIgnoreCase(name)) {
+            throw new IllegalArgumentException("Session already exists: " + name);
         }
 
+        boolean makeActive = Boolean.TRUE.equals(request.getActive());
+
         AcademicSession s = new AcademicSession();
-        s.setName(request.getName().trim());
+        s.setName(name);
         s.setStartYear(request.getStartYear());
         s.setEndYear(request.getEndYear());
-        s.setActive(Boolean.TRUE.equals(request.getActive()));
+        s.setActive(makeActive);
 
         AcademicSession saved = repo.save(s);
 
-        // If created active => deactivate others
-        if (Boolean.TRUE.equals(saved.getActive())) {
-            deactivateOthers(saved.getId());
+        if (makeActive) {
+            repo.deactivateOthers(saved.getId());
         }
 
         return map(saved);
@@ -70,11 +76,12 @@ public class AcademicSessionServiceImpl implements AcademicSessionService {
 
         if (request.getName() != null && !request.getName().trim().isEmpty()) {
             String newName = request.getName().trim();
-            if (!newName.equalsIgnoreCase(s.getName()) && repo.existsByName(newName)) {
+            if (!newName.equalsIgnoreCase(s.getName()) && repo.existsByNameIgnoreCase(newName)) {
                 throw new IllegalArgumentException("Session name already exists: " + newName);
             }
             s.setName(newName);
         }
+
         if (request.getStartYear() != null) s.setStartYear(request.getStartYear());
         if (request.getEndYear() != null) s.setEndYear(request.getEndYear());
 
@@ -85,7 +92,7 @@ public class AcademicSessionServiceImpl implements AcademicSessionService {
         AcademicSession saved = repo.save(s);
 
         if (Boolean.TRUE.equals(saved.getActive())) {
-            deactivateOthers(saved.getId());
+            repo.deactivateOthers(saved.getId());
         }
 
         return map(saved);
@@ -99,20 +106,37 @@ public class AcademicSessionServiceImpl implements AcademicSessionService {
 
         s.setActive(true);
         AcademicSession saved = repo.save(s);
-        deactivateOthers(saved.getId());
+        repo.deactivateOthers(saved.getId());
+
         return map(saved);
     }
 
+    // ✅ SAFE: returns Optional
     @Override
-    public AcademicSessionResponse getActive() {
-        AcademicSession active = repo.findByActiveTrue()
-                .orElseGet(() -> repo.findAll().stream()
-                        .max(Comparator.comparing(AcademicSession::getStartYear))
-                        .orElseThrow(() -> new ResourceNotFoundException("No sessions found.")));
-        return map(active);
+    @Transactional(readOnly = true)
+    public Optional<AcademicSessionResponse> getActiveOptional() {
+        // Try active first
+        Optional<AcademicSession> active = repo.findFirstByActiveTrue();
+        if (active.isPresent()) return active.map(this::map);
+
+        // If none active, you can either return empty (recommended),
+        // OR fall back to "latest by startYear".
+        // I’ll keep your fallback behavior but still return Optional:
+
+        return repo.findAll().stream()
+                .max(Comparator.comparing(AcademicSession::getStartYear))
+                .map(this::map);
+    }
+
+    // ✅ SAFE: returns null if none
+    @Override
+    @Transactional(readOnly = true)
+    public AcademicSessionResponse getActiveOrNull() {
+        return getActiveOptional().orElse(null);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<AcademicSessionResponse> getAll() {
         return repo.findAll().stream()
                 .sorted(Comparator.comparing(AcademicSession::getStartYear).reversed())
@@ -126,15 +150,5 @@ public class AcademicSessionServiceImpl implements AcademicSessionService {
         AcademicSession s = repo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("AcademicSession not found: " + id));
         repo.delete(s);
-    }
-
-    private void deactivateOthers(Long activeId) {
-        List<AcademicSession> all = repo.findAll();
-        for (AcademicSession other : all) {
-            if (!other.getId().equals(activeId) && Boolean.TRUE.equals(other.getActive())) {
-                other.setActive(false);
-                repo.save(other);
-            }
-        }
     }
 }

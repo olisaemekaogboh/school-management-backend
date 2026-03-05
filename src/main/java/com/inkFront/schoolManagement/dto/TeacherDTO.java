@@ -51,7 +51,6 @@ public class TeacherDTO {
 
     public static TeacherDTO fromEntity(Teacher teacher) {
         if (teacher == null) return null;
-
         return TeacherDTO.builder()
                 .id(teacher.getId())
                 .firstName(teacher.getFirstName())
@@ -73,9 +72,12 @@ public class TeacherDTO {
                 .dateOfJoining(teacher.getDateOfJoining())
                 .employmentType(teacher.getEmploymentType() != null ? teacher.getEmploymentType().name() : null)
                 .employmentStatus(teacher.getEmploymentStatus() != null ? teacher.getEmploymentStatus().name() : null)
-                .maritalStatus(teacher.getMaritalStatus() != null ? teacher.getMaritalStatus().name() : null)  // FIXED: Convert enum to String
-                .subjects(teacher.getSubjects() != null ? teacher.getSubjects() : new ArrayList<>())
-                .qualifications(teacher.getQualifications() != null ? teacher.getQualifications() : new ArrayList<>())
+                .maritalStatus(teacher.getMaritalStatus() != null ? teacher.getMaritalStatus().name() : null)
+
+                // ✅ IMPORTANT: copy collections to plain ArrayList (kills Hibernate proxy)
+                .subjects(teacher.getSubjects() == null ? new ArrayList<>() : new ArrayList<>(teacher.getSubjects()))
+                .qualifications(teacher.getQualifications() == null ? new ArrayList<>() : new ArrayList<>(teacher.getQualifications()))
+
                 .emergencyContactName(teacher.getEmergencyContactName())
                 .emergencyContactPhone(teacher.getEmergencyContactPhone())
                 .emergencyContactRelationship(teacher.getEmergencyContactRelationship())
@@ -85,6 +87,8 @@ public class TeacherDTO {
                 .createdAt(teacher.getCreatedAt())
                 .updatedAt(teacher.getUpdatedAt())
                 .build();
+
+
     }
 
     public static Teacher toEntity(TeacherDTO dto) {
@@ -154,8 +158,8 @@ public class TeacherDTO {
             teacher.setMaritalStatus(Teacher.MaritalStatus.SINGLE);
         }
 
-        teacher.setSubjects(dto.getSubjects() != null ? dto.getSubjects() : new ArrayList<>());
-        teacher.setQualifications(dto.getQualifications() != null ? dto.getQualifications() : new ArrayList<>());
+        teacher.setSubjects(dto.getSubjects() == null ? new ArrayList<>() : new ArrayList<>(dto.getSubjects()));
+        teacher.setQualifications(dto.getQualifications() == null ? new ArrayList<>() : new ArrayList<>(dto.getQualifications()));
         teacher.setEmergencyContactName(dto.getEmergencyContactName());
         teacher.setEmergencyContactPhone(dto.getEmergencyContactPhone());
         teacher.setEmergencyContactRelationship(dto.getEmergencyContactRelationship());

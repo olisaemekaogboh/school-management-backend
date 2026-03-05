@@ -1,5 +1,4 @@
 // src/main/java/com/inkFront/schoolManagement/service/IMPL/AnnouncementServiceImpl.java
-
 package com.inkFront.schoolManagement.service.IMPL;
 
 import com.inkFront.schoolManagement.dto.AnnouncementDTO;
@@ -10,8 +9,9 @@ import com.inkFront.schoolManagement.repository.AnnouncementRepository;
 import com.inkFront.schoolManagement.repository.SmsLogRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.service.AnnouncementService;
-import com.inkFront.schoolManagement.service.SmsService;
+import com.inkFront.schoolManagement.service.EmailNotificationService;
 import com.inkFront.schoolManagement.service.SmsResult;
+import com.inkFront.schoolManagement.service.SmsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,13 +33,19 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     private final SmsService smsService;
     private final SmsLogRepository smsLogRepository;
 
+    // ✅ keep these ONLY if you actually created these classes
+    // If you haven't created them yet, comment them out until you do.
+    private final EmailNotificationService emailNotificationService;
+    private final com.inkFront.schoolManagement.repository.EmailLogRepository emailLogRepository;
+
+    // =========================
+    // CRUD
+    // =========================
+
     @Override
     public Announcement createAnnouncement(AnnouncementDTO dto) {
         log.info("Creating new announcement: {}", dto.getTitle());
-
         Announcement announcement = mapToEntity(dto);
-        // The @PrePersist in the entity will set createdAt automatically
-
         return announcementRepository.save(announcement);
     }
 
@@ -47,22 +53,18 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     public Announcement updateAnnouncement(Long id, AnnouncementDTO dto) {
         log.info("Updating announcement: {}", id);
 
-        Announcement announcement = announcementRepository.findById(id)
+        Announcement announcement = announcementRepository.findByIdWithAudience(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Announcement not found"));
 
         updateEntity(announcement, dto);
-
         return announcementRepository.save(announcement);
     }
 
-    // In AnnouncementServiceImpl.java
-
     @Override
-    @Transactional
     public void deleteAnnouncement(Long id) {
         log.info("Deleting announcement: {}", id);
 
-        // First, delete all SMS logs associated with this announcement
+        // delete logs first
         try {
             List<SmsLog> smsLogs = smsLogRepository.findByAnnouncementId(id);
             if (!smsLogs.isEmpty()) {
@@ -73,44 +75,52 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             log.error("Error deleting SMS logs: {}", e.getMessage());
         }
 
-        // Then delete the announcement (cascade will handle announcement_audience)
         announcementRepository.deleteById(id);
-    }
-    @Override
-    public Announcement getAnnouncement(Long id) {
-        return announcementRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Announcement not found"));
     }
 
     @Override
+    public Announcement getAnnouncement(Long id) {
+        // ✅ FIX: you were calling findAllActiveWithAudience() which returns List, not Optional
+        return announcementRepository.findByIdWithAudience(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Announcement not found"));
+    }
+
+    // =========================
+    // LIST / FILTER
+    // =========================
+
+    @Override
     public List<Announcement> getAllActiveAnnouncements() {
-        return announcementRepository.findByActiveTrueOrderByPriorityDescCreatedAtDesc();
+        return announcementRepository.findAllActiveWithAudience();
     }
 
     @Override
     public List<Announcement> getAnnouncementsByType(Announcement.AnnouncementType type) {
-        return announcementRepository.findByTypeAndActiveTrueOrderByCreatedAtDesc(type);
+        return announcementRepository.findByTypeActiveWithAudience(type);
     }
 
     @Override
     public List<Announcement> getAnnouncementsByAudience(Announcement.Audience audience) {
-        return announcementRepository.findByAudience(audience);
+        return announcementRepository.findByAudienceActiveWithAudience(audience);
     }
 
     @Override
     public List<Announcement> getUpcomingEvents() {
-        return announcementRepository.findByEventDateAfterOrderByEventDateAsc(LocalDate.now());
+        return announcementRepository.findByEventDateAfterWithAudience(LocalDate.now());
     }
 
     @Override
     public List<Announcement> getUpcomingFeeDeadlines() {
-        return announcementRepository.findByFeeDueDateAfterOrderByFeeDueDateAsc(LocalDate.now());
+        return announcementRepository.findByFeeDueDateAfterWithAudience(LocalDate.now());
     }
+
+    // =========================
+    // CALENDAR
+    // =========================
 
     @Override
     public Map<String, Object> getSchoolCalendar(String session) {
         Map<String, Object> calendar = new HashMap<>();
-
         List<Map<String, Object>> events = new ArrayList<>();
 
         // First Term
@@ -159,9 +169,12 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
         calendar.put("session", session);
         calendar.put("events", events);
-
         return calendar;
     }
+
+    // =========================
+    // QUICK CREATE HELPERS
+    // =========================
 
     @Override
     public Announcement createResumptionAnnouncement(String session, LocalDate date, String term) {
@@ -225,8 +238,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
                                               LocalDate dueDate, Announcement.Audience audience) {
         AnnouncementDTO dto = AnnouncementDTO.builder()
                 .title("School Fees Announcement")
-                .content(description + " - Amount: ₦" + amount +
-                        ". Payment due by " + dueDate)
+                .content(description + " - Amount: ₦" + amount + ". Payment due by " + dueDate)
                 .type(Announcement.AnnouncementType.FEE)
                 .priority(Announcement.AnnouncementPriority.HIGH)
                 .audience(List.of(audience))
@@ -238,78 +250,144 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
         return createAnnouncement(dto);
     }
-// In AnnouncementServiceImpl.java
+
+    // =========================
+    // ✅ REQUIRED BY INTERFACE
+    // =========================
 
     @Override
     public SmsResult sendAnnouncementNotifications(Long announcementId) {
         Announcement announcement = getAnnouncement(announcementId);
         log.info("Sending notifications for announcement: {}", announcement.getTitle());
 
-        // Get recipients based on audience
+        // 1) Try SMS first
         List<String> phoneNumbers = getRecipientPhoneNumbers(announcement.getAudience());
 
-        if (phoneNumbers.isEmpty()) {
-            log.warn("No phone numbers found for audience: {}", announcement.getAudience());
+        if (!phoneNumbers.isEmpty()) {
+            String smsMessage = formatSmsMessage(announcement);
+
+            // attach announcement to SMS logs if your SmsService supports it
+            if (smsService instanceof AfricaTalkingSmsServiceImpl impl) {
+                impl.setCurrentAnnouncement(announcement);
+            }
+
+            List<SmsResult> results = smsService.sendBulkSms(phoneNumbers, smsMessage);
+
+            if (smsService instanceof AfricaTalkingSmsServiceImpl impl) {
+                impl.setCurrentAnnouncement(null);
+            }
+
+            SmsResult summary = results.isEmpty() ? null : results.get(0);
+            if (summary != null && summary.getSuccessCount() > 0) {
+                return summary;
+            }
+        }
+
+        // 2) Fallback to Email
+        return sendAnnouncementEmails(announcement);
+    }
+
+    // =========================
+    // EMAIL HELPERS
+    // =========================
+
+    private List<String> getRecipientEmails(List<Announcement.Audience> audiences) {
+        List<String> emails = new ArrayList<>();
+
+        for (Announcement.Audience audience : audiences) {
+            switch (audience) {
+                case ALL:
+                case PARENTS:
+                    emails.addAll(studentRepository.findAll().stream()
+                            .map(s -> s.getParentEmail())
+                            .filter(e -> e != null && !e.trim().isEmpty())
+                            .toList());
+                    break;
+                case STUDENTS:
+                case TEACHERS:
+                default:
+                    break;
+            }
+        }
+        return emails.stream().distinct().toList();
+    }
+
+    private SmsResult sendAnnouncementEmails(Announcement announcement) {
+        List<String> emails = getRecipientEmails(announcement.getAudience());
+
+        if (emails.isEmpty()) {
             return SmsResult.builder()
                     .successCount(0)
                     .failedCount(0)
-                    .message("No recipients found for the selected audience")
+                    .message("No recipient emails found")
                     .build();
         }
 
-        // Prepare SMS message
-        String smsMessage = formatSmsMessage(announcement);
+        String subject = "School Announcement: " + announcement.getTitle();
+        String body = formatEmailMessage(announcement);
 
-        // Set the current announcement in the SMS service
-        if (smsService instanceof AfricaTalkingSmsServiceImpl) {
-            ((AfricaTalkingSmsServiceImpl) smsService).setCurrentAnnouncement(announcement);
-        }
+        int success = 0;
+        int failed = 0;
 
-        // Send SMS and get results
-        List<SmsResult> results = smsService.sendBulkSms(phoneNumbers, smsMessage);
+        for (String to : emails) {
+            // If you haven't created EmailLog entity yet, remove this block and just send emails.
+            try {
+                // Optional logging (requires EmailLog entity + repo)
+                // EmailLog logRow = EmailLog.builder()...build();
+                // logRow = emailLogRepository.save(logRow);
 
-        // Clear the current announcement
-        if (smsService instanceof AfricaTalkingSmsServiceImpl) {
-            ((AfricaTalkingSmsServiceImpl) smsService).setCurrentAnnouncement(null);
-        }
+                emailNotificationService.sendEmail(to, subject, body);
 
-        // Get the summary result (first item in the list)
-        SmsResult summary = results.isEmpty() ? null : results.get(0);
-
-        if (summary != null) {
-            log.info("SMS notifications sent: {} successful, {} failed",
-                    summary.getSuccessCount(), summary.getFailedCount());
-
-            // Add a user-friendly message
-            String userMessage;
-            if (summary.getSuccessCount() > 0 && summary.getFailedCount() == 0) {
-                userMessage = String.format("✅ All %d SMS messages sent successfully!", summary.getSuccessCount());
-            } else if (summary.getFailedCount() > 0 && summary.getSuccessCount() == 0) {
-                userMessage = String.format("❌ All %d SMS messages failed to send", summary.getFailedCount());
-            } else {
-                userMessage = String.format("⚠️ %d successful, %d failed",
-                        summary.getSuccessCount(), summary.getFailedCount());
+                // logRow.setStatus("SENT"); logRow.setSentAt(LocalDateTime.now()); emailLogRepository.save(logRow);
+                success++;
+            } catch (Exception e) {
+                // logRow.setStatus("FAILED"); logRow.setErrorMessage(e.getMessage()); emailLogRepository.save(logRow);
+                failed++;
+                log.error("Email send failed to {}: {}", to, e.getMessage());
             }
-
-            // Create a new builder with the message
-            return SmsResult.builder()
-                    .successCount(summary.getSuccessCount())
-                    .failedCount(summary.getFailedCount())
-                    .failedNumbers(summary.getFailedNumbers())
-                    .successNumbers(summary.getSuccessNumbers())
-                    .message(userMessage)
-                    .logs(summary.getLogs())
-                    .build();
         }
 
         return SmsResult.builder()
-                .successCount(0)
-                .failedCount(0)
-                .message("No response from SMS service")
+                .successCount(success)
+                .failedCount(failed)
+                .message(String.format("📧 Email sent: %d success, %d failed", success, failed))
                 .build();
     }
 
+    private String formatEmailMessage(Announcement announcement) {
+        StringBuilder message = new StringBuilder();
 
+        message.append("FAITH FOUNDATION INTERNATIONAL SCHOOL\n\n");
+        message.append("Title: ").append(announcement.getTitle()).append("\n");
+        message.append("Priority: ").append(announcement.getPriority()).append("\n");
+        message.append("Type: ").append(announcement.getType()).append("\n\n");
+        message.append(announcement.getContent()).append("\n\n");
+
+        if (announcement.getEventDate() != null) {
+            message.append("Date: ").append(announcement.getEventDate()).append("\n");
+            if (announcement.getEventTime() != null) message.append("Time: ").append(announcement.getEventTime()).append("\n");
+            if (announcement.getEventLocation() != null) message.append("Location: ").append(announcement.getEventLocation()).append("\n");
+            message.append("\n");
+        }
+
+        if (announcement.getFeeAmount() != null) {
+            message.append("Amount: ₦").append(String.format("%,.0f", announcement.getFeeAmount())).append("\n");
+            if (announcement.getFeeDueDate() != null) message.append("Due date: ").append(announcement.getFeeDueDate()).append("\n");
+            message.append("\n");
+        }
+
+        if (announcement.getResultReleaseDate() != null) {
+            message.append("Results release: ").append(announcement.getResultReleaseDate()).append("\n\n");
+        }
+
+        message.append("Portal: http://localhost:3000\n");
+        message.append("--\nSchool Admin");
+        return message.toString();
+    }
+
+    // =========================
+    // SMS HELPERS
+    // =========================
 
     private List<String> getRecipientPhoneNumbers(List<Announcement.Audience> audiences) {
         List<String> phoneNumbers = new ArrayList<>();
@@ -318,29 +396,21 @@ public class AnnouncementServiceImpl implements AnnouncementService {
             switch (audience) {
                 case ALL:
                 case PARENTS:
-                    // Get all parent phone numbers
                     phoneNumbers.addAll(getAllParentPhoneNumbers());
                     break;
-                case TEACHERS:
-                    // Add teacher phone numbers here
-                    // phoneNumbers.addAll(getAllTeacherPhoneNumbers());
-                    break;
                 case STUDENTS:
-                    // Add student emergency contacts
                     phoneNumbers.addAll(getStudentEmergencyContacts());
                     break;
+                case TEACHERS:
                 default:
                     break;
             }
         }
 
-        return phoneNumbers.stream()
-                .distinct()
-                .collect(Collectors.toList());
+        return phoneNumbers.stream().distinct().collect(Collectors.toList());
     }
 
     private List<String> getAllParentPhoneNumbers() {
-        // Query all students to get parent phone numbers
         return studentRepository.findAll().stream()
                 .map(student -> student.getParentPhone())
                 .filter(phone -> phone != null && !phone.trim().isEmpty())
@@ -368,19 +438,13 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
         if (announcement.getEventDate() != null) {
             message.append("\n\n📅 Date: ").append(announcement.getEventDate());
-            if (announcement.getEventTime() != null) {
-                message.append(" at ").append(announcement.getEventTime());
-            }
-            if (announcement.getEventLocation() != null) {
-                message.append("\n📍 Location: ").append(announcement.getEventLocation());
-            }
+            if (announcement.getEventTime() != null) message.append(" at ").append(announcement.getEventTime());
+            if (announcement.getEventLocation() != null) message.append("\n📍 Location: ").append(announcement.getEventLocation());
         }
 
         if (announcement.getFeeAmount() != null) {
             message.append("\n\n💰 Amount: ₦").append(String.format("%,.0f", announcement.getFeeAmount()));
-            if (announcement.getFeeDueDate() != null) {
-                message.append("\n⏰ Due Date: ").append(announcement.getFeeDueDate());
-            }
+            if (announcement.getFeeDueDate() != null) message.append("\n⏰ Due Date: ").append(announcement.getFeeDueDate());
         }
 
         if (announcement.getResultReleaseDate() != null) {
@@ -389,9 +453,12 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
         message.append("\n\n---\nFaith Foundation International School");
         message.append("\nVisit portal for more details");
-
         return message.toString();
     }
+
+    // =========================
+    // ENTITY MAPPING
+    // =========================
 
     private Map<String, Object> createCalendarEvent(String title, LocalDate date) {
         Map<String, Object> event = new HashMap<>();
@@ -424,11 +491,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
         announcement.setAudience(dto.getAudience() != null ? dto.getAudience() : new ArrayList<>());
         announcement.setStartDate(dto.getStartDate());
         announcement.setEndDate(dto.getEndDate());
-        // FIX: Use isActive() or getActive() based on your DTO field type
-        // If using primitive boolean, use dto.isActive()
-        // If using Boolean object, use dto.getActive()
-        announcement.setActive(dto.isActive()); // For primitive boolean
-        // announcement.setActive(dto.getActive()); // For Boolean object
+        announcement.setActive(dto.isActive());
         announcement.setCreatedBy(dto.getCreatedBy());
         announcement.setEventDate(dto.getEventDate());
         announcement.setEventLocation(dto.getEventLocation());

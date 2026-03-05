@@ -11,7 +11,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/sessions")
-@CrossOrigin(origins = "*")
 public class AcademicSessionController {
 
     private final AcademicSessionService service;
@@ -25,9 +24,15 @@ public class AcademicSessionController {
         return ResponseEntity.ok(service.getAll());
     }
 
+    // ✅ Do NOT throw 404 when there is no session yet
     @GetMapping("/active")
     public ResponseEntity<AcademicSessionResponse> getActive() {
-        return ResponseEntity.ok(service.getActive());
+        // Option 1: 200 OK with null
+        return ResponseEntity.ok(service.getActiveOrNull());
+
+        // Option 2: 204 No Content (if you prefer)
+        // var active = service.getActiveOptional();
+        // return active.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @PostMapping

@@ -1,6 +1,7 @@
 // src/main/java/com/inkFront/schoolManagement/model/SmsLog.java
 package com.inkFront.schoolManagement.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -25,8 +26,9 @@ public class SmsLog {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "announcement_id")
+    @JsonIgnore
     private Announcement announcement;
 
     private Long studentId;

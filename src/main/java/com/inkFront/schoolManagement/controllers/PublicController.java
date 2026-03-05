@@ -2,7 +2,8 @@
 package com.inkFront.schoolManagement.controllers;
 
 import com.inkFront.schoolManagement.dto.ParentDTO;
-import com.inkFront.schoolManagement.model.Parent;
+import com.inkFront.schoolManagement.model.Student;
+import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.service.ParentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +22,7 @@ import java.util.Optional;
 public class PublicController {
 
     private final ParentService parentService;
+    private final StudentRepository studentRepository;
 
     @GetMapping("/verify-parent/email")
     public ResponseEntity<?> verifyParentByEmail(@RequestParam String email) {
@@ -59,5 +61,25 @@ public class PublicController {
         response.put("phone", phone);
 
         return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).body(response);
+    }
+
+    @GetMapping("/verify-student")
+    public ResponseEntity<?> verifyStudent(@RequestParam String admissionNumber) {
+
+        Student s = studentRepository.findByAdmissionNumber(admissionNumber)
+                .orElseThrow(() -> new RuntimeException("Student not found"));
+
+        // return only safe fields (public verification)
+        return ResponseEntity.ok(Map.of(
+                "id", s.getId(),
+                "admissionNumber", s.getAdmissionNumber(),
+                "firstName", s.getFirstName(),
+                "lastName", s.getLastName(),
+
+                // ✅ extra safe fields for UI
+                "className", s.getStudentClass(),
+                "classArm", s.getClassArm(),
+                "status", s.getStatus() != null ? s.getStatus().name() : null
+        ));
     }
 }
