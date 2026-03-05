@@ -69,6 +69,6 @@ public class BookBorrowing {
     }
 
     public enum BorrowingStatus {
-        BORROWED, RETURNED, OVERDUE, LOST
+        BORROWED, RETURNED, OVERDUE, LOST, RENEWED
     }
 }
