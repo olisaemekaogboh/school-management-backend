@@ -188,23 +188,14 @@ public class AttendanceServiceImpl implements AttendanceService {
     }
 
     @Override
-    public List<Attendance> getClassAttendance(String className, LocalDate date, String session, Result.Term term) {
-        List<Student> students = studentRepository.findByStudentClass(className);
-
-        List<Attendance> attendances = new ArrayList<>();
-        for (Student student : students) {
-            Attendance attendance = getStudentAttendance(student.getId(), date, session, term);
-            if (attendance != null) {
-                attendances.add(attendance);
-            }
-        }
-
-        return attendances;
+    public List<Attendance> getClassAttendance(String className, String arm, LocalDate date, String session, Result.Term term) {
+        return attendanceRepository.findByStudent_StudentClassAndStudent_ClassArmAndDateAndSessionAndTerm(
+                className, arm, date, session, term
+        );
     }
-
     @Override
-    public Map<String, Object> getClassTermStatistics(String className, String session, Result.Term term) {
-        List<Student> students = studentRepository.findByStudentClass(className);
+    public Map<String, Object> getClassTermStatistics(String className, String arm, String session, Result.Term term) {
+        List<Student> students = studentRepository.findByStudentClassAndClassArm(className, arm);
 
         int totalStudents = students.size();
         int presentCount = 0;
@@ -221,9 +212,12 @@ public class AttendanceServiceImpl implements AttendanceService {
             studentData.put("studentId", student.getId());
             studentData.put("studentName", student.getFirstName() + " " + student.getLastName());
             studentData.put("admissionNumber", student.getAdmissionNumber());
+            studentData.put("class", student.getStudentClass());
+            studentData.put("arm", student.getClassArm());
             studentData.put("present", summary.getDaysPresent());
             studentData.put("absent", summary.getDaysAbsent());
             studentData.put("late", summary.getDaysLate());
+            studentData.put("excused", summary.getDaysExcused());
             studentData.put("percentage", summary.getAttendancePercentage());
 
             studentAttendance.add(studentData);
@@ -234,8 +228,17 @@ public class AttendanceServiceImpl implements AttendanceService {
             excusedCount += summary.getDaysExcused();
         }
 
+        double averageAttendance = 0.0;
+        if (totalStudents > 0) {
+            averageAttendance = studentAttendance.stream()
+                    .mapToDouble(item -> ((Number) item.get("percentage")).doubleValue())
+                    .average()
+                    .orElse(0.0);
+        }
+
         Map<String, Object> statistics = new HashMap<>();
         statistics.put("className", className);
+        statistics.put("arm", arm);
         statistics.put("session", session);
         statistics.put("term", term);
         statistics.put("totalStudents", totalStudents);
@@ -243,12 +246,11 @@ public class AttendanceServiceImpl implements AttendanceService {
         statistics.put("totalAbsent", absentCount);
         statistics.put("totalLate", lateCount);
         statistics.put("totalExcused", excusedCount);
-        statistics.put("averageAttendance", presentCount * 100.0 / (totalStudents * (students.size() > 0 ? 1 : 1)));
+        statistics.put("averageAttendance", averageAttendance);
         statistics.put("studentAttendance", studentAttendance);
 
         return statistics;
     }
-
     @Override
     public Map<String, Object> getSchoolAttendanceStatistics(String session, Result.Term term) {
         List<Student> allStudents = studentRepository.findAll();

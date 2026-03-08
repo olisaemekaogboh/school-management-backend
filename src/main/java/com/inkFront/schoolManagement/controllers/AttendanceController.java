@@ -1,12 +1,14 @@
-// src/main/java/com/inkFront/schoolManagement/controllers/AttendanceController.java
 package com.inkFront.schoolManagement.controllers;
 
 import com.inkFront.schoolManagement.model.Attendance;
 import com.inkFront.schoolManagement.model.AttendanceSummary;
 import com.inkFront.schoolManagement.model.Result;
 import com.inkFront.schoolManagement.model.Student;
+import com.inkFront.schoolManagement.model.User;
 import com.inkFront.schoolManagement.repository.AttendanceRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
+import com.inkFront.schoolManagement.security.AccessControlService;
+import com.inkFront.schoolManagement.security.SecurityUtils;
 import com.inkFront.schoolManagement.service.AttendanceService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -14,11 +16,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/attendance")
@@ -27,28 +29,54 @@ import java.util.stream.Collectors;
 public class AttendanceController {
 
     private static final Logger log = LoggerFactory.getLogger(AttendanceController.class);
-    private final AttendanceService attendanceService;
-    private final StudentRepository studentRepository; // You might need to inject this
-    private final AttendanceRepository attendanceRepository; // You might need to inject this
 
-    // Mark attendance for a single student
+    private final AttendanceService attendanceService;
+    private final StudentRepository studentRepository;
+    private final AttendanceRepository attendanceRepository;
+    private final AccessControlService accessControlService;
+    private final SecurityUtils securityUtils;
+
+    private User currentUser() {
+        return securityUtils.getCurrentUser();
+    }
+
+    private ResponseEntity<Map<String, Object>> forbidden(String message) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("message", message));
+    }
+
+    private ResponseEntity<Map<String, Object>> serverError(String message, Exception e) {
+        log.error(message, e);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of(
+                        "message", message,
+                        "error", e.getMessage()
+                ));
+    }
+
     @PostMapping("/student/{studentId}")
-    public ResponseEntity<Attendance> markAttendance(
+    public ResponseEntity<?> markAttendance(
             @PathVariable Long studentId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam String session,
             @RequestParam Result.Term term,
             @RequestParam Attendance.AttendanceStatus status,
             @RequestParam(required = false) String remarks) {
+        try {
+            User user = currentUser();
+            accessControlService.requireStudentResultModification(user, studentId);
 
-        log.info("Marking attendance for student: {}", studentId);
-        Attendance attendance = attendanceService.markAttendance(
-                studentId, date, session, term, status, remarks);
-        return new ResponseEntity<>(attendance, HttpStatus.CREATED);
+            Attendance attendance = attendanceService.markAttendance(
+                    studentId, date, session, term, status, remarks
+            );
+
+            return new ResponseEntity<>(attendance, HttpStatus.CREATED);
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to mark attendance", e);
+        }
     }
-
-    // Mark bulk attendance for multiple students
-    // In AttendanceController.java, update the markBulkAttendance method
 
     @PostMapping("/bulk")
     public ResponseEntity<?> markBulkAttendance(
@@ -57,152 +85,251 @@ public class AttendanceController {
             @RequestParam String session,
             @RequestParam Result.Term term,
             @RequestParam Attendance.AttendanceStatus status) {
-
         try {
-            log.info("Marking bulk attendance for {} students", studentIds.size());
-            log.info("Date: {}, Session: {}, Term: {}, Status: {}", date, session, term, status);
+            User user = currentUser();
+            accessControlService.requireTeacherOrAdmin(user);
+
+            if (user.getRole() == User.Role.TEACHER && !studentIds.isEmpty()) {
+                Student firstStudent = studentRepository.findById(studentIds.get(0))
+                        .orElseThrow(() -> new RuntimeException("Student not found"));
+
+                accessControlService.requireClassTeacherOrAdmin(
+                        user,
+                        firstStudent.getStudentClass(),
+                        firstStudent.getClassArm()
+                );
+            }
 
             List<Attendance> attendances = attendanceService.markBulkAttendance(
-                    studentIds, date, session, term, status);
+                    studentIds, date, session, term, status
+            );
 
             return new ResponseEntity<>(attendances, HttpStatus.CREATED);
-
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
         } catch (Exception e) {
-            log.error("Error marking bulk attendance: ", e);
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("error", e.getMessage());
-            errorResponse.put("status", 500);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+            return serverError("Unable to mark bulk attendance", e);
         }
     }
 
-    // Get attendance for a student on a specific date
     @GetMapping("/student/{studentId}")
-    public ResponseEntity<Attendance> getStudentAttendance(
+    public ResponseEntity<?> getStudentAttendance(
             @PathVariable Long studentId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam String session,
             @RequestParam Result.Term term) {
+        try {
+            User user = currentUser();
+            accessControlService.requireStudentAccess(user, studentId);
 
-        log.info("Getting attendance for student: {} on date: {}", studentId, date);
-        Attendance attendance = attendanceService.getStudentAttendance(
-                studentId, date, session, term);
-        return attendance != null ? ResponseEntity.ok(attendance) : ResponseEntity.notFound().build();
+            Attendance attendance = attendanceService.getStudentAttendance(studentId, date, session, term);
+            return attendance != null ? ResponseEntity.ok(attendance) : ResponseEntity.notFound().build();
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to fetch student attendance", e);
+        }
     }
 
-    // Get all attendance records for a student in a term
     @GetMapping("/student/{studentId}/term")
-    public ResponseEntity<List<Attendance>> getStudentTermAttendance(
+    public ResponseEntity<?> getStudentTermAttendance(
             @PathVariable Long studentId,
             @RequestParam String session,
             @RequestParam Result.Term term) {
+        try {
+            User user = currentUser();
+            accessControlService.requireStudentAccess(user, studentId);
 
-        log.info("Getting term attendance for student: {}", studentId);
-        List<Attendance> attendances = attendanceService.getStudentTermAttendance(
-                studentId, session, term);
-        return ResponseEntity.ok(attendances);
+            return ResponseEntity.ok(
+                    attendanceService.getStudentTermAttendance(studentId, session, term)
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to fetch student term attendance", e);
+        }
     }
 
-    // Get attendance summary for a student in a term
     @GetMapping("/student/{studentId}/summary")
-    public ResponseEntity<AttendanceSummary> getStudentTermSummary(
+    public ResponseEntity<?> getStudentTermSummary(
             @PathVariable Long studentId,
             @RequestParam String session,
             @RequestParam Result.Term term) {
+        try {
+            User user = currentUser();
+            accessControlService.requireStudentAccess(user, studentId);
 
-        log.info("Getting attendance summary for student: {}", studentId);
-        AttendanceSummary summary = attendanceService.getStudentTermSummary(
-                studentId, session, term);
-        return ResponseEntity.ok(summary);
+            return ResponseEntity.ok(
+                    attendanceService.getStudentTermSummary(studentId, session, term)
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to fetch attendance summary", e);
+        }
     }
 
-    // Get attendance summary for a student in a session
     @GetMapping("/student/{studentId}/session")
-    public ResponseEntity<Map<String, Object>> getStudentSessionSummary(
+    public ResponseEntity<?> getStudentSessionSummary(
             @PathVariable Long studentId,
             @RequestParam String session) {
+        try {
+            User user = currentUser();
+            accessControlService.requireStudentAccess(user, studentId);
 
-        log.info("Getting session attendance summary for student: {}", studentId);
-        Map<String, Object> summary = attendanceService.getStudentSessionSummary(
-                studentId, session);
-        return ResponseEntity.ok(summary);
+            return ResponseEntity.ok(
+                    attendanceService.getStudentSessionSummary(studentId, session)
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to fetch session attendance summary", e);
+        }
     }
 
-    // Get class attendance for a specific date
-    @GetMapping("/class/{className}")
-    public ResponseEntity<List<Attendance>> getClassAttendance(
+    @GetMapping("/me/term")
+    public ResponseEntity<?> getMyAttendance(
+            @RequestParam String session,
+            @RequestParam Result.Term term) {
+        try {
+            User user = currentUser();
+
+            if (user.getStudent() == null) {
+                return forbidden("This account is not linked to a student");
+            }
+
+            return ResponseEntity.ok(
+                    attendanceService.getStudentTermAttendance(user.getStudent().getId(), session, term)
+            );
+        } catch (Exception e) {
+            return serverError("Unable to fetch your attendance", e);
+        }
+    }
+
+    @GetMapping("/me/summary")
+    public ResponseEntity<?> getMyAttendanceSummary(
+            @RequestParam String session,
+            @RequestParam Result.Term term) {
+        try {
+            User user = currentUser();
+
+            if (user.getStudent() == null) {
+                return forbidden("This account is not linked to a student");
+            }
+
+            return ResponseEntity.ok(
+                    attendanceService.getStudentTermSummary(user.getStudent().getId(), session, term)
+            );
+        } catch (Exception e) {
+            return serverError("Unable to fetch your attendance summary", e);
+        }
+    }
+
+    @GetMapping("/class/{className}/arm/{arm}")
+    public ResponseEntity<?> getClassAttendance(
             @PathVariable String className,
+            @PathVariable String arm,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam String session,
             @RequestParam Result.Term term) {
+        try {
+            User user = currentUser();
+            accessControlService.requireClassTeacherOrAdmin(user, className, arm);
 
-        log.info("Getting class attendance for: {} on date: {}", className, date);
-        List<Attendance> attendances = attendanceService.getClassAttendance(
-                className, date, session, term);
-        return ResponseEntity.ok(attendances);
+            return ResponseEntity.ok(
+                    attendanceService.getClassAttendance(className, arm, date, session, term)
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to fetch class attendance", e);
+        }
     }
 
-    // Get attendance statistics for a class in a term
-    @GetMapping("/statistics/class/{className}")
-    public ResponseEntity<Map<String, Object>> getClassTermStatistics(
+    @GetMapping("/statistics/class/{className}/arm/{arm}")
+    public ResponseEntity<?> getClassTermStatistics(
             @PathVariable String className,
+            @PathVariable String arm,
             @RequestParam String session,
             @RequestParam Result.Term term) {
+        try {
+            User user = currentUser();
+            accessControlService.requireClassTeacherOrAdmin(user, className, arm);
 
-        log.info("Getting class statistics for: {}", className);
-        Map<String, Object> statistics = attendanceService.getClassTermStatistics(
-                className, session, term);
-        return ResponseEntity.ok(statistics);
+            Map<String, Object> statistics = attendanceService.getClassTermStatistics(className, arm, session, term);
+            return ResponseEntity.ok(statistics);
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to fetch class attendance statistics", e);
+        }
     }
 
-    // Get school-wide attendance statistics
     @GetMapping("/statistics/school")
-    public ResponseEntity<Map<String, Object>> getSchoolAttendanceStatistics(
+    public ResponseEntity<?> getSchoolAttendanceStatistics(
             @RequestParam String session,
             @RequestParam Result.Term term) {
+        try {
+            User user = currentUser();
+            accessControlService.requireAdmin(user);
 
-        log.info("Getting school attendance statistics");
-        Map<String, Object> statistics = attendanceService.getSchoolAttendanceStatistics(
-                session, term);
-        return ResponseEntity.ok(statistics);
+            return ResponseEntity.ok(
+                    attendanceService.getSchoolAttendanceStatistics(session, term)
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to fetch school attendance statistics", e);
+        }
     }
 
-    // Initialize school days for a term
     @PostMapping("/initialize-days")
-    public ResponseEntity<List<LocalDate>> initializeSchoolDays(
+    public ResponseEntity<?> initializeSchoolDays(
             @RequestBody List<LocalDate> dates,
             @RequestParam String session,
             @RequestParam Result.Term term) {
+        try {
+            User user = currentUser();
+            accessControlService.requireAdmin(user);
 
-        log.info("Initializing {} school days", dates.size());
-        List<LocalDate> initializedDates = attendanceService.initializeSchoolDays(
-                dates, session, term);
-        return ResponseEntity.ok(initializedDates);
+            return ResponseEntity.ok(
+                    attendanceService.initializeSchoolDays(dates, session, term)
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to initialize school days", e);
+        }
     }
 
-    // Calculate all term summaries
     @PostMapping("/calculate-all")
-    public ResponseEntity<String> calculateAllTermSummaries(
+    public ResponseEntity<?> calculateAllTermSummaries(
             @RequestParam String session,
             @RequestParam Result.Term term) {
+        try {
+            User user = currentUser();
+            accessControlService.requireAdmin(user);
 
-        log.info("Calculating all term summaries");
-        attendanceService.calculateAllTermSummaries(session, term);
-        return ResponseEntity.ok("Attendance summaries calculated successfully");
+            attendanceService.calculateAllTermSummaries(session, term);
+            return ResponseEntity.ok(Map.of("message", "Attendance summaries calculated successfully"));
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to calculate all attendance summaries", e);
+        }
     }
 
-    // Test single attendance (debug endpoint)
     @PostMapping("/test-single")
-    public ResponseEntity<String> testSingleAttendance(
+    public ResponseEntity<?> testSingleAttendance(
             @RequestParam Long studentId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam String session,
             @RequestParam Result.Term term,
             @RequestParam Attendance.AttendanceStatus status) {
-
-        log.info("Testing single attendance for student: {}", studentId);
-
         try {
+            User user = currentUser();
+            accessControlService.requireAdmin(user);
+
             Student student = studentRepository.findById(studentId)
                     .orElseThrow(() -> new RuntimeException("Student not found"));
 
@@ -215,50 +342,58 @@ public class AttendanceController {
 
             attendanceRepository.save(attendance);
 
-            return ResponseEntity.ok("Success");
+            return ResponseEntity.ok(Map.of("message", "Success"));
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
         } catch (Exception e) {
-            log.error("Error in test attendance: ", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Error: " + e.getMessage());
+            return serverError("Unable to save test attendance", e);
         }
     }
 
-    // Debug endpoint
     @GetMapping("/debug")
-    public ResponseEntity<Map<String, Object>> debugAttendance(
+    public ResponseEntity<?> debugAttendance(
             @RequestParam String className,
+            @RequestParam(required = false) String arm,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam String session,
             @RequestParam Result.Term term) {
-
-        Map<String, Object> response = new HashMap<>();
-
         try {
-            List<Student> students = studentRepository.findByStudentClass(className);
+            User user = currentUser();
+            accessControlService.requireAdmin(user);
+
+            Map<String, Object> response = new HashMap<>();
+
+            List<Student> students = (arm != null && !arm.isBlank())
+                    ? studentRepository.findByStudentClassAndClassArm(className, arm)
+                    : studentRepository.findByStudentClass(className);
+
+            response.put("className", className);
+            response.put("arm", arm);
             response.put("studentsFound", students.size());
-            response.put("studentIds", students.stream().map(Student::getId).collect(Collectors.toList()));
+            response.put("studentIds", students.stream().map(Student::getId).toList());
 
             List<Map<String, Object>> attendanceStatus = new ArrayList<>();
             for (Student student : students) {
-                Optional<Attendance> existing = attendanceRepository
-                        .findByStudentAndDateAndSessionAndTerm(student, date, session, term);
+                Optional<Attendance> existing =
+                        attendanceRepository.findByStudentAndDateAndSessionAndTerm(student, date, session, term);
 
-                Map<String, Object> status = new HashMap<>();
-                status.put("studentId", student.getId());
-                status.put("studentName", student.getFirstName() + " " + student.getLastName());
-                status.put("existingAttendance", existing.isPresent());
-
-                attendanceStatus.add(status);
+                Map<String, Object> statusMap = new HashMap<>();
+                statusMap.put("studentId", student.getId());
+                statusMap.put("studentName", student.getFirstName() + " " + student.getLastName());
+                statusMap.put("class", student.getStudentClass());
+                statusMap.put("arm", student.getClassArm());
+                statusMap.put("existingAttendance", existing.isPresent());
+                attendanceStatus.add(statusMap);
             }
+
             response.put("attendanceStatus", attendanceStatus);
             response.put("success", true);
 
+            return ResponseEntity.ok(response);
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
         } catch (Exception e) {
-            log.error("Debug error: ", e);
-            response.put("success", false);
-            response.put("error", e.getMessage());
+            return serverError("Unable to debug attendance", e);
         }
-
-        return ResponseEntity.ok(response);
     }
 }

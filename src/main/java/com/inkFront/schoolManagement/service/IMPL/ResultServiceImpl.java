@@ -206,31 +206,24 @@ public class ResultServiceImpl implements ResultService {
                 termResult.getStudent().getId(), className, arm, session, term);
 
         try {
-            // Get all term results for this class and term, ordered by average DESC
             List<TermResult> classResults = termResultRepository
-                    .findByClassAndSessionAndTermOrderByAverageDesc(className, session, term);
+                    .findByStudent_StudentClassAndSessionAndTermOrderByAverageDesc(className, session, term);
 
-            log.info("Found {} students in class for ranking", classResults.size());
-
-            // Calculate class positions
             for (int i = 0; i < classResults.size(); i++) {
                 TermResult tr = classResults.get(i);
                 int position = i + 1;
                 tr.setPositionInClass(position);
 
-                // If this is the current student, update their position
                 if (tr.getId() != null && tr.getId().equals(termResult.getId())) {
                     termResult.setPositionInClass(position);
-                    log.info("Student position in class: {}", position);
                 }
             }
 
-            // Calculate arm positions if arm exists
-            if (arm != null && !arm.isEmpty() && !arm.equals("null")) {
+            if (arm != null && !arm.isBlank() && !"null".equalsIgnoreCase(arm)) {
                 List<TermResult> armResults = termResultRepository
-                        .findByClassAndArmAndSessionAndTermOrderByAverageDesc(className, arm, session, term);
-
-                log.info("Found {} students in arm for ranking", armResults.size());
+                        .findByStudent_StudentClassAndStudent_ClassArmAndSessionAndTermOrderByAverageDesc(
+                                className, arm, session, term
+                        );
 
                 for (int i = 0; i < armResults.size(); i++) {
                     TermResult tr = armResults.get(i);
@@ -239,42 +232,35 @@ public class ResultServiceImpl implements ResultService {
 
                     if (tr.getId() != null && tr.getId().equals(termResult.getId())) {
                         termResult.setPositionInArm(position);
-                        log.info("Student position in arm: {}", position);
                     }
                 }
+
+                termResultRepository.saveAll(armResults);
             }
 
-            // Calculate school positions
             List<Object[]> schoolRanking = resultRepository.getSchoolRanking(session, term);
-            log.info("Found {} students in school ranking", schoolRanking.size());
 
             for (int i = 0; i < schoolRanking.size(); i++) {
                 Object[] rank = schoolRanking.get(i);
                 Student s = (Student) rank[0];
+
                 if (s.getId().equals(termResult.getStudent().getId())) {
                     termResult.setPositionInSchool(i + 1);
-                    log.info("Student position in school: {}", i + 1);
                     break;
                 }
             }
 
-            // Save all updated term results
             termResultRepository.saveAll(classResults);
-            log.info("Saved all class results with updated positions");
+            termResultRepository.save(termResult);
 
         } catch (Exception e) {
-            log.error("Error calculating positions: {}", e.getMessage());
-            e.printStackTrace();
-
-            // Set default positions if calculation fails
+            log.error("Error calculating positions: {}", e.getMessage(), e);
             termResult.setPositionInClass(1);
             termResult.setPositionInArm(1);
             termResult.setPositionInSchool(1);
+            termResultRepository.save(termResult);
         }
     }
-
-    // ==================== SESSION RESULT CALCULATION ====================
-
     @Override
     public SessionResult calculateSessionResult(Long studentId, String session) {
         log.info("Calculating session result for student: {}, session: {}", studentId, session);
@@ -423,8 +409,14 @@ public class ResultServiceImpl implements ResultService {
     // ==================== RANKING METHODS ====================
 
     @Override
-    public Map<String, Object> getClassRankings(String className, String session, Result.Term term) {
-        List<Object[]> rankings = resultRepository.getClassRanking(className, session, term);
+    public Map<String, Object> getClassRankings(String className, String arm, String session, Result.Term term) {
+        List<Object[]> rankings;
+
+        if (arm != null && !arm.isBlank()) {
+            rankings = resultRepository.getArmRanking(className, arm, session, term);
+        } else {
+            rankings = resultRepository.getClassRanking(className, session, term);
+        }
 
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (int i = 0; i < rankings.size(); i++) {
@@ -445,6 +437,7 @@ public class ResultServiceImpl implements ResultService {
 
         Map<String, Object> response = new HashMap<>();
         response.put("className", className);
+        response.put("arm", arm);
         response.put("session", session);
         response.put("term", term);
         response.put("totalStudents", resultList.size());
@@ -468,6 +461,8 @@ public class ResultServiceImpl implements ResultService {
             item.put("studentName", student.getFirstName() + " " + student.getLastName());
             item.put("admissionNumber", student.getAdmissionNumber());
             item.put("average", avgScore);
+            item.put("class", student.getStudentClass());
+            item.put("arm", student.getClassArm());
 
             resultList.add(item);
         }
@@ -482,7 +477,6 @@ public class ResultServiceImpl implements ResultService {
 
         return response;
     }
-
     @Override
     public Map<String, Object> getSchoolRankings(String session, Result.Term term) {
         List<Object[]> rankings = resultRepository.getSchoolRanking(session, term);

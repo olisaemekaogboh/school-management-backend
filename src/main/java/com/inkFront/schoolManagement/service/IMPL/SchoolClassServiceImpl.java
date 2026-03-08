@@ -2,7 +2,7 @@ package com.inkFront.schoolManagement.service.IMPL;
 
 import com.inkFront.schoolManagement.dto.SchoolClassDTO;
 import com.inkFront.schoolManagement.model.SchoolClass;
-import com.inkFront.schoolManagement.repository.SchoolClassRepository;
+import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.service.SchoolClassService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -15,7 +15,7 @@ import static java.util.stream.Collectors.toList;
 @RequiredArgsConstructor
 public class SchoolClassServiceImpl implements SchoolClassService {
 
-    private final SchoolClassRepository schoolClassRepository;
+    private final ClassRepository classRepository;
 
     private SchoolClassDTO toDTO(SchoolClass c) {
 
@@ -59,24 +59,24 @@ public class SchoolClassServiceImpl implements SchoolClassService {
 
         apply(c, dto);
 
-        return toDTO(schoolClassRepository.save(c));
+        return toDTO(classRepository.save(c));
     }
 
     @Override
     public SchoolClassDTO updateClass(Long id, SchoolClassDTO dto) {
 
-        SchoolClass c = schoolClassRepository.findById(id)
+        SchoolClass c = classRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Class not found"));
 
         apply(c, dto);
 
-        return toDTO(schoolClassRepository.save(c));
+        return toDTO(classRepository.save(c));
     }
 
     @Override
     public SchoolClassDTO getClass(Long id) {
 
-        return schoolClassRepository.findById(id)
+        return classRepository.findById(id)
                 .map(this::toDTO)
                 .orElseThrow(() -> new RuntimeException("Class not found"));
     }
@@ -84,7 +84,7 @@ public class SchoolClassServiceImpl implements SchoolClassService {
     @Override
     public List<SchoolClassDTO> getAllClasses() {
 
-        return schoolClassRepository.findAll()
+        return classRepository.findAll()
                 .stream()
                 .map(this::toDTO)
                 .collect(toList());
@@ -93,6 +93,6 @@ public class SchoolClassServiceImpl implements SchoolClassService {
     @Override
     public void deleteClass(Long id) {
 
-        schoolClassRepository.deleteById(id);
+        classRepository.deleteById(id);
     }
 }

@@ -34,15 +34,16 @@ public class ClassServiceImpl implements ClassService {
 
     @Override
     public SchoolClass createClass(ClassDTO classDTO) {
-        log.info("Creating new class: {}", classDTO.getClassName());
+        log.info("Creating new class: {} - Arm {}", classDTO.getClassName(), classDTO.getArm());
 
-        // Check if class already exists
-        if (classRepository.findByClassName(classDTO.getClassName()).isPresent()) {
-            throw new BusinessException("Class already exists with name: " + classDTO.getClassName());
+        // Check if class with same name and arm already exists
+        if (classRepository.findByClassNameAndArm(classDTO.getClassName(), classDTO.getArm()).isPresent()) {
+            throw new BusinessException("Class already exists with name: " + classDTO.getClassName() + " and arm: " + classDTO.getArm());
         }
 
         SchoolClass schoolClass = SchoolClass.builder()
                 .className(classDTO.getClassName())
+                .arm(classDTO.getArm()) // ADD THIS - set the arm
                 .category(classDTO.getCategory())
                 .description(classDTO.getDescription())
                 .capacity(classDTO.getCapacity() != null ? classDTO.getCapacity() : 40)
@@ -59,18 +60,28 @@ public class ClassServiceImpl implements ClassService {
             schoolClass.setClassTeacher(teacher);
         }
 
+        // The classCode will be auto-generated in @PrePersist
         SchoolClass savedClass = classRepository.save(schoolClass);
-        log.info("Class created successfully with id: {}", savedClass.getId());
+        log.info("Class created successfully with id: {} and code: {}", savedClass.getId(), savedClass.getClassCode());
         return savedClass;
     }
-
     @Override
     public SchoolClass updateClass(Long id, ClassDTO classDTO) {
         log.info("Updating class with id: {}", id);
 
         SchoolClass schoolClass = getClass(id);
 
+        // Check if another class with same name and arm exists (excluding this one)
+        classRepository.findByClassNameAndArm(classDTO.getClassName(), classDTO.getArm())
+                .ifPresent(existingClass -> {
+                    if (!existingClass.getId().equals(id)) {
+                        throw new BusinessException("Another class already exists with name: " +
+                                classDTO.getClassName() + " and arm: " + classDTO.getArm());
+                    }
+                });
+
         schoolClass.setClassName(classDTO.getClassName());
+        schoolClass.setArm(classDTO.getArm()); // ADD THIS - update the arm
         schoolClass.setCategory(classDTO.getCategory());
         schoolClass.setDescription(classDTO.getDescription());
         schoolClass.setCapacity(classDTO.getCapacity());
@@ -89,8 +100,9 @@ public class ClassServiceImpl implements ClassService {
             schoolClass.setClassTeacher(null);
         }
 
+        // The classCode will be auto-updated in @PreUpdate based on className and arm
         SchoolClass updatedClass = classRepository.save(schoolClass);
-        log.info("Class updated successfully with id: {}", id);
+        log.info("Class updated successfully with id: {} and code: {}", id, updatedClass.getClassCode());
         return updatedClass;
     }
 
@@ -122,7 +134,7 @@ public class ClassServiceImpl implements ClassService {
 
     @Override
     public List<ClassDTO> getAllClasses() {
-        return classRepository.findAll().stream()
+        return classRepository.findAllWithSubjects().stream()
                 .map(ClassDTO::fromEntity)
                 .collect(Collectors.toList());
     }

@@ -11,7 +11,9 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Entity
 @Table(name = "teachers")
@@ -62,17 +64,16 @@ public class Teacher {
     @Enumerated(EnumType.STRING)
     @Column(name = "marital_status")
     private MaritalStatus maritalStatus;
-
+    // In Teacher.java entity
     @ElementCollection
     @CollectionTable(name = "teacher_subjects", joinColumns = @JoinColumn(name = "teacher_id"))
     @Column(name = "subject")
-    private List<String> subjects = new ArrayList<>();
+    private Set<String> subjects = new HashSet<>();
 
     @ElementCollection
     @CollectionTable(name = "teacher_qualifications", joinColumns = @JoinColumn(name = "teacher_id"))
     @Column(name = "qualification")
-    private List<String> qualifications = new ArrayList<>();
-
+    private Set<String> qualifications = new HashSet<>();
     private String emergencyContactName;
     private String emergencyContactPhone;
     private String emergencyContactRelationship;
@@ -113,4 +114,5 @@ public class Teacher {
     public enum TeacherStatus {
         ACTIVE, INACTIVE, ON_LEAVE, TERMINATED
     }
+
 }

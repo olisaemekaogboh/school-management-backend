@@ -16,63 +16,105 @@ import java.util.Optional;
 @Repository
 public interface TeacherRepository extends JpaRepository<Teacher, Long> {
 
-    // Basic find operations
     Optional<Teacher> findByEmail(String email);
+
     Optional<Teacher> findByTeacherId(String teacherId);
 
-    // Existence checks
+    @Query("""
+        SELECT DISTINCT t
+        FROM Teacher t
+        LEFT JOIN FETCH t.subjects
+        LEFT JOIN FETCH t.qualifications
+        LEFT JOIN FETCH t.user
+        WHERE t.id = :id
+    """)
+    Optional<Teacher> findByIdWithDetails(@Param("id") Long id);
+
+    @Query("""
+        SELECT DISTINCT t
+        FROM Teacher t
+        LEFT JOIN FETCH t.subjects
+        LEFT JOIN FETCH t.qualifications
+        LEFT JOIN FETCH t.user
+        WHERE t.user.id = :userId
+    """)
+    Optional<Teacher> findByUserIdWithDetails(@Param("userId") Long userId);
+
+    @Query("""
+        SELECT DISTINCT t
+        FROM Teacher t
+        LEFT JOIN FETCH t.subjects
+        LEFT JOIN FETCH t.qualifications
+        LEFT JOIN FETCH t.user
+        WHERE t.teacherId = :teacherId
+    """)
+    Optional<Teacher> findByTeacherIdWithDetails(@Param("teacherId") String teacherId);
+
+    @Query("""
+        SELECT DISTINCT t
+        FROM Teacher t
+        LEFT JOIN FETCH t.subjects
+        LEFT JOIN FETCH t.qualifications
+        LEFT JOIN FETCH t.user
+    """)
+    List<Teacher> findAllWithDetails();
+
     boolean existsByEmail(String email);
+
     boolean existsByTeacherId(String teacherId);
 
-    // Find by status
     List<Teacher> findByStatus(Teacher.TeacherStatus status);
+
     long countByStatus(Teacher.TeacherStatus status);
 
-    // Find by department
     List<Teacher> findByDepartment(String department);
 
     @Query("SELECT COUNT(t) FROM Teacher t WHERE t.department = :department")
     long countByDepartment(@Param("department") String department);
 
-    // Find by employment type
     List<Teacher> findByEmploymentType(Teacher.EmploymentType employmentType);
 
-    // Find by subject
     @Query("SELECT t FROM Teacher t WHERE :subject MEMBER OF t.subjects")
     List<Teacher> findBySubjectsContaining(@Param("subject") String subject);
 
-    // Search teachers
-    @Query("SELECT t FROM Teacher t WHERE " +
-            "LOWER(t.firstName) LIKE LOWER(CONCAT('%', :term, '%')) OR " +
-            "LOWER(t.lastName) LIKE LOWER(CONCAT('%', :term, '%')) OR " +
-            "LOWER(t.email) LIKE LOWER(CONCAT('%', :term, '%')) OR " +
-            "LOWER(t.teacherId) LIKE LOWER(CONCAT('%', :term, '%'))")
+    @Query("""
+        SELECT t
+        FROM Teacher t
+        WHERE LOWER(t.firstName) LIKE LOWER(CONCAT('%', :term, '%'))
+           OR LOWER(t.lastName) LIKE LOWER(CONCAT('%', :term, '%'))
+           OR LOWER(t.email) LIKE LOWER(CONCAT('%', :term, '%'))
+           OR LOWER(t.teacherId) LIKE LOWER(CONCAT('%', :term, '%'))
+    """)
     List<Teacher> searchTeachers(@Param("term") String term);
 
-    // Pagination
     Page<Teacher> findAll(Pageable pageable);
+
     Page<Teacher> findByStatus(Teacher.TeacherStatus status, Pageable pageable);
+
     Page<Teacher> findByDepartment(String department, Pageable pageable);
 
-    // Sorting
     List<Teacher> findAllByOrderByCreatedAtDesc();
 
-    // FIXED: Use parameterized date instead of CURRENT_DATE - 30
     @Query("SELECT t FROM Teacher t WHERE t.createdAt >= :date")
     List<Teacher> findTeachersSince(@Param("date") LocalDateTime date);
 
-    // Get teachers by name (partial match)
-    List<Teacher> findByFirstNameContainingIgnoreCaseOrLastNameContainingIgnoreCase(String firstName, String lastName);
+    List<Teacher> findByFirstNameContainingIgnoreCaseOrLastNameContainingIgnoreCase(
+            String firstName,
+            String lastName
+    );
 
-    // Get teachers by date range
     @Query("SELECT t FROM Teacher t WHERE t.createdAt BETWEEN :startDate AND :endDate")
-    List<Teacher> findByCreatedAtBetween(@Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate);
+    List<Teacher> findByCreatedAtBetween(
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate
+    );
 
-    // Count by date range
     @Query("SELECT COUNT(t) FROM Teacher t WHERE t.createdAt BETWEEN :startDate AND :endDate")
-    long countByCreatedAtBetween(@Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate);
+    long countByCreatedAtBetween(
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate
+    );
 
-    // Get teachers without user accounts
     @Query("SELECT t FROM Teacher t WHERE t.user IS NULL")
     List<Teacher> findTeachersWithoutUserAccount();
 }

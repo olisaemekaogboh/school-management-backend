@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/service/IMPL/TeacherServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
 import com.inkFront.schoolManagement.dto.*;
@@ -38,44 +37,61 @@ public class TeacherServiceImpl implements TeacherService {
     private final FileStorageService fileStorageService;
     private final PasswordEncoder passwordEncoder;
 
+    private TeacherDTO toTeacherDTO(Teacher teacher) {
+        if (teacher.getSubjects() != null) {
+            teacher.getSubjects().size();
+        }
+        if (teacher.getQualifications() != null) {
+            teacher.getQualifications().size();
+        }
+        if (teacher.getUser() != null) {
+            teacher.getUser().getId();
+        }
+        return TeacherDTO.fromEntity(teacher);
+    }
+
     // ========== BASIC CRUD OPERATIONS ==========
 
     @Override
+    @Transactional(readOnly = true)
     public List<TeacherDTO> getAllTeachers() {
         log.info("Fetching all teachers");
-        return teacherRepository.findAll().stream()
-                .map(TeacherDTO::fromEntity)
+        return teacherRepository.findAllWithDetails().stream()
+                .map(this::toTeacherDTO)
                 .collect(Collectors.toList());
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<TeacherDTO> getAllTeachersPaginated(Pageable pageable) {
         log.info("Fetching teachers page: {}", pageable.getPageNumber());
-        return teacherRepository.findAll(pageable).map(TeacherDTO::fromEntity);
+        return teacherRepository.findAll(pageable)
+                .map(this::toTeacherDTO);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public TeacherDTO getTeacherDTO(Long id) {
-        log.info("Fetching teacher DTO with id: {}", id);
-        Teacher teacher = teacherRepository.findById(id)
+        Teacher teacher = teacherRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
-        return TeacherDTO.fromEntity(teacher);
+        return toTeacherDTO(teacher);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Teacher getTeacher(Long id) {
         log.info("Fetching teacher entity with id: {}", id);
-        Teacher teacher = teacherRepository.findById(id)
+        return teacherRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
-        return teacher;
     }
 
     @Override
+    @Transactional(readOnly = true)
     public TeacherDTO getTeacherByTeacherId(String teacherId) {
         log.info("Fetching teacher with teacherId: {}", teacherId);
-        Teacher teacher = teacherRepository.findByTeacherId(teacherId)
+        Teacher teacher = teacherRepository.findByTeacherIdWithDetails(teacherId)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with teacherId: " + teacherId));
-        return TeacherDTO.fromEntity(teacher);
+        return toTeacherDTO(teacher);
     }
 
     @Override
@@ -83,50 +99,39 @@ public class TeacherServiceImpl implements TeacherService {
     public TeacherDTO createTeacher(TeacherDTO teacherDTO, MultipartFile profilePicture) {
         log.info("Creating new teacher with email: {}", teacherDTO.getEmail());
 
-        // Check if email already exists
         if (teacherRepository.existsByEmail(teacherDTO.getEmail())) {
             throw new BusinessException("Email already exists");
         }
 
-        // Generate teacher ID if not provided
         if (teacherDTO.getTeacherId() == null || teacherDTO.getTeacherId().isEmpty()) {
             teacherDTO.setTeacherId(generateTeacherId());
-        } else {
-            // Check if teacherId already exists
-            if (teacherRepository.existsByTeacherId(teacherDTO.getTeacherId())) {
-                throw new BusinessException("Teacher ID already exists");
-            }
+        } else if (teacherRepository.existsByTeacherId(teacherDTO.getTeacherId())) {
+            throw new BusinessException("Teacher ID already exists");
         }
 
         Teacher teacher = TeacherDTO.toEntity(teacherDTO);
 
-        // Handle profile picture
         if (profilePicture != null && !profilePicture.isEmpty()) {
             String pictureUrl = fileStorageService.storeFile(profilePicture);
             teacher.setProfilePictureUrl(pictureUrl);
         }
 
-        // Set default status if not provided
         if (teacher.getStatus() == null) {
             teacher.setStatus(Teacher.TeacherStatus.ACTIVE);
         }
 
-        // Set default employment status if not provided
         if (teacher.getEmploymentStatus() == null) {
             teacher.setEmploymentStatus(Teacher.EmploymentStatus.ACTIVE);
         }
 
-        // Set default employment type if not provided
         if (teacher.getEmploymentType() == null) {
             teacher.setEmploymentType(Teacher.EmploymentType.FULL_TIME);
         }
 
-        // Set default gender if not provided
         if (teacher.getGender() == null) {
             teacher.setGender(Teacher.Gender.MALE);
         }
 
-        // Set default marital status if not provided
         if (teacher.getMaritalStatus() == null) {
             teacher.setMaritalStatus(Teacher.MaritalStatus.SINGLE);
         }
@@ -134,7 +139,10 @@ public class TeacherServiceImpl implements TeacherService {
         Teacher savedTeacher = teacherRepository.save(teacher);
         log.info("Teacher created successfully with id: {}", savedTeacher.getId());
 
-        return TeacherDTO.fromEntity(savedTeacher);
+        Teacher teacherWithDetails = teacherRepository.findByIdWithDetails(savedTeacher.getId())
+                .orElse(savedTeacher);
+
+        return toTeacherDTO(teacherWithDetails);
     }
 
     @Override
@@ -142,22 +150,19 @@ public class TeacherServiceImpl implements TeacherService {
     public TeacherDTO updateTeacher(Long id, TeacherDTO teacherDTO, MultipartFile profilePicture) {
         log.info("Updating teacher with id: {}", id);
 
-        Teacher existingTeacher = teacherRepository.findById(id)
+        Teacher existingTeacher = teacherRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
 
-        // Check if email is being changed and if it's already taken
         if (!existingTeacher.getEmail().equals(teacherDTO.getEmail()) &&
                 teacherRepository.existsByEmail(teacherDTO.getEmail())) {
             throw new BusinessException("Email already exists");
         }
 
-        // Check if teacherId is being changed and if it's already taken
         if (!existingTeacher.getTeacherId().equals(teacherDTO.getTeacherId()) &&
                 teacherRepository.existsByTeacherId(teacherDTO.getTeacherId())) {
             throw new BusinessException("Teacher ID already exists");
         }
 
-        // Update basic fields
         existingTeacher.setFirstName(teacherDTO.getFirstName());
         existingTeacher.setLastName(teacherDTO.getLastName());
         existingTeacher.setMiddleName(teacherDTO.getMiddleName());
@@ -166,7 +171,6 @@ public class TeacherServiceImpl implements TeacherService {
         existingTeacher.setAlternatePhone(teacherDTO.getAlternatePhone());
         existingTeacher.setDateOfBirth(teacherDTO.getDateOfBirth());
 
-        // Convert String to enum for gender
         if (teacherDTO.getGender() != null && !teacherDTO.getGender().isEmpty()) {
             try {
                 existingTeacher.setGender(Teacher.Gender.valueOf(teacherDTO.getGender()));
@@ -185,7 +189,6 @@ public class TeacherServiceImpl implements TeacherService {
         existingTeacher.setDesignation(teacherDTO.getDesignation());
         existingTeacher.setDateOfJoining(teacherDTO.getDateOfJoining());
 
-        // Convert String to enum for employment type
         if (teacherDTO.getEmploymentType() != null && !teacherDTO.getEmploymentType().isEmpty()) {
             try {
                 existingTeacher.setEmploymentType(Teacher.EmploymentType.valueOf(teacherDTO.getEmploymentType()));
@@ -194,7 +197,6 @@ public class TeacherServiceImpl implements TeacherService {
             }
         }
 
-        // Convert String to enum for employment status
         if (teacherDTO.getEmploymentStatus() != null && !teacherDTO.getEmploymentStatus().isEmpty()) {
             try {
                 existingTeacher.setEmploymentStatus(Teacher.EmploymentStatus.valueOf(teacherDTO.getEmploymentStatus()));
@@ -203,7 +205,6 @@ public class TeacherServiceImpl implements TeacherService {
             }
         }
 
-        // Convert String to enum for marital status
         if (teacherDTO.getMaritalStatus() != null && !teacherDTO.getMaritalStatus().isEmpty()) {
             try {
                 existingTeacher.setMaritalStatus(Teacher.MaritalStatus.valueOf(teacherDTO.getMaritalStatus()));
@@ -212,21 +213,18 @@ public class TeacherServiceImpl implements TeacherService {
             }
         }
 
-        // Update subjects if provided
         if (teacherDTO.getSubjects() != null) {
-            existingTeacher.setSubjects(teacherDTO.getSubjects());
+            existingTeacher.setSubjects(new HashSet<>(teacherDTO.getSubjects()));
         }
 
-        // Update qualifications if provided
         if (teacherDTO.getQualifications() != null) {
-            existingTeacher.setQualifications(teacherDTO.getQualifications());
+            existingTeacher.setQualifications(new HashSet<>(teacherDTO.getQualifications()));
         }
 
         existingTeacher.setEmergencyContactName(teacherDTO.getEmergencyContactName());
         existingTeacher.setEmergencyContactPhone(teacherDTO.getEmergencyContactPhone());
         existingTeacher.setEmergencyContactRelationship(teacherDTO.getEmergencyContactRelationship());
 
-        // Convert String to enum for status
         if (teacherDTO.getStatus() != null && !teacherDTO.getStatus().isEmpty()) {
             try {
                 existingTeacher.setStatus(Teacher.TeacherStatus.valueOf(teacherDTO.getStatus()));
@@ -235,7 +233,6 @@ public class TeacherServiceImpl implements TeacherService {
             }
         }
 
-        // Update profile picture if provided
         if (profilePicture != null && !profilePicture.isEmpty()) {
             String pictureUrl = fileStorageService.storeFile(profilePicture);
             existingTeacher.setProfilePictureUrl(pictureUrl);
@@ -244,7 +241,10 @@ public class TeacherServiceImpl implements TeacherService {
         Teacher updatedTeacher = teacherRepository.save(existingTeacher);
         log.info("Teacher updated successfully with id: {}", updatedTeacher.getId());
 
-        return TeacherDTO.fromEntity(updatedTeacher);
+        Teacher teacherWithDetails = teacherRepository.findByIdWithDetails(updatedTeacher.getId())
+                .orElse(updatedTeacher);
+
+        return toTeacherDTO(teacherWithDetails);
     }
 
     @Override
@@ -254,7 +254,6 @@ public class TeacherServiceImpl implements TeacherService {
         Teacher teacher = teacherRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
 
-        // Check if teacher has associated user
         if (teacher.getUser() != null) {
             throw new BusinessException("Cannot delete teacher with associated user account. Deactivate the user instead.");
         }
@@ -266,60 +265,67 @@ public class TeacherServiceImpl implements TeacherService {
     // ========== SEARCH AND FILTER OPERATIONS ==========
 
     @Override
+    @Transactional(readOnly = true)
     public List<TeacherDTO> searchTeachers(String term) {
         log.info("Searching teachers with term: {}", term);
         return teacherRepository.searchTeachers(term).stream()
-                .map(TeacherDTO::fromEntity)
+                .map(this::toTeacherDTO)
                 .collect(Collectors.toList());
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<TeacherDTO> getTeachersByStatus(String status) {
         log.info("Fetching teachers by status: {}", status);
         Teacher.TeacherStatus teacherStatus = Teacher.TeacherStatus.valueOf(status.toUpperCase());
         return teacherRepository.findByStatus(teacherStatus).stream()
-                .map(TeacherDTO::fromEntity)
+                .map(this::toTeacherDTO)
                 .collect(Collectors.toList());
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<TeacherDTO> getTeachersBySubject(String subject) {
         log.info("Fetching teachers by subject: {}", subject);
         return teacherRepository.findBySubjectsContaining(subject).stream()
-                .map(TeacherDTO::fromEntity)
+                .map(this::toTeacherDTO)
                 .collect(Collectors.toList());
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<TeacherDTO> getTeachersByDepartment(String department) {
         log.info("Fetching teachers by department: {}", department);
         return teacherRepository.findByDepartment(department).stream()
-                .map(TeacherDTO::fromEntity)
+                .map(this::toTeacherDTO)
                 .collect(Collectors.toList());
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<TeacherDTO> getRecentTeachers(int days) {
         log.info("Fetching teachers from last {} days", days);
         LocalDateTime date = LocalDateTime.now().minusDays(days);
         return teacherRepository.findTeachersSince(date).stream()
-                .map(TeacherDTO::fromEntity)
+                .map(this::toTeacherDTO)
                 .collect(Collectors.toList());
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<TeacherDTO> getTeachersWithoutUserAccount() {
         log.info("Fetching teachers without user accounts");
         return teacherRepository.findTeachersWithoutUserAccount().stream()
-                .map(TeacherDTO::fromEntity)
+                .map(this::toTeacherDTO)
                 .collect(Collectors.toList());
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<TeacherDTO> getTeachersByDateRange(LocalDateTime startDate, LocalDateTime endDate) {
         log.info("Fetching teachers between {} and {}", startDate, endDate);
         return teacherRepository.findByCreatedAtBetween(startDate, endDate).stream()
-                .map(TeacherDTO::fromEntity)
+                .map(this::toTeacherDTO)
                 .collect(Collectors.toList());
     }
 
@@ -330,16 +336,16 @@ public class TeacherServiceImpl implements TeacherService {
     public TeacherDTO addSubject(Long id, String subject) {
         log.info("Adding subject {} to teacher with id: {}", subject, id);
 
-        Teacher teacher = teacherRepository.findById(id)
+        Teacher teacher = teacherRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
 
         if (!teacher.getSubjects().contains(subject)) {
             teacher.getSubjects().add(subject);
             Teacher updatedTeacher = teacherRepository.save(teacher);
-            return TeacherDTO.fromEntity(updatedTeacher);
+            return toTeacherDTO(updatedTeacher);
         }
 
-        return TeacherDTO.fromEntity(teacher);
+        return toTeacherDTO(teacher);
     }
 
     @Override
@@ -347,13 +353,13 @@ public class TeacherServiceImpl implements TeacherService {
     public TeacherDTO removeSubject(Long id, String subject) {
         log.info("Removing subject {} from teacher with id: {}", subject, id);
 
-        Teacher teacher = teacherRepository.findById(id)
+        Teacher teacher = teacherRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
 
         teacher.getSubjects().remove(subject);
         Teacher updatedTeacher = teacherRepository.save(teacher);
 
-        return TeacherDTO.fromEntity(updatedTeacher);
+        return toTeacherDTO(updatedTeacher);
     }
 
     @Override
@@ -361,16 +367,16 @@ public class TeacherServiceImpl implements TeacherService {
     public TeacherDTO addQualification(Long id, String qualification) {
         log.info("Adding qualification {} to teacher with id: {}", qualification, id);
 
-        Teacher teacher = teacherRepository.findById(id)
+        Teacher teacher = teacherRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
 
         if (!teacher.getQualifications().contains(qualification)) {
             teacher.getQualifications().add(qualification);
             Teacher updatedTeacher = teacherRepository.save(teacher);
-            return TeacherDTO.fromEntity(updatedTeacher);
+            return toTeacherDTO(updatedTeacher);
         }
 
-        return TeacherDTO.fromEntity(teacher);
+        return toTeacherDTO(teacher);
     }
 
     @Override
@@ -378,10 +384,9 @@ public class TeacherServiceImpl implements TeacherService {
     public TeacherDTO updateEmploymentStatus(Long id, String status) {
         log.info("Updating employment status to {} for teacher with id: {}", status, id);
 
-        Teacher teacher = teacherRepository.findById(id)
+        Teacher teacher = teacherRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
 
-        // FIXED: Convert String to EmploymentStatus enum
         if (status != null && !status.isEmpty()) {
             try {
                 teacher.setEmploymentStatus(Teacher.EmploymentStatus.valueOf(status));
@@ -391,7 +396,7 @@ public class TeacherServiceImpl implements TeacherService {
         }
 
         Teacher updatedTeacher = teacherRepository.save(teacher);
-        return TeacherDTO.fromEntity(updatedTeacher);
+        return toTeacherDTO(updatedTeacher);
     }
 
     // ========== STATISTICS AND UTILITIES ==========
@@ -409,7 +414,6 @@ public class TeacherServiceImpl implements TeacherService {
         statistics.put("teachersWithoutUser", teacherRepository.findTeachersWithoutUserAccount().size());
         statistics.put("pendingInvitations", getPendingInvitationCount());
 
-        // Count by department
         Map<String, Long> byDepartment = new HashMap<>();
         String[] departments = {"Science", "Arts", "Commercial", "Technical", "Primary", "Nursery"};
         for (String dept : departments) {
@@ -417,18 +421,14 @@ public class TeacherServiceImpl implements TeacherService {
         }
         statistics.put("byDepartment", byDepartment);
 
-        // Count by employment type
         Map<String, Long> byEmploymentType = new HashMap<>();
         for (Teacher.EmploymentType type : Teacher.EmploymentType.values()) {
-            byEmploymentType.put(type.name(),
-                    (long) teacherRepository.findByEmploymentType(type).size());
+            byEmploymentType.put(type.name(), (long) teacherRepository.findByEmploymentType(type).size());
         }
         statistics.put("byEmploymentType", byEmploymentType);
 
-        // Count by employment status
         Map<String, Long> byEmploymentStatus = new HashMap<>();
         for (Teacher.EmploymentStatus status : Teacher.EmploymentStatus.values()) {
-            // You'll need to add a method to your repository for this
             byEmploymentStatus.put(status.name(), 0L);
         }
         statistics.put("byEmploymentStatus", byEmploymentStatus);
@@ -600,25 +600,13 @@ public class TeacherServiceImpl implements TeacherService {
             teacher.setEmail(invitation.getEmail());
             teacher.setPhoneNumber(invitation.getPhoneNumber());
             teacher.setUser(user);
-
-            // Set all required fields with defaults
             teacher.setTeacherId(generateTeacherId());
-            teacher.setSubjects(new ArrayList<>());
-            teacher.setQualifications(new ArrayList<>());
-
-            // Employment Type (what kind of job contract)
+            teacher.setSubjects(new HashSet<>());
+            teacher.setQualifications(new HashSet<>());
             teacher.setEmploymentType(Teacher.EmploymentType.FULL_TIME);
-
-            // Employment Status (current work status)
             teacher.setEmploymentStatus(Teacher.EmploymentStatus.ACTIVE);
-
-            // Teacher Status (account status)
             teacher.setStatus(Teacher.TeacherStatus.ACTIVE);
-
-            // Gender (default)
             teacher.setGender(Teacher.Gender.MALE);
-
-            // Marital Status (default)
             teacher.setMaritalStatus(Teacher.MaritalStatus.SINGLE);
         }
 

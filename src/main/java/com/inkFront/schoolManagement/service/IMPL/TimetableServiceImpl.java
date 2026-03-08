@@ -4,7 +4,7 @@ import com.inkFront.schoolManagement.dto.TimetableDTO;
 import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.model.Teacher;
 import com.inkFront.schoolManagement.model.Timetable;
-import com.inkFront.schoolManagement.repository.SchoolClassRepository;
+import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.TeacherRepository;
 import com.inkFront.schoolManagement.repository.TimetableRepository;
 import com.inkFront.schoolManagement.service.TimetableService;
@@ -24,7 +24,7 @@ import static java.util.stream.Collectors.toList;
 public class TimetableServiceImpl implements TimetableService {
 
     private final TimetableRepository timetableRepository;
-    private final SchoolClassRepository schoolClassRepository;
+    private final ClassRepository classRepository;
     private final TeacherRepository teacherRepository;
 
     private TimetableDTO toDTO(Timetable t) {
@@ -86,7 +86,7 @@ public class TimetableServiceImpl implements TimetableService {
         if (dto.getSession() == null || dto.getSession().trim().isEmpty()) throw new RuntimeException("session is required");
         if (dto.getTerm() == null) throw new RuntimeException("term is required");
 
-        SchoolClass schoolClass = schoolClassRepository.findById(dto.getSchoolClassId())
+        SchoolClass schoolClass = classRepository.findById(dto.getSchoolClassId())
                 .orElseThrow(() -> new RuntimeException("Class not found"));
         Teacher teacher = teacherRepository.findById(dto.getTeacherId())
                 .orElseThrow(() -> new RuntimeException("Teacher not found"));

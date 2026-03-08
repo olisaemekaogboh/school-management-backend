@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/dto/ClassDTO.java
 package com.inkFront.schoolManagement.dto;
 
 import com.inkFront.schoolManagement.model.SchoolClass;
@@ -16,6 +15,7 @@ import java.util.List;
 public class ClassDTO {
     private Long id;
     private String className;
+    private String arm; // ADD THIS FIELD - it's missing!
     private String classCode;
     private SchoolClass.ClassCategory category;
     private String description;
@@ -30,6 +30,7 @@ public class ClassDTO {
         return ClassDTO.builder()
                 .id(schoolClass.getId())
                 .className(schoolClass.getClassName())
+                .arm(schoolClass.getArm()) // ADD THIS
                 .classCode(schoolClass.getClassCode())
                 .category(schoolClass.getCategory())
                 .description(schoolClass.getDescription())

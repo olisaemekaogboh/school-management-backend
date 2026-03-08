@@ -1,19 +1,23 @@
-// src/main/java/com/inkFront/schoolManagement/controllers/ResultController.java
 package com.inkFront.schoolManagement.controllers;
 
 import com.inkFront.schoolManagement.dto.ResultRequestDTO;
 import com.inkFront.schoolManagement.dto.ResultResponseDTO;
 import com.inkFront.schoolManagement.model.Result;
 import com.inkFront.schoolManagement.model.TermResult;
+import com.inkFront.schoolManagement.model.User;
 import com.inkFront.schoolManagement.repository.TermResultRepository;
+import com.inkFront.schoolManagement.security.AccessControlService;
+import com.inkFront.schoolManagement.security.SecurityUtils;
 import com.inkFront.schoolManagement.service.ResultService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.annotation.*;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,47 +28,84 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ResultController {
 
-    private static final Logger log = LoggerFactory.getLogger(ResultController.class);  // ADD THIS LINE
+    private static final Logger log = LoggerFactory.getLogger(ResultController.class);
 
     private final ResultService resultService;
     private final TermResultRepository termResultRepository;
+    private final AccessControlService accessControlService;
+    private final SecurityUtils securityUtils;
+
+    private User currentUser() {
+        return securityUtils.getCurrentUser();
+    }
+
+    private ResponseEntity<Map<String, Object>> forbidden(String message) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("message", message));
+    }
+
+    private ResponseEntity<Map<String, Object>> serverError(String message, Exception e) {
+        log.error(message, e);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of(
+                        "message", message,
+                        "error", e.getMessage()
+                ));
+    }
 
     @PostMapping("/student/{studentId}")
-    public ResponseEntity<ResultResponseDTO> addOrUpdateResult(
+    public ResponseEntity<?> addOrUpdateResult(
             @PathVariable Long studentId,
             @Valid @RequestBody ResultRequestDTO resultRequest) {
 
-        log.info("Adding/updating result for student: {}, subject: {}", studentId, resultRequest.getSubject());
+        try {
+            User user = currentUser();
+            accessControlService.requireStudentResultModification(user, studentId);
 
-        Result result = resultService.addOrUpdateResult(
-                studentId,
-                resultRequest.getSubject(),
-                resultRequest.getSession(),
-                resultRequest.getTerm(),
-                Map.of(
-                        "resumptionTest", resultRequest.getResumptionTest(),
-                        "assignments", resultRequest.getAssignments(),
-                        "project", resultRequest.getProject(),
-                        "midtermTest", resultRequest.getMidtermTest(),
-                        "secondTest", resultRequest.getSecondTest(),
-                        "examination", resultRequest.getExamination()
-                )
-        );
+            log.info("Adding/updating result for student: {}, subject: {}", studentId, resultRequest.getSubject());
 
-        return ResponseEntity.ok(ResultResponseDTO.fromResult(result));
+            Result result = resultService.addOrUpdateResult(
+                    studentId,
+                    resultRequest.getSubject(),
+                    resultRequest.getSession(),
+                    resultRequest.getTerm(),
+                    Map.of(
+                            "resumptionTest", resultRequest.getResumptionTest(),
+                            "assignments", resultRequest.getAssignments(),
+                            "project", resultRequest.getProject(),
+                            "midtermTest", resultRequest.getMidtermTest(),
+                            "secondTest", resultRequest.getSecondTest(),
+                            "examination", resultRequest.getExamination()
+                    )
+            );
+
+            return ResponseEntity.ok(ResultResponseDTO.fromResult(result));
+
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to add or update result", e);
+        }
     }
 
-    // Get all results for a student in a term
     @GetMapping("/student/{studentId}")
-    public ResponseEntity<List<Result>> getStudentResults(
+    public ResponseEntity<?> getStudentResults(
             @PathVariable Long studentId,
             @RequestParam String session,
             @RequestParam Result.Term term) {
 
-        log.info("Getting results for student: {}, session: {}, term: {}", studentId, session, term);
+        try {
+            User user = currentUser();
+            accessControlService.requireStudentAccess(user, studentId);
 
-        List<Result> results = resultService.getStudentResults(studentId, session, term);
-        return ResponseEntity.ok(results);
+            List<Result> results = resultService.getStudentResults(studentId, session, term);
+            return ResponseEntity.ok(results);
+
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to fetch student results", e);
+        }
     }
 
     @GetMapping("/student/{studentId}/term")
@@ -74,133 +115,226 @@ public class ResultController {
             @RequestParam Result.Term term) {
 
         try {
-            log.info("Getting term result for student: {}, session: {}, term: {}", studentId, session, term);
+            User user = currentUser();
+            accessControlService.requireStudentAccess(user, studentId);
 
             Map<String, Object> resultSheet = resultService.generateResultSheet(studentId, session, term);
             return ResponseEntity.ok(resultSheet);
 
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
         } catch (Exception e) {
-            log.error("Error getting term result: ", e);
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("error", e.getMessage());
-            errorResponse.put("message", "No result found for this student in the specified term");
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+            return serverError("Unable to fetch term result", e);
         }
     }
 
-    // Calculate and get annual result for a student
     @GetMapping("/student/{studentId}/annual")
-    public ResponseEntity<Map<String, Object>> getAnnualResult(
+    public ResponseEntity<?> getAnnualResult(
             @PathVariable Long studentId,
             @RequestParam String session) {
 
-        log.info("Getting annual result for student: {}, session: {}", studentId, session);
+        try {
+            User user = currentUser();
+            accessControlService.requireStudentAccess(user, studentId);
 
-        Map<String, Object> resultSheet = resultService.generateAnnualResultSheet(studentId, session);
-        return ResponseEntity.ok(resultSheet);
+            Map<String, Object> result = resultService.generateAnnualResultSheet(studentId, session);
+            return ResponseEntity.ok(result);
+
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to fetch annual result", e);
+        }
     }
 
-    // Get class rankings
-    @GetMapping("/rankings/class/{className}")
-    public ResponseEntity<Map<String, Object>> getClassRankings(
-            @PathVariable String className,
+    @GetMapping("/me/term")
+    public ResponseEntity<?> getMyTermResult(
             @RequestParam String session,
             @RequestParam Result.Term term) {
 
-        log.info("Getting class rankings for: {}, session: {}, term: {}", className, session, term);
+        try {
+            User user = currentUser();
 
-        Map<String, Object> rankings = resultService.getClassRankings(className, session, term);
-        return ResponseEntity.ok(rankings);
+            if (user.getStudent() == null) {
+                return forbidden("This account is not linked to a student");
+            }
+
+            Long studentId = user.getStudent().getId();
+            return ResponseEntity.ok(resultService.generateResultSheet(studentId, session, term));
+
+        } catch (Exception e) {
+            return serverError("Unable to fetch your term result", e);
+        }
     }
 
-    // Get arm rankings
+    @GetMapping("/me/annual")
+    public ResponseEntity<?> getMyAnnualResult(
+            @RequestParam String session) {
+
+        try {
+            User user = currentUser();
+
+            if (user.getStudent() == null) {
+                return forbidden("This account is not linked to a student");
+            }
+
+            Long studentId = user.getStudent().getId();
+            return ResponseEntity.ok(resultService.generateAnnualResultSheet(studentId, session));
+
+        } catch (Exception e) {
+            return serverError("Unable to fetch your annual result", e);
+        }
+    }
+
     @GetMapping("/rankings/class/{className}/arm/{arm}")
-    public ResponseEntity<Map<String, Object>> getArmRankings(
+    public ResponseEntity<?> getArmRankings(
             @PathVariable String className,
             @PathVariable String arm,
             @RequestParam String session,
             @RequestParam Result.Term term) {
 
-        log.info("Getting arm rankings for: {} {}, session: {}, term: {}", className, arm, session, term);
+        try {
+            User user = currentUser();
+            accessControlService.requireClassTeacherOrAdmin(user, className, arm);
 
-        Map<String, Object> rankings = resultService.getArmRankings(className, arm, session, term);
-        return ResponseEntity.ok(rankings);
+            Map<String, Object> rankings = resultService.getArmRankings(className, arm, session, term);
+            return ResponseEntity.ok(rankings);
+
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to fetch arm rankings", e);
+        }
     }
 
-    // Get school rankings
+    @GetMapping("/rankings/class/{className}")
+    public ResponseEntity<?> getClassRankings(
+            @PathVariable String className,
+            @RequestParam String arm,
+            @RequestParam String session,
+            @RequestParam Result.Term term) {
+
+        try {
+            User user = currentUser();
+            accessControlService.requireClassTeacherOrAdmin(user, className, arm);
+
+            Map<String, Object> rankings = resultService.getClassRankings(className, arm, session, term);
+            return ResponseEntity.ok(rankings);
+
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to fetch class rankings", e);
+        }
+    }
+
     @GetMapping("/rankings/school")
-    public ResponseEntity<Map<String, Object>> getSchoolRankings(
+    public ResponseEntity<?> getSchoolRankings(
             @RequestParam String session,
             @RequestParam Result.Term term) {
 
-        log.info("Getting school rankings for session: {}, term: {}", session, term);
+        try {
+            User user = currentUser();
+            accessControlService.requireAdmin(user);
 
-        Map<String, Object> rankings = resultService.getSchoolRankings(session, term);
-        return ResponseEntity.ok(rankings);
+            Map<String, Object> rankings = resultService.getSchoolRankings(session, term);
+            return ResponseEntity.ok(rankings);
+
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to fetch school rankings", e);
+        }
     }
 
-    // Calculate all term results (bulk operation)
     @PostMapping("/calculate/term")
-    public ResponseEntity<String> calculateAllTermResults(
+    public ResponseEntity<?> calculateAllTermResults(
             @RequestParam String session,
             @RequestParam Result.Term term) {
 
-        log.info("Calculating all term results for session: {}, term: {}", session, term);
+        try {
+            User user = currentUser();
+            accessControlService.requireAdmin(user);
 
-        resultService.calculateAllTermResults(session, term);
-        return ResponseEntity.ok("All term results calculated successfully");
+            resultService.calculateAllTermResults(session, term);
+            return ResponseEntity.ok(Map.of("message", "All term results calculated successfully"));
+
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to calculate all term results", e);
+        }
     }
 
-    // Calculate all session results (bulk operation)
     @PostMapping("/calculate/annual")
-    public ResponseEntity<String> calculateAllSessionResults(
+    public ResponseEntity<?> calculateAllSessionResults(
             @RequestParam String session) {
 
-        log.info("Calculating all annual results for session: {}", session);
+        try {
+            User user = currentUser();
+            accessControlService.requireAdmin(user);
 
-        resultService.calculateAllSessionResults(session);
-        return ResponseEntity.ok("All annual results calculated successfully");
+            resultService.calculateAllSessionResults(session);
+            return ResponseEntity.ok(Map.of("message", "All annual results calculated successfully"));
+
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to calculate annual results", e);
+        }
     }
 
-    @GetMapping("/statistics/class/{className}")
-    public ResponseEntity<Map<String, Object>> getClassStatistics(
+    @GetMapping("/statistics/class/{className}/arm/{arm}")
+    public ResponseEntity<?> getClassStatistics(
             @PathVariable String className,
+            @PathVariable String arm,
             @RequestParam String session,
             @RequestParam Result.Term term) {
 
-        log.info("Getting class statistics for: {}, session: {}, term: {}", className, session, term);
+        try {
+            User user = currentUser();
+            accessControlService.requireClassTeacherOrAdmin(user, className, arm);
 
-        List<TermResult> classResults = termResultRepository
-                .findByClassAndSessionAndTermOrderByAverageDesc(className, session, term);
+            List<TermResult> classResults = termResultRepository
+                    .findByStudent_StudentClassAndStudent_ClassArmAndSessionAndTermOrderByAverageDesc(
+                            className, arm, session, term
+                    );
 
-        if (classResults.isEmpty()) {
-            return ResponseEntity.ok(Map.of("message", "No results found for this class"));
+            if (classResults.isEmpty()) {
+                return ResponseEntity.ok(Map.of("message", "No results found for this class arm"));
+            }
+
+            double classAverage = classResults.stream()
+                    .mapToDouble(TermResult::getAverage)
+                    .average()
+                    .orElse(0);
+
+            double highestScore = classResults.stream()
+                    .mapToDouble(TermResult::getAverage)
+                    .max()
+                    .orElse(0);
+
+            double lowestScore = classResults.stream()
+                    .mapToDouble(TermResult::getAverage)
+                    .min()
+                    .orElse(0);
+
+            Map<String, Object> stats = new HashMap<>();
+            stats.put("totalStudents", classResults.size());
+            stats.put("classAverage", classAverage);
+            stats.put("highestScore", highestScore);
+            stats.put("lowestScore", lowestScore);
+            stats.put("className", className);
+            stats.put("arm", arm);
+            stats.put("session", session);
+            stats.put("term", term);
+
+            return ResponseEntity.ok(stats);
+
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to fetch class statistics", e);
         }
-
-        double classAverage = classResults.stream()
-                .mapToDouble(TermResult::getAverage)
-                .average()
-                .orElse(0);
-
-        double highestScore = classResults.stream()
-                .mapToDouble(TermResult::getAverage)
-                .max()
-                .orElse(0);
-
-        double lowestScore = classResults.stream()
-                .mapToDouble(TermResult::getAverage)
-                .min()
-                .orElse(0);
-
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("totalStudents", classResults.size());
-        stats.put("classAverage", classAverage);
-        stats.put("highestScore", highestScore);
-        stats.put("lowestScore", lowestScore);
-        stats.put("className", className);
-        stats.put("session", session);
-        stats.put("term", term);
-
-        return ResponseEntity.ok(stats);
     }
 }

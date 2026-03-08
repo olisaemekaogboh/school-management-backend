@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 
 @Data
@@ -158,8 +159,8 @@ public class TeacherDTO {
             teacher.setMaritalStatus(Teacher.MaritalStatus.SINGLE);
         }
 
-        teacher.setSubjects(dto.getSubjects() == null ? new ArrayList<>() : new ArrayList<>(dto.getSubjects()));
-        teacher.setQualifications(dto.getQualifications() == null ? new ArrayList<>() : new ArrayList<>(dto.getQualifications()));
+        teacher.setSubjects(dto.getSubjects() == null ? new HashSet<>() : new HashSet<>(dto.getSubjects()));
+        teacher.setQualifications(dto.getQualifications() == null ? new HashSet<>() : new HashSet<>(dto.getQualifications()));
         teacher.setEmergencyContactName(dto.getEmergencyContactName());
         teacher.setEmergencyContactPhone(dto.getEmergencyContactPhone());
         teacher.setEmergencyContactRelationship(dto.getEmergencyContactRelationship());

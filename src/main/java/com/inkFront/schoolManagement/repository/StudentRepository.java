@@ -66,4 +66,5 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
 
     // Find students excluded from promotion
     List<Student> findByExcludeFromPromotionTrue();
+    List<Student> findByParentId(Long parentId);
 }

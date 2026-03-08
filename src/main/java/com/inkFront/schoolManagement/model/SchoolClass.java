@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/model/SchoolClass.java
 package com.inkFront.schoolManagement.model;
 
 import jakarta.persistence.*;
@@ -12,7 +11,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "classes")
+@Table(
+        name = "classes",
+        uniqueConstraints = {
+                @UniqueConstraint(columnNames = {"class_name", "arm"})
+        }
+)
 @Data
 @Builder
 @NoArgsConstructor
@@ -23,13 +27,16 @@ public class SchoolClass {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
-    private String className; // e.g., "JSS 1", "SSS 2"
+    @Column(name = "class_name", nullable = false)
+    private String className; // e.g. JSS 1
 
-    private String classCode; // e.g., "JSS1", "SSS2"
+    @Column(nullable = false)
+    private String arm; // e.g. A, B, C
+
+    private String classCode; // e.g. JSS1-A
 
     @Enumerated(EnumType.STRING)
-    private ClassCategory category; // NURSERY, PRIMARY, JUNIOR_SECONDARY, SENIOR_SECONDARY
+    private ClassCategory category;
 
     private String description;
 
@@ -37,16 +44,12 @@ public class SchoolClass {
     @JoinColumn(name = "class_teacher_id")
     private Teacher classTeacher;
 
-    @OneToMany(mappedBy = "studentClass")
-    private List<Student> students = new ArrayList<>();
-
     @ElementCollection
     @CollectionTable(name = "class_subjects", joinColumns = @JoinColumn(name = "class_id"))
     @Column(name = "subject")
     private List<String> subjects = new ArrayList<>();
 
-    private Integer capacity; // Maximum number of students
-
+    private Integer capacity;
     private Integer currentEnrollment;
 
     @Column(updatable = false)
@@ -58,7 +61,7 @@ public class SchoolClass {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
-        if (classCode == null) {
+        if (classCode == null || classCode.isBlank()) {
             classCode = generateClassCode();
         }
     }
@@ -66,11 +69,19 @@ public class SchoolClass {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+        if (classCode == null || classCode.isBlank()) {
+            classCode = generateClassCode();
+        }
     }
 
     private String generateClassCode() {
         if (className == null) return null;
-        return className.replace(" ", "").toUpperCase();
+
+        String base = className.replace(" ", "").toUpperCase();
+        if (arm == null || arm.isBlank()) {
+            return base;
+        }
+        return base + "-" + arm.trim().toUpperCase();
     }
 
     public enum ClassCategory {

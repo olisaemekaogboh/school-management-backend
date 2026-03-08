@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/config/SecurityConfig.java
 package com.inkFront.schoolManagement.config;
 
 import com.inkFront.schoolManagement.security.JwtAuthenticationFilter;
@@ -38,42 +37,80 @@ public class SecurityConfig {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
                 .authorizeHttpRequests(auth -> auth
-                        // Public endpoints
+
+                        // Public auth endpoints
                         .requestMatchers(
                                 "/api/auth/login",
                                 "/api/auth/register",
                                 "/api/auth/forgot-password",
                                 "/api/auth/reset-password",
+                                "/api/auth/refresh-token",
+                                "/api/auth/verify-email",
                                 "/api/public/**",
                                 "/uploads/**",
                                 "/webjars/**"
                         ).permitAll()
 
-                        // Parent endpoints - allow ADMIN and TEACHER
-                        .requestMatchers("/api/parents/**").hasAnyRole("ADMIN", "TEACHER")
-
-                        // Admin only
-                        .requestMatchers("/api/admin/**", "/api/users/**").hasRole("ADMIN")
-
-                        // Teacher endpoints
+                        // Logged-in auth endpoints
                         .requestMatchers(
-                                "/api/teachers/**",
-                                "/api/attendance/mark/**",
-                                "/api/results/enter/**"
-                        ).hasAnyRole("ADMIN", "TEACHER")
+                                "/api/auth/me",
+                                "/api/auth/logout",
+                                "/api/auth/change-password"
+                        ).authenticated()
 
-                        // Student endpoints
+                        // Specific scoped endpoints FIRST
                         .requestMatchers(
+                                "/api/teachers/me",
+                                "/api/teachers/me/**",
+                                "/api/teacher/**"
+                        ).hasAnyRole("TEACHER", "ADMIN")
+
+                        .requestMatchers(
+                                "/api/students/me",
                                 "/api/students/me/**",
-                                "/api/results/my-results/**",
-                                "/api/attendance/my-attendance/**",
-                                "/api/fees/my-fees/**"
+                                "/api/student/**"
+                        ).hasAnyRole("STUDENT", "ADMIN")
+
+                        .requestMatchers(
+                                "/api/parents/me",
+                                "/api/parents/me/**",
+                                "/api/parent/**"
+                        ).hasAnyRole("PARENT", "ADMIN")
+
+                        // Shared ownership / mixed-role endpoints
+                        .requestMatchers(
+                                "/api/results/**",
+                                "/api/attendance/**",
+                                "/api/session-results/**",
+                                "/api/fees/**"
                         ).hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
+
+                        // Endpoints any logged-in user can access
+                        .requestMatchers(
+                                "/api/announcements/**",
+                                "/api/sessions/active"
+                        ).authenticated()
+
+                        // Admin-only endpoints AFTER specific ones
+                        .requestMatchers(
+                                "/api/users/**",
+                                "/api/admin/**",
+                                "/api/students/**",
+                                "/api/teachers/**",
+                                "/api/parents/**",
+                                "/api/classes/**",
+                                "/api/transport/**",
+                                "/api/library/**",
+                                "/api/sessions/**",
+                                "/api/timetable/**"
+                        ).hasRole("ADMIN")
 
                         .anyRequest().authenticated()
                 )
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -84,16 +121,13 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // ✅ Allowed origins (no "*")
         configuration.setAllowedOriginPatterns(Arrays.asList(
                 "http://localhost:3000",
                 "http://127.0.0.1:3000"
         ));
-
         configuration.setAllowedMethods(Arrays.asList(
                 "GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"
         ));
-
         configuration.setAllowedHeaders(Arrays.asList(
                 "Authorization",
                 "Content-Type",
@@ -104,12 +138,10 @@ public class SecurityConfig {
                 "Access-Control-Request-Method",
                 "Access-Control-Request-Headers"
         ));
-
         configuration.setExposedHeaders(Arrays.asList(
                 "Authorization",
                 "Content-Disposition"
         ));
-
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 
@@ -127,7 +159,8 @@ public class SecurityConfig {
     }
 
     @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config)
+            throws Exception {
         return config.getAuthenticationManager();
     }
 

@@ -41,6 +41,7 @@ public class StudentController {
     private static final Logger log = LoggerFactory.getLogger(StudentController.class);
     private final StudentService studentService;
     private final String UPLOAD_DIR = "uploads/profile-pictures/";
+    private com.inkFront.schoolManagement.security.SecurityUtils securityUtils;
 
     @Autowired
     public StudentController(StudentService studentService) {
@@ -619,5 +620,16 @@ public class StudentController {
         student.setPromotionHoldReason(dto.getPromotionHoldReason());
         student.setProfilePictureUrl(dto.getProfilePictureUrl());
         return student;
+    }
+    @GetMapping("/me")
+    public ResponseEntity<?> getMyProfile() {
+        var currentUser = securityUtils.getCurrentUser();
+
+        if (currentUser.getStudent() == null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("message", "This account is not linked to a student"));
+        }
+
+        return ResponseEntity.ok(currentUser.getStudent());
     }
 }

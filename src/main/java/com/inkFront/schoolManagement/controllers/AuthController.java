@@ -1,14 +1,13 @@
-// src/main/java/com/inkFront/schoolManagement/controllers/AuthController.java
 package com.inkFront.schoolManagement.controllers;
 
 import com.inkFront.schoolManagement.dto.auth.*;
 import com.inkFront.schoolManagement.model.User;
+import com.inkFront.schoolManagement.security.SecurityUtils;
 import com.inkFront.schoolManagement.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -20,6 +19,7 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final SecurityUtils securityUtils;
 
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
@@ -43,14 +43,14 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<LoginResponse.UserResponse> getCurrentUser(@AuthenticationPrincipal User user) {
+    public ResponseEntity<LoginResponse.UserResponse> getCurrentUser() {
+        User user = securityUtils.getCurrentUser();
         return ResponseEntity.ok(LoginResponse.UserResponse.fromUser(user));
     }
 
     @PostMapping("/change-password")
-    public ResponseEntity<Void> changePassword(
-            @AuthenticationPrincipal User user,
-            @Valid @RequestBody ChangePasswordRequest request) {
+    public ResponseEntity<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        User user = securityUtils.getCurrentUser();
         authService.changePassword(user, request);
         return ResponseEntity.ok().build();
     }

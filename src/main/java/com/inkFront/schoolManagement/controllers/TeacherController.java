@@ -3,10 +3,15 @@ package com.inkFront.schoolManagement.controllers;
 
 import com.inkFront.schoolManagement.dto.*;
 import com.inkFront.schoolManagement.dto.auth.LoginResponse;
-import com.inkFront.schoolManagement.model.TeacherInvitation;
-import com.inkFront.schoolManagement.model.User;
+import com.inkFront.schoolManagement.model.*;
+import com.inkFront.schoolManagement.repository.ClassRepository;
+import com.inkFront.schoolManagement.repository.StudentRepository;
+import com.inkFront.schoolManagement.repository.TeacherRepository;
 import com.inkFront.schoolManagement.security.JwtService;
+import com.inkFront.schoolManagement.security.SecurityUtils;
+import com.inkFront.schoolManagement.service.AttendanceService;
 import com.inkFront.schoolManagement.service.EmailService;
+import com.inkFront.schoolManagement.service.ResultService;
 import com.inkFront.schoolManagement.service.TeacherService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +25,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,12 +35,17 @@ import java.util.UUID;
 @RequestMapping("/api/teachers")
 @RequiredArgsConstructor
 @Slf4j
-
 public class TeacherController {
 
     private final TeacherService teacherService;
     private final EmailService emailService;
     private final JwtService jwtService;
+    private final SecurityUtils securityUtils;
+    private final ClassRepository classRepository;
+    private final StudentRepository studentRepository;
+    private final AttendanceService attendanceService;
+    private final ResultService resultService;
+    private final TeacherRepository teacherRepository;  // Added for direct repository access
 
     // ========== BASIC CRUD OPERATIONS ==========
 
@@ -90,6 +101,7 @@ public class TeacherController {
     /**
      * Create a new teacher
      */
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping(consumes = {"multipart/form-data"})
     public ResponseEntity<TeacherDTO> createTeacher(
             @RequestPart("teacher") TeacherDTO teacherDTO,
@@ -102,6 +114,7 @@ public class TeacherController {
     /**
      * Update an existing teacher
      */
+    @PreAuthorize("hasRole('ADMIN')")
     @PutMapping(value = "/{id}", consumes = {"multipart/form-data"})
     public ResponseEntity<TeacherDTO> updateTeacher(
             @PathVariable Long id,
@@ -115,6 +128,7 @@ public class TeacherController {
     /**
      * Delete a teacher
      */
+    @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteTeacher(@PathVariable Long id) {
         log.info("DELETE /api/teachers/{} - Deleting teacher", id);
@@ -285,6 +299,7 @@ public class TeacherController {
     /**
      * Send an invitation to a teacher to complete registration
      */
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/invite")
     public ResponseEntity<ApiResponse> inviteTeacher(@RequestBody TeacherInviteDTO inviteDTO) {
         log.info("POST /api/teachers/invite - Inviting teacher with email: {}", inviteDTO.getEmail());
@@ -390,6 +405,7 @@ public class TeacherController {
     /**
      * Resend invitation email
      */
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/resend-invitation")
     public ResponseEntity<ApiResponse> resendInvitation(@RequestParam String email) {
         log.info("POST /api/teachers/resend-invitation - Resending invitation to: {}", email);
@@ -416,6 +432,7 @@ public class TeacherController {
     /**
      * Cancel an invitation
      */
+    @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/invitations/{invitationId}")
     public ResponseEntity<ApiResponse> cancelInvitation(@PathVariable Long invitationId) {
         log.info("DELETE /api/teachers/invitations/{} - Cancelling invitation", invitationId);
@@ -427,5 +444,159 @@ public class TeacherController {
             log.error("Error cancelling invitation: {}", e.getMessage());
             return ResponseEntity.badRequest().body(new ApiResponse(false, e.getMessage()));
         }
+    }
+
+    /**
+     * Get current teacher's profile - FIXED for LazyInitializationException
+     */
+    @GetMapping("/me")
+    public ResponseEntity<?> getMyTeacherProfile() {
+        var currentUser = securityUtils.getCurrentUser();
+
+        if (currentUser.getTeacher() == null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("message", "This account is not linked to a teacher"));
+        }
+
+        // FIX: Fetch teacher with all details eagerly (subjects AND qualifications)
+        Teacher teacher = teacherRepository.findByUserIdWithDetails(currentUser.getId())
+                .orElseThrow(() -> new RuntimeException("Teacher not found with user ID: " + currentUser.getId()));
+
+        return ResponseEntity.ok(TeacherDTO.fromEntity(teacher));
+    }
+
+    /**
+     * Get classes taught by current teacher
+     */
+    @GetMapping("/me/classes")
+    public ResponseEntity<?> getMyClasses() {
+        var currentUser = securityUtils.getCurrentUser();
+
+        if (currentUser.getTeacher() == null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("message", "This account is not linked to a teacher"));
+        }
+
+        Long teacherId = currentUser.getTeacher().getId();
+        return ResponseEntity.ok(classRepository.findByClassTeacherId(teacherId));
+    }
+
+    /**
+     * Validate that the current teacher owns the specified class
+     */
+    private SchoolClass validateTeacherOwnsClass(Long classId) {
+        var currentUser = securityUtils.getCurrentUser();
+
+        if (currentUser.getTeacher() == null) {
+            throw new RuntimeException("This account is not linked to a teacher");
+        }
+
+        SchoolClass schoolClass = classRepository.findById(classId)
+                .orElseThrow(() -> new RuntimeException("Class not found"));
+
+        if (schoolClass.getClassTeacher() == null ||
+                !schoolClass.getClassTeacher().getId().equals(currentUser.getTeacher().getId())) {
+            throw new RuntimeException("Only the form teacher of this class can access this resource");
+        }
+
+        return schoolClass;
+    }
+
+    /**
+     * Get students in current teacher's class
+     */
+    @GetMapping("/me/classes/{classId}/students")
+    public ResponseEntity<?> getMyClassStudents(@PathVariable Long classId) {
+        SchoolClass schoolClass = validateTeacherOwnsClass(classId);
+        return ResponseEntity.ok(
+                studentRepository.findByStudentClassAndClassArm(
+                        schoolClass.getClassName(),
+                        schoolClass.getArm()
+                )
+        );
+    }
+
+    /**
+     * Get results for current teacher's class
+     */
+    @GetMapping("/me/classes/{classId}/results")
+    public ResponseEntity<?> getMyClassResults(
+            @PathVariable Long classId,
+            @RequestParam String session,
+            @RequestParam Result.Term term) {
+
+        SchoolClass schoolClass = validateTeacherOwnsClass(classId);
+
+        return ResponseEntity.ok(
+                resultService.getClassRankings(
+                        schoolClass.getClassName(),
+                        schoolClass.getArm(),
+                        session,
+                        term
+                )
+        );
+    }
+
+    /**
+     * Get attendance for current teacher's class
+     */
+    @GetMapping("/me/classes/{classId}/attendance")
+    public ResponseEntity<?> getMyClassAttendance(
+            @PathVariable Long classId,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(
+                    iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE
+            ) LocalDate date,
+            @RequestParam String session,
+            @RequestParam Result.Term term) {
+
+        SchoolClass schoolClass = validateTeacherOwnsClass(classId);
+
+        return ResponseEntity.ok(
+                attendanceService.getClassAttendance(
+                        schoolClass.getClassName(),
+                        schoolClass.getArm(),
+                        date,
+                        session,
+                        term
+                )
+        );
+    }
+
+    /**
+     * Mark attendance for current teacher's class
+     */
+    @PostMapping("/me/classes/{classId}/attendance")
+    public ResponseEntity<?> markMyClassAttendance(
+            @PathVariable Long classId,
+            @RequestBody TeacherClassAttendanceRequest request) {
+
+        SchoolClass schoolClass = validateTeacherOwnsClass(classId);
+
+        List<Student> classStudents = studentRepository.findByStudentClassAndClassArm(
+                schoolClass.getClassName(),
+                schoolClass.getArm()
+        );
+
+        List<Long> allowedStudentIds = classStudents.stream()
+                .map(Student::getId)
+                .toList();
+
+        boolean hasInvalidStudent = request.getStudentIds().stream()
+                .anyMatch(id -> !allowedStudentIds.contains(id));
+
+        if (hasInvalidStudent) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("message", "One or more students do not belong to your class arm"));
+        }
+
+        return ResponseEntity.ok(
+                attendanceService.markBulkAttendance(
+                        request.getStudentIds(),
+                        request.getDate(),
+                        request.getSession(),
+                        request.getTerm(),
+                        request.getStatus()
+                )
+        );
     }
 }
