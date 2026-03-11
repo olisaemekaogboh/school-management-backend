@@ -46,7 +46,6 @@ public class ResultResponseDTO {
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
-
     public static ResultResponseDTO fromResult(Result result) {
         if (result == null) {
             return null;
@@ -63,7 +62,7 @@ public class ResultResponseDTO {
                 .admissionNumber(result.getStudent().getAdmissionNumber())
                 .studentClass(result.getStudent().getStudentClass())
                 .classArm(result.getStudent().getClassArm())
-                .subject(result.getSubject())
+                .subject(result.getSubject() != null ? result.getSubject().getName() : null)
                 .session(result.getSession())
                 .term(result.getTerm() != null ? result.getTerm().toString() : null)
                 .resumptionTest(result.getResumptionTest())

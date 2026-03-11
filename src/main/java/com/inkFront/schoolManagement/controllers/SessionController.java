@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/controllers/SessionController.java
 package com.inkFront.schoolManagement.controllers;
 
 import com.inkFront.schoolManagement.dto.SessionRequestDTO;

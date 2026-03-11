@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/model/AcademicSession.java
 package com.inkFront.schoolManagement.model;
 
 import jakarta.persistence.*;
@@ -11,7 +10,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "academic_sessions", uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"sessionName"})
+        @UniqueConstraint(columnNames = {"session_name"})
 })
 @Data
 @NoArgsConstructor
@@ -22,21 +21,26 @@ public class AcademicSession {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(name = "session_name", nullable = false, unique = true)
     private String sessionName; // e.g. 2025/2026
 
-    @Column(nullable = false)
+    @Column(name = "start_date", nullable = false)
     private LocalDate startDate;
 
-    @Column(nullable = false)
+    @Column(name = "end_date", nullable = false)
     private LocalDate endDate;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "current_term", nullable = false)
+    private Term currentTerm = Term.FIRST;
 
     @Column(nullable = false)
     private boolean active = false;
 
-    @Column(updatable = false)
+    @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
     @PrePersist

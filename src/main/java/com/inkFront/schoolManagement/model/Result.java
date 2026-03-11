@@ -4,11 +4,12 @@ import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "results", uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"student_id", "term", "session", "subject"})
+        @UniqueConstraint(columnNames = {"student_id", "term", "session", "subject_id"})
 })
 @Data
 @NoArgsConstructor
@@ -19,12 +20,11 @@ public class Result {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "student_id", nullable = false)
     private Student student;
 
-    // NEW: Add relationship to TermResult
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "term_result_id")
     private TermResult termResult;
 
@@ -35,26 +35,23 @@ public class Result {
     @Column(nullable = false)
     private Term term;
 
-    @Column(nullable = false)
-    private String subject;
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "subject_id", nullable = false)
+    private Subject subject;
 
-    // Continuous Assessment Components (40 marks total)
-    private double resumptionTest; // 5 marks
-    private double assignments;    // 10 marks
-    private double project;        // 10 marks
-    private double midtermTest;    // 10 marks
-    private double secondTest;     // 5 marks
+    private double resumptionTest;
+    private double assignments;
+    private double project;
+    private double midtermTest;
+    private double secondTest;
 
-    // Examination
-    private double examination;    // 60 marks
+    private double examination;
 
-    // Calculated fields
     private double continuousAssessment;
     private double total;
     private String grade;
     private String remarks;
 
-    // Ranking fields
     private Integer positionInClass;
     private Integer positionInArm;
     private Integer positionInSchool;
@@ -78,13 +75,11 @@ public class Result {
     }
 
     private void calculateScores() {
-        // Calculate Continuous Assessment (max 40)
-        this.continuousAssessment = resumptionTest + assignments + project + midtermTest + secondTest;
+        this.continuousAssessment =
+                resumptionTest + assignments + project + midtermTest + secondTest;
 
-        // Calculate Total (max 100)
         this.total = continuousAssessment + examination;
 
-        // Determine Grade
         if (total >= 70) {
             this.grade = "A";
             this.remarks = "Excellent";

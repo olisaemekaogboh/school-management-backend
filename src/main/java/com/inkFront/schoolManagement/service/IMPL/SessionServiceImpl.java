@@ -1,10 +1,10 @@
-// src/main/java/com/inkFront/schoolManagement/service/IMPL/SessionServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
 import com.inkFront.schoolManagement.dto.SessionRequestDTO;
 import com.inkFront.schoolManagement.dto.SessionResponseDTO;
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
 import com.inkFront.schoolManagement.model.AcademicSession;
+import com.inkFront.schoolManagement.model.Term;
 import com.inkFront.schoolManagement.repository.SessionRepository;
 import com.inkFront.schoolManagement.service.SessionService;
 import lombok.RequiredArgsConstructor;
@@ -26,14 +26,17 @@ public class SessionServiceImpl implements SessionService {
     public SessionResponseDTO createSession(SessionRequestDTO request) {
         validateRequest(request);
 
-        if (sessionRepository.existsBySessionName(request.getSessionName().trim())) {
-            throw new RuntimeException("Session already exists: " + request.getSessionName());
+        String normalizedName = request.getSessionName().trim();
+
+        if (sessionRepository.existsBySessionName(normalizedName)) {
+            throw new RuntimeException("Session already exists: " + normalizedName);
         }
 
         AcademicSession session = new AcademicSession();
-        session.setSessionName(request.getSessionName().trim());
+        session.setSessionName(normalizedName);
         session.setStartDate(request.getStartDate());
         session.setEndDate(request.getEndDate());
+        session.setCurrentTerm(request.getCurrentTerm() != null ? request.getCurrentTerm() : Term.FIRST);
 
         if (request.isActive()) {
             deactivateCurrentActiveSession();
@@ -53,20 +56,25 @@ public class SessionServiceImpl implements SessionService {
         AcademicSession session = sessionRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Session not found with id: " + id));
 
-        sessionRepository.findBySessionName(request.getSessionName().trim())
+        String normalizedName = request.getSessionName().trim();
+
+        sessionRepository.findBySessionName(normalizedName)
                 .ifPresent(existing -> {
                     if (!existing.getId().equals(id)) {
                         throw new RuntimeException("Another session already uses this name");
                     }
                 });
 
-        session.setSessionName(request.getSessionName().trim());
+        session.setSessionName(normalizedName);
         session.setStartDate(request.getStartDate());
         session.setEndDate(request.getEndDate());
+        session.setCurrentTerm(request.getCurrentTerm() != null ? request.getCurrentTerm() : Term.FIRST);
 
         if (request.isActive()) {
             deactivateCurrentActiveSession();
             session.setActive(true);
+        } else {
+            session.setActive(false);
         }
 
         AcademicSession updated = sessionRepository.save(session);

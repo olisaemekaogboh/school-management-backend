@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/repository/SessionRepository.java
 package com.inkFront.schoolManagement.repository;
 
 import com.inkFront.schoolManagement.model.AcademicSession;

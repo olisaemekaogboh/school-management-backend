@@ -2,6 +2,7 @@ package com.inkFront.schoolManagement.repository;
 
 import com.inkFront.schoolManagement.model.Result;
 import com.inkFront.schoolManagement.model.Student;
+import com.inkFront.schoolManagement.model.Subject;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -21,7 +22,7 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
 
     Optional<Result> findByStudentAndSubjectAndSessionAndTerm(
             Student student,
-            String subject,
+            Subject subject,
             String session,
             Result.Term term
     );

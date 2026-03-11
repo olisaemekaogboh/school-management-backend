@@ -1,9 +1,17 @@
-// src/main/java/com/inkFront/schoolManagement/service/IMPL/SessionResultServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
+import com.inkFront.schoolManagement.dto.SessionResultResponseDTO;
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
-import com.inkFront.schoolManagement.model.*;
-import com.inkFront.schoolManagement.repository.*;
+import com.inkFront.schoolManagement.model.Attendance;
+import com.inkFront.schoolManagement.model.Result;
+import com.inkFront.schoolManagement.model.SessionResult;
+import com.inkFront.schoolManagement.model.Student;
+import com.inkFront.schoolManagement.model.TermResult;
+import com.inkFront.schoolManagement.repository.AttendanceRepository;
+import com.inkFront.schoolManagement.repository.ResultRepository;
+import com.inkFront.schoolManagement.repository.SessionResultRepository;
+import com.inkFront.schoolManagement.repository.StudentRepository;
+import com.inkFront.schoolManagement.repository.TermResultRepository;
 import com.inkFront.schoolManagement.service.SessionResultService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,13 +35,12 @@ public class SessionResultServiceImpl implements SessionResultService {
     private final AttendanceRepository attendanceRepository;
 
     @Override
-    public SessionResult calculateSessionResult(Long studentId, String session) {
+    public SessionResultResponseDTO calculateSessionResult(Long studentId, String session) {
         log.info("Calculating session result for student: {}, session: {}", studentId, session);
 
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
-        // Get term results for all three terms
         TermResult firstTerm = termResultRepository
                 .findByStudentAndSessionAndTerm(student, session, Result.Term.FIRST)
                 .orElse(null);
@@ -46,13 +53,16 @@ public class SessionResultServiceImpl implements SessionResultService {
                 .findByStudentAndSessionAndTerm(student, session, Result.Term.THIRD)
                 .orElse(null);
 
-        // Calculate attendance for the entire session
+        if (firstTerm == null && secondTerm == null && thirdTerm == null) {
+            throw new RuntimeException("No term result found for this student in " + session);
+        }
+
         int totalSchoolDays = 0;
         int totalDaysPresent = 0;
         int totalDaysAbsent = 0;
 
-        // Get attendance for all terms
         List<Attendance> allAttendance = new ArrayList<>();
+
         if (firstTerm != null) {
             allAttendance.addAll(attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(
                     student, session, Result.Term.FIRST));
@@ -66,11 +76,13 @@ public class SessionResultServiceImpl implements SessionResultService {
                     student, session, Result.Term.THIRD));
         }
 
-        // Count attendance
         Map<LocalDate, Boolean> uniqueDays = new HashMap<>();
         for (Attendance att : allAttendance) {
             uniqueDays.put(att.getDate(), true);
-            if (att.getStatus() == Attendance.AttendanceStatus.PRESENT) {
+
+            if (att.getStatus() == Attendance.AttendanceStatus.PRESENT
+                    || att.getStatus() == Attendance.AttendanceStatus.LATE
+                    || att.getStatus() == Attendance.AttendanceStatus.EXCUSED) {
                 totalDaysPresent++;
             } else if (att.getStatus() == Attendance.AttendanceStatus.ABSENT) {
                 totalDaysAbsent++;
@@ -78,7 +90,6 @@ public class SessionResultServiceImpl implements SessionResultService {
         }
         totalSchoolDays = uniqueDays.size();
 
-        // Calculate subject aggregates across all terms
         Map<String, Double> subjectAnnualTotals = new HashMap<>();
         Map<String, Integer> subjectCount = new HashMap<>();
 
@@ -94,12 +105,11 @@ public class SessionResultServiceImpl implements SessionResultService {
         }
 
         for (Result result : allResults) {
-            String subject = result.getSubject();
+            String subject = result.getSubject().getName();
             subjectAnnualTotals.merge(subject, result.getTotal(), Double::sum);
             subjectCount.merge(subject, 1, Integer::sum);
         }
 
-        // Calculate subject averages
         Map<String, Double> subjectAverages = new HashMap<>();
         for (Map.Entry<String, Double> entry : subjectAnnualTotals.entrySet()) {
             String subject = entry.getKey();
@@ -110,7 +120,6 @@ public class SessionResultServiceImpl implements SessionResultService {
             }
         }
 
-        // Get or create session result
         SessionResult sessionResult = sessionResultRepository
                 .findByStudentAndSession(student, session)
                 .orElse(new SessionResult());
@@ -118,7 +127,16 @@ public class SessionResultServiceImpl implements SessionResultService {
         sessionResult.setStudent(student);
         sessionResult.setSession(session);
 
-        // Set term totals and averages
+        sessionResult.setFirstTermTotal(0);
+        sessionResult.setSecondTermTotal(0);
+        sessionResult.setThirdTermTotal(0);
+        sessionResult.setFirstTermAverage(0);
+        sessionResult.setSecondTermAverage(0);
+        sessionResult.setThirdTermAverage(0);
+        sessionResult.setFirstTermPosition(null);
+        sessionResult.setSecondTermPosition(null);
+        sessionResult.setThirdTermPosition(null);
+
         if (firstTerm != null) {
             sessionResult.setFirstTermTotal(firstTerm.getTotalScore());
             sessionResult.setFirstTermAverage(firstTerm.getAverage());
@@ -137,75 +155,81 @@ public class SessionResultServiceImpl implements SessionResultService {
             sessionResult.setThirdTermPosition(thirdTerm.getPositionInClass());
         }
 
-        // Set attendance
         sessionResult.setTotalSchoolDays(totalSchoolDays);
         sessionResult.setTotalDaysPresent(totalDaysPresent);
         sessionResult.setTotalDaysAbsent(totalDaysAbsent);
-        sessionResult.setAttendancePercentage(totalSchoolDays > 0 ?
-                (totalDaysPresent * 100.0 / totalSchoolDays) : 0);
+        sessionResult.setAttendancePercentage(totalSchoolDays > 0
+                ? (totalDaysPresent * 100.0 / totalSchoolDays)
+                : 0);
 
-        // Set subject aggregates
         sessionResult.setSubjectAnnualTotals(subjectAnnualTotals);
         sessionResult.setSubjectAverages(subjectAverages);
 
-        // Calculate annual averages
         sessionResult.calculateAnnualAverage();
 
         SessionResult savedResult = sessionResultRepository.save(sessionResult);
 
-        // Calculate positions after all session results are calculated
         calculateAnnualPositions(savedResult);
 
-        return sessionResultRepository.findById(savedResult.getId())
+        SessionResult fresh = sessionResultRepository.findById(savedResult.getId())
                 .orElse(savedResult);
+
+        return SessionResultResponseDTO.fromEntity(fresh);
     }
 
     @Override
-    public List<SessionResult> calculateAllSessionResults(String session) {
+    public List<SessionResultResponseDTO> calculateAllSessionResults(String session) {
         log.info("Calculating session results for all students in session: {}", session);
 
         List<Student> allStudents = studentRepository.findAll();
-        List<SessionResult> results = new ArrayList<>();
+        List<SessionResultResponseDTO> results = new ArrayList<>();
 
         for (Student student : allStudents) {
             try {
-                SessionResult result = calculateSessionResult(student.getId(), session);
+                SessionResultResponseDTO result = calculateSessionResult(student.getId(), session);
                 results.add(result);
             } catch (Exception e) {
-                log.error("Error calculating session result for student {}: {}",
-                        student.getId(), e.getMessage());
+                log.error("Error calculating session result for student {}: {}", student.getId(), e.getMessage());
             }
         }
 
-        // Calculate positions for all students
         calculateAllPositions(session);
-
         return results;
     }
 
     @Override
-    public SessionResult getSessionResult(Long studentId, String session) {
+    @Transactional(readOnly = true)
+    public SessionResultResponseDTO getSessionResult(Long studentId, String session) {
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found"));
 
-        return sessionResultRepository.findByStudentAndSession(student, session)
+        SessionResult result = sessionResultRepository.findByStudentAndSession(student, session)
                 .orElseThrow(() -> new RuntimeException("Session result not found"));
+
+        return SessionResultResponseDTO.fromEntity(result);
     }
 
     @Override
-    public List<SessionResult> getClassSessionResults(String className, String session) {
-        return sessionResultRepository.findByClassAndSessionOrderByAnnualAverageDesc(className, session);
+    @Transactional(readOnly = true)
+    public List<SessionResultResponseDTO> getClassSessionResults(String className, String session) {
+        return sessionResultRepository.findByClassAndSessionOrderByAnnualAverageDesc(className, session)
+                .stream()
+                .map(SessionResultResponseDTO::fromEntity)
+                .toList();
     }
 
     @Override
-    public List<SessionResult> getArmSessionResults(String className, String arm, String session) {
-        return sessionResultRepository.findByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session);
+    @Transactional(readOnly = true)
+    public List<SessionResultResponseDTO> getArmSessionResults(String className, String arm, String session) {
+        return sessionResultRepository.findByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session)
+                .stream()
+                .map(SessionResultResponseDTO::fromEntity)
+                .toList();
     }
 
     @Override
     public Map<String, Object> getSchoolSessionRankings(String session) {
-        List<SessionResult> rankings = sessionResultRepository
-                .findBySessionOrderByAnnualAverageDesc(session);
+        List<SessionResult> rankings = sessionResultRepository.findBySessionOrderByAnnualAverageDesc(session);
 
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (int i = 0; i < rankings.size(); i++) {
@@ -224,7 +248,6 @@ public class SessionResultServiceImpl implements SessionResultService {
             item.put("attendance", sr.getAttendancePercentage());
             item.put("promoted", sr.isPromoted());
 
-            // Add term averages
             Map<String, Object> termAverages = new HashMap<>();
             termAverages.put("first", sr.getFirstTermAverage());
             termAverages.put("second", sr.getSecondTermAverage());
@@ -239,15 +262,13 @@ public class SessionResultServiceImpl implements SessionResultService {
         response.put("totalStudents", resultList.size());
         response.put("rankings", resultList);
 
-        // Add statistics
         long promoted = sessionResultRepository.countPromotedStudents(session);
         long retained = sessionResultRepository.countRetainedStudents(session);
 
         Map<String, Object> stats = new HashMap<>();
         stats.put("promoted", promoted);
         stats.put("retained", retained);
-        stats.put("promotionRate", resultList.size() > 0 ?
-                (promoted * 100.0 / resultList.size()) : 0);
+        stats.put("promotionRate", resultList.size() > 0 ? (promoted * 100.0 / resultList.size()) : 0);
 
         response.put("statistics", stats);
 
@@ -256,8 +277,7 @@ public class SessionResultServiceImpl implements SessionResultService {
 
     @Override
     public Map<String, Object> getClassRankings(String className, String session) {
-        List<SessionResult> rankings = sessionResultRepository
-                .findByClassAndSessionOrderByAnnualAverageDesc(className, session);
+        List<SessionResult> rankings = sessionResultRepository.findByClassAndSessionOrderByAnnualAverageDesc(className, session);
 
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (int i = 0; i < rankings.size(); i++) {
@@ -269,7 +289,8 @@ public class SessionResultServiceImpl implements SessionResultService {
             item.put("studentId", student.getId());
             item.put("studentName", student.getFirstName() + " " + student.getLastName());
             item.put("admissionNumber", student.getAdmissionNumber());
-            item.put("arm", student.getClassArm());
+            item.put("studentClass", student.getStudentClass());
+            item.put("classArm", student.getClassArm());
             item.put("annualAverage", sr.getAnnualAverage());
             item.put("attendance", sr.getAttendancePercentage());
             item.put("promoted", sr.isPromoted());
@@ -288,8 +309,7 @@ public class SessionResultServiceImpl implements SessionResultService {
 
     @Override
     public Map<String, Object> getArmRankings(String className, String arm, String session) {
-        List<SessionResult> rankings = sessionResultRepository
-                .findByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session);
+        List<SessionResult> rankings = sessionResultRepository.findByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session);
 
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (int i = 0; i < rankings.size(); i++) {
@@ -301,6 +321,8 @@ public class SessionResultServiceImpl implements SessionResultService {
             item.put("studentId", student.getId());
             item.put("studentName", student.getFirstName() + " " + student.getLastName());
             item.put("admissionNumber", student.getAdmissionNumber());
+            item.put("studentClass", student.getStudentClass());
+            item.put("classArm", student.getClassArm());
             item.put("annualAverage", sr.getAnnualAverage());
             item.put("attendance", sr.getAttendancePercentage());
             item.put("promoted", sr.isPromoted());
@@ -323,24 +345,15 @@ public class SessionResultServiceImpl implements SessionResultService {
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found"));
 
-        SessionResult sessionResult = getSessionResult(studentId, session);
+        SessionResult sessionResult = sessionResultRepository.findByStudentAndSession(student, session)
+                .orElseThrow(() -> new RuntimeException("Session result not found"));
 
-        // Get term results for detailed breakdown
-        TermResult firstTerm = termResultRepository
-                .findByStudentAndSessionAndTerm(student, session, Result.Term.FIRST)
-                .orElse(null);
-
-        TermResult secondTerm = termResultRepository
-                .findByStudentAndSessionAndTerm(student, session, Result.Term.SECOND)
-                .orElse(null);
-
-        TermResult thirdTerm = termResultRepository
-                .findByStudentAndSessionAndTerm(student, session, Result.Term.THIRD)
-                .orElse(null);
+        TermResult firstTerm = termResultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.FIRST).orElse(null);
+        TermResult secondTerm = termResultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.SECOND).orElse(null);
+        TermResult thirdTerm = termResultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.THIRD).orElse(null);
 
         Map<String, Object> report = new HashMap<>();
 
-        // Student Information
         Map<String, Object> studentInfo = new HashMap<>();
         studentInfo.put("id", student.getId());
         studentInfo.put("name", student.getFirstName() + " " + student.getLastName());
@@ -350,7 +363,6 @@ public class SessionResultServiceImpl implements SessionResultService {
         studentInfo.put("session", session);
         report.put("studentInfo", studentInfo);
 
-        // Term Summaries
         Map<String, Object> termSummaries = new HashMap<>();
 
         if (firstTerm != null) {
@@ -382,14 +394,12 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         report.put("termSummaries", termSummaries);
 
-        // Subject Performance
         List<Map<String, Object>> subjectPerformance = new ArrayList<>();
         for (Map.Entry<String, Double> entry : sessionResult.getSubjectAverages().entrySet()) {
             Map<String, Object> subject = new HashMap<>();
             subject.put("subject", entry.getKey());
             subject.put("annualAverage", entry.getValue());
 
-            // Add term-wise breakdown
             Map<String, Double> termScores = new HashMap<>();
             if (firstTerm != null && firstTerm.getSubjectResults() != null) {
                 firstTerm.getSubjectResults().stream()
@@ -415,7 +425,6 @@ public class SessionResultServiceImpl implements SessionResultService {
         }
         report.put("subjectPerformance", subjectPerformance);
 
-        // Annual Summary
         Map<String, Object> annualSummary = new HashMap<>();
         annualSummary.put("firstTermTotal", sessionResult.getFirstTermTotal());
         annualSummary.put("secondTermTotal", sessionResult.getSecondTermTotal());
@@ -427,7 +436,6 @@ public class SessionResultServiceImpl implements SessionResultService {
         annualSummary.put("positionInSchool", sessionResult.getAnnualPositionInSchool());
         report.put("annualSummary", annualSummary);
 
-        // Attendance Summary
         Map<String, Object> attendanceSummary = new HashMap<>();
         attendanceSummary.put("totalSchoolDays", sessionResult.getTotalSchoolDays());
         attendanceSummary.put("daysPresent", sessionResult.getTotalDaysPresent());
@@ -435,7 +443,6 @@ public class SessionResultServiceImpl implements SessionResultService {
         attendanceSummary.put("attendancePercentage", sessionResult.getAttendancePercentage());
         report.put("attendance", attendanceSummary);
 
-        // Promotion Status
         Map<String, Object> promotion = new HashMap<>();
         promotion.put("promoted", sessionResult.isPromoted());
         promotion.put("remark", sessionResult.getPromotionRemark());
@@ -443,72 +450,45 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         return report;
     }
+
     @Override
     public Map<String, Object> getSessionStatistics(String session) {
-        List<SessionResult> allResults = sessionResultRepository
-                .findBySessionOrderByAnnualAverageDesc(session);
+        List<SessionResult> allResults = sessionResultRepository.findBySessionOrderByAnnualAverageDesc(session);
 
         if (allResults.isEmpty()) {
             return Map.of("message", "No session results found for " + session);
         }
 
-        // Calculate overall statistics
-        double totalAverage = allResults.stream()
-                .mapToDouble(SessionResult::getAnnualAverage)
-                .average()
-                .orElse(0);
+        double totalAverage = allResults.stream().mapToDouble(SessionResult::getAnnualAverage).average().orElse(0);
+        double highestAverage = allResults.stream().mapToDouble(SessionResult::getAnnualAverage).max().orElse(0);
+        double lowestAverage = allResults.stream().mapToDouble(SessionResult::getAnnualAverage).min().orElse(0);
 
-        double highestAverage = allResults.stream()
-                .mapToDouble(SessionResult::getAnnualAverage)
-                .max()
-                .orElse(0);
-
-        double lowestAverage = allResults.stream()
-                .mapToDouble(SessionResult::getAnnualAverage)
-                .min()
-                .orElse(0);
-
-        // Class-wise performance
-        List<Object[]> classAverages = sessionResultRepository
-                .getClassAverageBySession(session);
+        List<Object[]> classAverages = sessionResultRepository.getClassAverageBySession(session);
 
         Map<String, Double> classPerformance = new HashMap<>();
         for (Object[] ca : classAverages) {
             classPerformance.put((String) ca[0], (Double) ca[1]);
         }
 
-        // Promotion statistics
         long promoted = sessionResultRepository.countPromotedStudents(session);
         long retained = sessionResultRepository.countRetainedStudents(session);
 
-        // Grade distribution
         Map<String, Long> gradeDistribution = new HashMap<>();
         for (SessionResult sr : allResults) {
             String grade = getGradeFromAverage(sr.getAnnualAverage());
             gradeDistribution.merge(grade, 1L, Long::sum);
         }
 
-        // Attendance statistics
-        long excellentAttendance = allResults.stream()
-                .filter(sr -> sr.getAttendancePercentage() >= 90)
-                .count();
-        long goodAttendance = allResults.stream()
-                .filter(sr -> sr.getAttendancePercentage() >= 75 && sr.getAttendancePercentage() < 90)
-                .count();
-        long poorAttendance = allResults.stream()
-                .filter(sr -> sr.getAttendancePercentage() < 75)
-                .count();
+        long excellentAttendance = allResults.stream().filter(sr -> sr.getAttendancePercentage() >= 90).count();
+        long goodAttendance = allResults.stream().filter(sr -> sr.getAttendancePercentage() >= 75 && sr.getAttendancePercentage() < 90).count();
+        long poorAttendance = allResults.stream().filter(sr -> sr.getAttendancePercentage() < 75).count();
 
         Map<String, Object> attendanceStats = new HashMap<>();
-        attendanceStats.put("averageAttendance", allResults.stream()
-                .mapToDouble(SessionResult::getAttendancePercentage)
-                .average()
-                .orElse(0));
+        attendanceStats.put("averageAttendance", allResults.stream().mapToDouble(SessionResult::getAttendancePercentage).average().orElse(0));
         attendanceStats.put("excellentAttendance", excellentAttendance);
         attendanceStats.put("goodAttendance", goodAttendance);
         attendanceStats.put("poorAttendance", poorAttendance);
 
-        // Top performers (top 3)
         List<Map<String, Object>> topPerformers = new ArrayList<>();
         for (int i = 0; i < Math.min(3, allResults.size()); i++) {
             SessionResult sr = allResults.get(i);
@@ -539,20 +519,11 @@ public class SessionResultServiceImpl implements SessionResultService {
         return statistics;
     }
 
-    private String getGradeFromAverage(double average) {
-        if (average >= 70) return "A";
-        if (average >= 60) return "B";
-        if (average >= 50) return "C";
-        if (average >= 45) return "D";
-        if (average >= 40) return "E";
-        return "F";
-    }
     @Override
     public Map<String, Object> promoteStudents(String session) {
         log.info("Promoting students based on session results: {}", session);
 
-        List<SessionResult> allResults = sessionResultRepository
-                .findBySessionOrderByAnnualAverageDesc(session);
+        List<SessionResult> allResults = sessionResultRepository.findBySessionOrderByAnnualAverageDesc(session);
 
         int promoted = 0;
         int retained = 0;
@@ -606,8 +577,7 @@ public class SessionResultServiceImpl implements SessionResultService {
 
     @Override
     public List<Map<String, Object>> getGraduationList(String session) {
-        List<SessionResult> allResults = sessionResultRepository
-                .findBySessionOrderByAnnualAverageDesc(session);
+        List<SessionResult> allResults = sessionResultRepository.findBySessionOrderByAnnualAverageDesc(session);
 
         List<Map<String, Object>> graduates = new ArrayList<>();
 
@@ -621,10 +591,7 @@ public class SessionResultServiceImpl implements SessionResultService {
                 grad.put("finalAverage", sr.getAnnualAverage());
                 grad.put("attendance", sr.getAttendancePercentage());
                 grad.put("position", sr.getAnnualPositionInClass());
-
-                // Add subject-wise performance
-                grad.put("subjectAverages", sr.getSubjectAverages());
-
+                grad.put("subjectAverages", new HashMap<>(sr.getSubjectAverages()));
                 graduates.add(grad);
             }
         }
@@ -637,9 +604,7 @@ public class SessionResultServiceImpl implements SessionResultService {
         String arm = sessionResult.getStudent().getClassArm();
         String session = sessionResult.getSession();
 
-        // Class position
-        List<SessionResult> classResults = sessionResultRepository
-                .findByClassAndSessionOrderByAnnualAverageDesc(className, session);
+        List<SessionResult> classResults = sessionResultRepository.findByClassAndSessionOrderByAnnualAverageDesc(className, session);
 
         for (int i = 0; i < classResults.size(); i++) {
             SessionResult sr = classResults.get(i);
@@ -649,10 +614,8 @@ public class SessionResultServiceImpl implements SessionResultService {
             }
         }
 
-        // Arm position
         if (arm != null && !arm.isEmpty()) {
-            List<SessionResult> armResults = sessionResultRepository
-                    .findByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session);
+            List<SessionResult> armResults = sessionResultRepository.findByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session);
 
             for (int i = 0; i < armResults.size(); i++) {
                 SessionResult sr = armResults.get(i);
@@ -663,9 +626,7 @@ public class SessionResultServiceImpl implements SessionResultService {
             }
         }
 
-        // School position
-        List<SessionResult> schoolResults = sessionResultRepository
-                .findBySessionOrderByAnnualAverageDesc(session);
+        List<SessionResult> schoolResults = sessionResultRepository.findBySessionOrderByAnnualAverageDesc(session);
 
         for (int i = 0; i < schoolResults.size(); i++) {
             SessionResult sr = schoolResults.get(i);
@@ -676,41 +637,37 @@ public class SessionResultServiceImpl implements SessionResultService {
         }
 
         sessionResultRepository.saveAll(classResults);
+        sessionResultRepository.saveAll(schoolResults);
     }
 
     private void calculateAllPositions(String session) {
-        List<SessionResult> schoolResults = sessionResultRepository
-                .findBySessionOrderByAnnualAverageDesc(session);
+        List<SessionResult> schoolResults = sessionResultRepository.findBySessionOrderByAnnualAverageDesc(session);
 
-        // Set school positions
         for (int i = 0; i < schoolResults.size(); i++) {
             schoolResults.get(i).setAnnualPositionInSchool(i + 1);
         }
 
-        // Group by class and set class positions
         Map<String, List<SessionResult>> byClass = schoolResults.stream()
                 .collect(Collectors.groupingBy(sr -> sr.getStudent().getStudentClass()));
 
         for (Map.Entry<String, List<SessionResult>> entry : byClass.entrySet()) {
             List<SessionResult> classResults = entry.getValue();
-            classResults.sort((a, b) ->
-                    Double.compare(b.getAnnualAverage(), a.getAnnualAverage()));
+            classResults.sort((a, b) -> Double.compare(b.getAnnualAverage(), a.getAnnualAverage()));
 
             for (int i = 0; i < classResults.size(); i++) {
                 classResults.get(i).setAnnualPositionInClass(i + 1);
             }
         }
 
-        // Group by arm and set arm positions
         Map<String, List<SessionResult>> byArm = schoolResults.stream()
                 .filter(sr -> sr.getStudent().getClassArm() != null)
                 .collect(Collectors.groupingBy(
-                        sr -> sr.getStudent().getStudentClass() + "_" + sr.getStudent().getClassArm()));
+                        sr -> sr.getStudent().getStudentClass() + "_" + sr.getStudent().getClassArm()
+                ));
 
         for (Map.Entry<String, List<SessionResult>> entry : byArm.entrySet()) {
             List<SessionResult> armResults = entry.getValue();
-            armResults.sort((a, b) ->
-                    Double.compare(b.getAnnualAverage(), a.getAnnualAverage()));
+            armResults.sort((a, b) -> Double.compare(b.getAnnualAverage(), a.getAnnualAverage()));
 
             for (int i = 0; i < armResults.size(); i++) {
                 armResults.get(i).setAnnualPositionInArm(i + 1);
@@ -718,6 +675,15 @@ public class SessionResultServiceImpl implements SessionResultService {
         }
 
         sessionResultRepository.saveAll(schoolResults);
+    }
+
+    private String getGradeFromAverage(double average) {
+        if (average >= 70) return "A";
+        if (average >= 60) return "B";
+        if (average >= 50) return "C";
+        if (average >= 45) return "D";
+        if (average >= 40) return "E";
+        return "F";
     }
 
     private String getNextClass(String currentClass) {
@@ -741,5 +707,4 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         return progression.getOrDefault(currentClass, currentClass);
     }
-
 }

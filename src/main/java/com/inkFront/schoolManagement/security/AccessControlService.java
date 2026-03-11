@@ -59,9 +59,10 @@ public class AccessControlService {
         }
     }
 
+
     public void requireFeeAccess(User user, Long studentId) {
-        if (!canViewStudentFees(user, studentId)) {
-            throw new AccessDeniedException("You are not allowed to view this student's fee record");
+        if (!(isAdmin(user) || isOwnerStudent(user, studentId) || isParentOfStudent(user, studentId))) {
+            throw new AccessDeniedException("You are not allowed to access this student's fee record");
         }
     }
 

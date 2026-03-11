@@ -1,8 +1,8 @@
-// src/main/java/com/inkFront/schoolManagement/repository/SessionResultRepository.java
 package com.inkFront.schoolManagement.repository;
 
 import com.inkFront.schoolManagement.model.SessionResult;
 import com.inkFront.schoolManagement.model.Student;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -14,17 +14,21 @@ import java.util.Optional;
 @Repository
 public interface SessionResultRepository extends JpaRepository<SessionResult, Long> {
 
+    @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
     Optional<SessionResult> findByStudentAndSession(Student student, String session);
 
+    @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
     @Query("SELECT sr FROM SessionResult sr WHERE sr.student.studentClass = :className AND sr.session = :session ORDER BY sr.annualAverage DESC")
     List<SessionResult> findByClassAndSessionOrderByAnnualAverageDesc(@Param("className") String className,
                                                                       @Param("session") String session);
 
+    @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
     @Query("SELECT sr FROM SessionResult sr WHERE sr.student.studentClass = :className AND sr.student.classArm = :arm AND sr.session = :session ORDER BY sr.annualAverage DESC")
     List<SessionResult> findByClassAndArmAndSessionOrderByAnnualAverageDesc(@Param("className") String className,
                                                                             @Param("arm") String arm,
                                                                             @Param("session") String session);
 
+    @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
     @Query("SELECT sr FROM SessionResult sr WHERE sr.session = :session ORDER BY sr.annualAverage DESC")
     List<SessionResult> findBySessionOrderByAnnualAverageDesc(@Param("session") String session);
 

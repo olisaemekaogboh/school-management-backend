@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/service/SessionService.java
 package com.inkFront.schoolManagement.service;
 
 import com.inkFront.schoolManagement.dto.SessionRequestDTO;
