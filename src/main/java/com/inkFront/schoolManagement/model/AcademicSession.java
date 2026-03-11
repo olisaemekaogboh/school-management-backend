@@ -6,13 +6,13 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(
-        name = "academic_sessions",
-        uniqueConstraints = {@UniqueConstraint(columnNames = {"name"})}
-)
+@Table(name = "academic_sessions", uniqueConstraints = {
+        @UniqueConstraint(columnNames = {"sessionName"})
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -22,19 +22,31 @@ public class AcademicSession {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Example: "2025/2026"
-    @Column(nullable = false, unique = true)
-    private String name;
+    @Column(nullable = false)
+    private String sessionName; // e.g. 2025/2026
 
     @Column(nullable = false)
-    private Integer startYear;
+    private LocalDate startDate;
 
     @Column(nullable = false)
-    private Integer endYear;
+    private LocalDate endDate;
 
     @Column(nullable = false)
-    private Boolean active = false;
+    private boolean active = false;
 
-    @Column(nullable = false)
-    private LocalDateTime createdAt = LocalDateTime.now();
+    @Column(updatable = false)
+    private LocalDateTime createdAt;
+
+    private LocalDateTime updatedAt;
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
 }

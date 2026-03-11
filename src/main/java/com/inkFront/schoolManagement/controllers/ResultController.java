@@ -62,8 +62,6 @@ public class ResultController {
             User user = currentUser();
             accessControlService.requireStudentResultModification(user, studentId);
 
-            log.info("Adding/updating result for student: {}, subject: {}", studentId, resultRequest.getSubject());
-
             Result result = resultService.addOrUpdateResult(
                     studentId,
                     resultRequest.getSubject(),
@@ -96,7 +94,7 @@ public class ResultController {
 
         try {
             User user = currentUser();
-            accessControlService.requireStudentAccess(user, studentId);
+            accessControlService.requireStudentResultAccess(user, studentId);
 
             List<Result> results = resultService.getStudentResults(studentId, session, term);
             return ResponseEntity.ok(results);
@@ -116,7 +114,7 @@ public class ResultController {
 
         try {
             User user = currentUser();
-            accessControlService.requireStudentAccess(user, studentId);
+            accessControlService.requireStudentResultAccess(user, studentId);
 
             Map<String, Object> resultSheet = resultService.generateResultSheet(studentId, session, term);
             return ResponseEntity.ok(resultSheet);
@@ -135,7 +133,7 @@ public class ResultController {
 
         try {
             User user = currentUser();
-            accessControlService.requireStudentAccess(user, studentId);
+            accessControlService.requireStudentResultAccess(user, studentId);
 
             Map<String, Object> result = resultService.generateAnnualResultSheet(studentId, session);
             return ResponseEntity.ok(result);

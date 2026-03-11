@@ -35,11 +35,36 @@ public class AccessControlService {
         }
     }
 
+    public void requireStudentResultAccess(User user, Long studentId) {
+        if (!canViewStudentResult(user, studentId)) {
+            throw new AccessDeniedException("You are not allowed to view this student's result");
+        }
+    }
+
     public void requireStudentResultModification(User user, Long studentId) {
         if (!canModifyStudentResult(user, studentId)) {
             throw new AccessDeniedException("You are not allowed to modify this student's result");
         }
     }
+
+    public void requireAttendanceAccess(User user, Long studentId) {
+        if (!canViewStudentAttendance(user, studentId)) {
+            throw new AccessDeniedException("You are not allowed to view this student's attendance");
+        }
+    }
+
+    public void requireAttendanceMarking(User user, Long studentId) {
+        if (!canMarkAttendance(user, studentId)) {
+            throw new AccessDeniedException("You are not allowed to mark attendance for this student");
+        }
+    }
+
+    public void requireFeeAccess(User user, Long studentId) {
+        if (!canViewStudentFees(user, studentId)) {
+            throw new AccessDeniedException("You are not allowed to view this student's fee record");
+        }
+    }
+
 
     public void requireClassTeacherOrAdmin(User user, String className, String arm) {
         if (isAdmin(user)) {
@@ -73,10 +98,36 @@ public class AccessControlService {
                 || isFormTeacherOfStudent(user, studentId);
     }
 
+    public boolean canViewStudentResult(User user, Long studentId) {
+        return isAdmin(user)
+                || isOwnerStudent(user, studentId)
+                || isParentOfStudent(user, studentId)
+                || isFormTeacherOfStudent(user, studentId);
+    }
+
+
     public boolean canModifyStudentResult(User user, Long studentId) {
         return isAdmin(user) || isFormTeacherOfStudent(user, studentId);
     }
 
+
+    public boolean canViewStudentAttendance(User user, Long studentId) {
+        return isAdmin(user)
+                || isOwnerStudent(user, studentId)
+                || isParentOfStudent(user, studentId)
+                || isFormTeacherOfStudent(user, studentId);
+    }
+
+
+    public boolean canMarkAttendance(User user, Long studentId) {
+        return isAdmin(user) || isFormTeacherOfStudent(user, studentId);
+    }
+
+    public boolean canViewStudentFees(User user, Long studentId) {
+        return isAdmin(user)
+                || isOwnerStudent(user, studentId)
+                || isParentOfStudent(user, studentId);
+    }
     public boolean isAdmin(User user) {
         return user != null && user.getRole() == User.Role.ADMIN;
     }

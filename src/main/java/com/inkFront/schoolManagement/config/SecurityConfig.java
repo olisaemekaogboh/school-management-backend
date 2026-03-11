@@ -42,7 +42,6 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
 
-                        // Public auth endpoints
                         .requestMatchers(
                                 "/api/auth/login",
                                 "/api/auth/register",
@@ -55,14 +54,12 @@ public class SecurityConfig {
                                 "/webjars/**"
                         ).permitAll()
 
-                        // Logged-in auth endpoints
                         .requestMatchers(
                                 "/api/auth/me",
                                 "/api/auth/logout",
                                 "/api/auth/change-password"
                         ).authenticated()
 
-                        // Specific scoped endpoints FIRST
                         .requestMatchers(
                                 "/api/teachers/me",
                                 "/api/teachers/me/**",
@@ -81,21 +78,24 @@ public class SecurityConfig {
                                 "/api/parent/**"
                         ).hasAnyRole("PARENT", "ADMIN")
 
-                        // Shared ownership / mixed-role endpoints
-                        .requestMatchers(
-                                "/api/results/**",
-                                "/api/attendance/**",
-                                "/api/session-results/**",
-                                "/api/fees/**"
-                        ).hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
+                        // Result endpoints
+                        .requestMatchers("/api/results/me/**").hasAnyRole("STUDENT", "ADMIN")
+                        .requestMatchers("/api/results/**").authenticated()
 
-                        // Endpoints any logged-in user can access
+                        // Attendance endpoints
+                        .requestMatchers("/api/attendance/me/**").hasAnyRole("STUDENT", "ADMIN")
+                        .requestMatchers("/api/attendance/**").authenticated()
+
+                        // Fee endpoints
+                        .requestMatchers("/api/fees/me/**").hasAnyRole("STUDENT", "ADMIN")
+                        .requestMatchers("/api/fees/student/**").hasAnyRole("ADMIN", "STUDENT", "PARENT")
+                        .requestMatchers("/api/fees/**").authenticated()
+
                         .requestMatchers(
                                 "/api/announcements/**",
                                 "/api/sessions/active"
                         ).authenticated()
 
-                        // Admin-only endpoints AFTER specific ones
                         .requestMatchers(
                                 "/api/users/**",
                                 "/api/admin/**",

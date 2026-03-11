@@ -1,7 +1,6 @@
 package com.inkFront.schoolManagement.controllers;
 
 import com.inkFront.schoolManagement.model.Attendance;
-import com.inkFront.schoolManagement.model.AttendanceSummary;
 import com.inkFront.schoolManagement.model.Result;
 import com.inkFront.schoolManagement.model.Student;
 import com.inkFront.schoolManagement.model.User;
@@ -64,7 +63,7 @@ public class AttendanceController {
             @RequestParam(required = false) String remarks) {
         try {
             User user = currentUser();
-            accessControlService.requireStudentResultModification(user, studentId);
+            accessControlService.requireAttendanceMarking(user, studentId);
 
             Attendance attendance = attendanceService.markAttendance(
                     studentId, date, session, term, status, remarks
@@ -89,15 +88,12 @@ public class AttendanceController {
             User user = currentUser();
             accessControlService.requireTeacherOrAdmin(user);
 
-            if (user.getRole() == User.Role.TEACHER && !studentIds.isEmpty()) {
-                Student firstStudent = studentRepository.findById(studentIds.get(0))
-                        .orElseThrow(() -> new RuntimeException("Student not found"));
+            if (studentIds == null || studentIds.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Student list cannot be empty"));
+            }
 
-                accessControlService.requireClassTeacherOrAdmin(
-                        user,
-                        firstStudent.getStudentClass(),
-                        firstStudent.getClassArm()
-                );
+            for (Long studentId : studentIds) {
+                accessControlService.requireAttendanceMarking(user, studentId);
             }
 
             List<Attendance> attendances = attendanceService.markBulkAttendance(
@@ -120,7 +116,7 @@ public class AttendanceController {
             @RequestParam Result.Term term) {
         try {
             User user = currentUser();
-            accessControlService.requireStudentAccess(user, studentId);
+            accessControlService.requireAttendanceAccess(user, studentId);
 
             Attendance attendance = attendanceService.getStudentAttendance(studentId, date, session, term);
             return attendance != null ? ResponseEntity.ok(attendance) : ResponseEntity.notFound().build();
@@ -138,7 +134,7 @@ public class AttendanceController {
             @RequestParam Result.Term term) {
         try {
             User user = currentUser();
-            accessControlService.requireStudentAccess(user, studentId);
+            accessControlService.requireAttendanceAccess(user, studentId);
 
             return ResponseEntity.ok(
                     attendanceService.getStudentTermAttendance(studentId, session, term)
@@ -157,7 +153,7 @@ public class AttendanceController {
             @RequestParam Result.Term term) {
         try {
             User user = currentUser();
-            accessControlService.requireStudentAccess(user, studentId);
+            accessControlService.requireAttendanceAccess(user, studentId);
 
             return ResponseEntity.ok(
                     attendanceService.getStudentTermSummary(studentId, session, term)
@@ -175,7 +171,7 @@ public class AttendanceController {
             @RequestParam String session) {
         try {
             User user = currentUser();
-            accessControlService.requireStudentAccess(user, studentId);
+            accessControlService.requireAttendanceAccess(user, studentId);
 
             return ResponseEntity.ok(
                     attendanceService.getStudentSessionSummary(studentId, session)
