@@ -67,17 +67,21 @@ public class SubjectController {
         return new ResponseEntity<>(subjectService.assignSubjectToClass(request), HttpStatus.CREATED);
     }
 
-    @GetMapping("/class-assignments/{className}")
-    public ResponseEntity<List<ClassSubjectResponseDTO>> getSubjectsForClass(@PathVariable String className) {
-        return ResponseEntity.ok(subjectService.getSubjectsForClass(className));
+    @GetMapping("/class-assignments")
+    public ResponseEntity<List<ClassSubjectResponseDTO>> getSubjectsForClass(
+            @RequestParam String className,
+            @RequestParam String classArm
+    ) {
+        return ResponseEntity.ok(subjectService.getSubjectsForClass(className, classArm));
     }
 
     @DeleteMapping("/class-assignments")
     public ResponseEntity<Void> removeSubjectFromClass(
             @RequestParam String className,
+            @RequestParam String classArm,
             @RequestParam Long subjectId
     ) {
-        subjectService.removeSubjectFromClass(className, subjectId);
+        subjectService.removeSubjectFromClass(className, classArm, subjectId);
         return ResponseEntity.noContent().build();
     }
 

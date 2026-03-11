@@ -4,9 +4,12 @@ import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
-@Table(name = "class_subjects", uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"className", "subject_id"})
-})
+@Table(
+        name = "class_subjects",
+        uniqueConstraints = {
+                @UniqueConstraint(columnNames = {"class_id", "subject_id"})
+        }
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -18,10 +21,11 @@ public class ClassSubject {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
-    private String className;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "class_id", nullable = false)
+    private SchoolClass schoolClass;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "subject_id", nullable = false)
     private Subject subject;
 }

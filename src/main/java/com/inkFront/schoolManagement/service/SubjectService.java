@@ -22,9 +22,9 @@ public interface SubjectService {
 
     ClassSubjectResponseDTO assignSubjectToClass(ClassSubjectRequestDTO request);
 
-    void removeSubjectFromClass(String className, Long subjectId);
+    void removeSubjectFromClass(String className, String classArm, Long subjectId);
 
-    List<ClassSubjectResponseDTO> getSubjectsForClass(String className);
+    List<ClassSubjectResponseDTO> getSubjectsForClass(String className, String classArm);
 
     TeacherSubjectResponseDTO assignSubjectToTeacher(TeacherSubjectRequestDTO request);
 

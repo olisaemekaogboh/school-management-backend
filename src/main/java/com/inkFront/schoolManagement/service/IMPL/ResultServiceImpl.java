@@ -43,25 +43,67 @@ public class ResultServiceImpl implements ResultService {
     @Override
     @Transactional
     public Result addOrUpdateResult(ResultRequestDTO request) {
-        log.info("Adding/updating result using DTO for student: {}, subject: {}",
-                request.getStudentId(), request.getSubject());
+        log.info("Adding/updating result using DTO for student: {}, subjectId: {}",
+                request.getStudentId(), request.getSubjectId());
 
-        return addOrUpdateResult(
-                request.getStudentId(),
-                request.getSubject(),
-                request.getSession(),
-                request.getTerm(),
-                Map.of(
-                        "resumptionTest", request.getResumptionTest() != null ? request.getResumptionTest() : 0.0,
-                        "assignments", request.getAssignments() != null ? request.getAssignments() : 0.0,
-                        "project", request.getProject() != null ? request.getProject() : 0.0,
-                        "midtermTest", request.getMidtermTest() != null ? request.getMidtermTest() : 0.0,
-                        "secondTest", request.getSecondTest() != null ? request.getSecondTest() : 0.0,
-                        "examination", request.getExamination() != null ? request.getExamination() : 0.0
+        Student student = studentRepository.findById(request.getStudentId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Student not found with id: " + request.getStudentId()
+                ));
+
+        Subject subject = subjectRepository.findById(request.getSubjectId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Subject not found with id: " + request.getSubjectId()
+                ));
+
+        TermResult termResult = termResultRepository
+                .findByStudentAndSessionAndTerm(student, request.getSession(), request.getTerm())
+                .orElseGet(() -> {
+                    TermResult newTermResult = new TermResult();
+                    newTermResult.setStudent(student);
+                    newTermResult.setSession(request.getSession());
+                    newTermResult.setTerm(request.getTerm());
+                    return termResultRepository.save(newTermResult);
+                });
+
+        Result result = resultRepository
+                .findByStudentAndSubjectAndSessionAndTerm(
+                        student,
+                        subject,
+                        request.getSession(),
+                        request.getTerm()
                 )
-        );
-    }
+                .orElse(new Result());
 
+        result.setTermResult(termResult);
+        result.setStudent(student);
+        result.setSubject(subject);
+        result.setSession(request.getSession());
+        result.setTerm(request.getTerm());
+
+        result.setResumptionTest(Math.min(request.getResumptionTest() != null ? request.getResumptionTest() : 0.0, 5.0));
+        result.setAssignments(Math.min(request.getAssignments() != null ? request.getAssignments() : 0.0, 10.0));
+        result.setProject(Math.min(request.getProject() != null ? request.getProject() : 0.0, 10.0));
+        result.setMidtermTest(Math.min(request.getMidtermTest() != null ? request.getMidtermTest() : 0.0, 10.0));
+        result.setSecondTest(Math.min(request.getSecondTest() != null ? request.getSecondTest() : 0.0, 5.0));
+        result.setExamination(Math.min(request.getExamination() != null ? request.getExamination() : 0.0, 60.0));
+
+        Result savedResult = resultRepository.save(result);
+
+        if (termResult.getSubjectResults() == null) {
+            termResult.setSubjectResults(new java.util.ArrayList<>());
+        }
+
+        if (!termResult.getSubjectResults().contains(savedResult)) {
+            termResult.addResult(savedResult);
+            termResultRepository.save(termResult);
+        }
+
+        updateTermAverages(termResult);
+
+        log.info("Result saved successfully with ID: {}", savedResult.getId());
+        return savedResult;
+    }
     @Override
     @Transactional
     public Result addOrUpdateResult(Long studentId, String subjectName, String session,

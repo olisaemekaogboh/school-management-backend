@@ -7,8 +7,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 
 @Entity
 @Table(
@@ -40,14 +38,9 @@ public class SchoolClass {
 
     private String description;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "class_teacher_id")
     private Teacher classTeacher;
-
-    @ElementCollection
-    @CollectionTable(name = "class_subjects", joinColumns = @JoinColumn(name = "class_id"))
-    @Column(name = "subject")
-    private List<String> subjects = new ArrayList<>();
 
     private Integer capacity;
     private Integer currentEnrollment;
@@ -61,6 +54,7 @@ public class SchoolClass {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
+
         if (classCode == null || classCode.isBlank()) {
             classCode = generateClassCode();
         }
@@ -69,6 +63,7 @@ public class SchoolClass {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+
         if (classCode == null || classCode.isBlank()) {
             classCode = generateClassCode();
         }

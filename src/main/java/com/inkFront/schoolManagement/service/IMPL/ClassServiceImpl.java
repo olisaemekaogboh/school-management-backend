@@ -1,118 +1,194 @@
-// src/main/java/com/inkFront/schoolManagement/service/IMPL/ClassServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
 import com.inkFront.schoolManagement.dto.ClassDTO;
 import com.inkFront.schoolManagement.dto.StudentResponseDTO;
-import com.inkFront.schoolManagement.exception.BusinessException;
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
+import com.inkFront.schoolManagement.model.ClassSubject;
 import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.model.Student;
+import com.inkFront.schoolManagement.model.Subject;
 import com.inkFront.schoolManagement.model.Teacher;
 import com.inkFront.schoolManagement.repository.ClassRepository;
+import com.inkFront.schoolManagement.repository.ClassSubjectRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
+import com.inkFront.schoolManagement.repository.SubjectRepository;
 import com.inkFront.schoolManagement.repository.TeacherRepository;
 import com.inkFront.schoolManagement.service.ClassService;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayOutputStream;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 @Transactional
 public class ClassServiceImpl implements ClassService {
 
     private final ClassRepository classRepository;
     private final TeacherRepository teacherRepository;
     private final StudentRepository studentRepository;
+    private final SubjectRepository subjectRepository;
+    private final ClassSubjectRepository classSubjectRepository;
 
     @Override
     public SchoolClass createClass(ClassDTO classDTO) {
-        log.info("Creating new class: {} - Arm {}", classDTO.getClassName(), classDTO.getArm());
+        String className = safe(classDTO.getClassName());
+        String arm = safe(classDTO.getArm());
 
-        // Check if class with same name and arm already exists
-        if (classRepository.findByClassNameAndArm(classDTO.getClassName(), classDTO.getArm()).isPresent()) {
-            throw new BusinessException("Class already exists with name: " + classDTO.getClassName() + " and arm: " + classDTO.getArm());
+        if (className.isBlank()) {
+            throw new RuntimeException("Class name is required");
+        }
+
+        if (arm.isBlank()) {
+            throw new RuntimeException("Class arm is required");
+        }
+
+        if (classRepository.existsByClassNameAndArm(className, arm)) {
+            throw new RuntimeException("Class already exists: " + className + " " + arm);
         }
 
         SchoolClass schoolClass = SchoolClass.builder()
-                .className(classDTO.getClassName())
-                .arm(classDTO.getArm()) // ADD THIS - set the arm
+                .className(className)
+                .arm(arm)
                 .category(classDTO.getCategory())
                 .description(classDTO.getDescription())
-                .capacity(classDTO.getCapacity() != null ? classDTO.getCapacity() : 40)
-                .currentEnrollment(0)
-                .subjects(classDTO.getSubjects() != null ? classDTO.getSubjects() : new java.util.ArrayList<>())
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
+                .capacity(classDTO.getCapacity())
+                .currentEnrollment(
+                        classDTO.getCurrentEnrollment() != null ? classDTO.getCurrentEnrollment() : 0
+                )
                 .build();
 
-        // Assign class teacher if provided
         if (classDTO.getClassTeacherId() != null) {
             Teacher teacher = teacherRepository.findById(classDTO.getClassTeacherId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + classDTO.getClassTeacherId()));
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Teacher not found with id: " + classDTO.getClassTeacherId()
+                    ));
             schoolClass.setClassTeacher(teacher);
         }
 
-        // The classCode will be auto-generated in @PrePersist
         SchoolClass savedClass = classRepository.save(schoolClass);
-        log.info("Class created successfully with id: {} and code: {}", savedClass.getId(), savedClass.getClassCode());
+
+        if (classDTO.getSubjects() != null && !classDTO.getSubjects().isEmpty()) {
+            for (String subjectName : classDTO.getSubjects()) {
+                String cleanSubject = safe(subjectName);
+                if (cleanSubject.isBlank()) {
+                    continue;
+                }
+
+                Subject subject = subjectRepository.findByNameIgnoreCase(cleanSubject)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException("Subject not found with name: " + cleanSubject));
+
+                boolean exists = classSubjectRepository.findBySchoolClassAndSubject(savedClass, subject).isPresent();
+                if (!exists) {
+                    ClassSubject classSubject = ClassSubject.builder()
+                            .schoolClass(savedClass)
+                            .subject(subject)
+                            .build();
+                    classSubjectRepository.save(classSubject);
+                }
+            }
+        }
+
         return savedClass;
     }
+
     @Override
     public SchoolClass updateClass(Long id, ClassDTO classDTO) {
-        log.info("Updating class with id: {}", id);
+        SchoolClass schoolClass = classRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + id));
 
-        SchoolClass schoolClass = getClass(id);
+        String className = safe(classDTO.getClassName());
+        String arm = safe(classDTO.getArm());
 
-        // Check if another class with same name and arm exists (excluding this one)
-        classRepository.findByClassNameAndArm(classDTO.getClassName(), classDTO.getArm())
-                .ifPresent(existingClass -> {
-                    if (!existingClass.getId().equals(id)) {
-                        throw new BusinessException("Another class already exists with name: " +
-                                classDTO.getClassName() + " and arm: " + classDTO.getArm());
+        if (className.isBlank()) {
+            throw new RuntimeException("Class name is required");
+        }
+
+        if (arm.isBlank()) {
+            throw new RuntimeException("Class arm is required");
+        }
+
+        classRepository.findByClassNameAndArm(className, arm)
+                .ifPresent(existing -> {
+                    if (!existing.getId().equals(id)) {
+                        throw new RuntimeException(
+                                "Another class already exists with name " + className + " and arm " + arm
+                        );
                     }
                 });
 
-        schoolClass.setClassName(classDTO.getClassName());
-        schoolClass.setArm(classDTO.getArm()); // ADD THIS - update the arm
+        schoolClass.setClassName(className);
+        schoolClass.setArm(arm);
         schoolClass.setCategory(classDTO.getCategory());
         schoolClass.setDescription(classDTO.getDescription());
         schoolClass.setCapacity(classDTO.getCapacity());
-        schoolClass.setSubjects(classDTO.getSubjects());
-        schoolClass.setUpdatedAt(LocalDateTime.now());
 
-        // Update class teacher if changed
+        if (classDTO.getCurrentEnrollment() != null) {
+            schoolClass.setCurrentEnrollment(classDTO.getCurrentEnrollment());
+        }
+
         if (classDTO.getClassTeacherId() != null) {
-            if (schoolClass.getClassTeacher() == null ||
-                    !schoolClass.getClassTeacher().getId().equals(classDTO.getClassTeacherId())) {
-                Teacher teacher = teacherRepository.findById(classDTO.getClassTeacherId())
-                        .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + classDTO.getClassTeacherId()));
-                schoolClass.setClassTeacher(teacher);
-            }
+            Teacher teacher = teacherRepository.findById(classDTO.getClassTeacherId())
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Teacher not found with id: " + classDTO.getClassTeacherId()
+                    ));
+            schoolClass.setClassTeacher(teacher);
         } else {
             schoolClass.setClassTeacher(null);
         }
 
-        // The classCode will be auto-updated in @PreUpdate based on className and arm
-        SchoolClass updatedClass = classRepository.save(schoolClass);
-        log.info("Class updated successfully with id: {} and code: {}", id, updatedClass.getClassCode());
-        return updatedClass;
+        SchoolClass savedClass = classRepository.save(schoolClass);
+
+        if (classDTO.getSubjects() != null) {
+            List<ClassSubject> existingAssignments =
+                    classSubjectRepository.findBySchoolClassOrderBySubject_NameAsc(savedClass);
+
+            for (ClassSubject assignment : existingAssignments) {
+                classSubjectRepository.delete(assignment);
+            }
+
+            for (String subjectName : classDTO.getSubjects()) {
+                String cleanSubject = safe(subjectName);
+                if (cleanSubject.isBlank()) {
+                    continue;
+                }
+
+                Subject subject = subjectRepository.findByNameIgnoreCase(cleanSubject)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException("Subject not found with name: " + cleanSubject));
+
+                ClassSubject classSubject = ClassSubject.builder()
+                        .schoolClass(savedClass)
+                        .subject(subject)
+                        .build();
+
+                classSubjectRepository.save(classSubject);
+            }
+        }
+
+        return savedClass;
     }
 
     @Override
+    @Transactional(readOnly = true)
     public SchoolClass getClass(Long id) {
         return classRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + id));
     }
 
     @Override
+    @Transactional(readOnly = true)
     public SchoolClass getClassByName(String className) {
         return classRepository.findByClassName(className)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with name: " + className));
@@ -120,94 +196,282 @@ public class ClassServiceImpl implements ClassService {
 
     @Override
     public void deleteClass(Long id) {
-        log.info("Deleting class with id: {}", id);
-        SchoolClass schoolClass = getClass(id);
+        SchoolClass schoolClass = classRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + id));
 
-        // Check if class has students
-        if (schoolClass.getCurrentEnrollment() > 0) {
-            throw new BusinessException("Cannot delete class with enrolled students");
+        List<ClassSubject> assignments = classSubjectRepository.findBySchoolClassOrderBySubject_NameAsc(schoolClass);
+        if (!assignments.isEmpty()) {
+            classSubjectRepository.deleteAll(assignments);
         }
 
         classRepository.delete(schoolClass);
-        log.info("Class deleted successfully with id: {}", id);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<ClassDTO> getAllClasses() {
-        return classRepository.findAllWithSubjects().stream()
-                .map(ClassDTO::fromEntity)
-                .collect(Collectors.toList());
+        return classRepository.findAll()
+                .stream()
+                .map(this::mapToDTO)
+                .toList();
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<ClassDTO> getClassesByCategory(String category) {
+        SchoolClass.ClassCategory parsedCategory;
         try {
-            SchoolClass.ClassCategory classCategory = SchoolClass.ClassCategory.valueOf(category);
-            return classRepository.findByCategory(classCategory).stream()
-                    .map(ClassDTO::fromEntity)
-                    .collect(Collectors.toList());
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException("Invalid category: " + category);
+            parsedCategory = SchoolClass.ClassCategory.valueOf(category.trim().toUpperCase());
+        } catch (Exception e) {
+            throw new RuntimeException("Invalid class category: " + category);
         }
+
+        return classRepository.findByCategory(parsedCategory)
+                .stream()
+                .map(this::mapToDTO)
+                .toList();
     }
 
     @Override
     public SchoolClass assignClassTeacher(Long classId, Long teacherId) {
-        SchoolClass schoolClass = getClass(classId);
+        SchoolClass schoolClass = classRepository.findById(classId)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
+
         Teacher teacher = teacherRepository.findById(teacherId)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + teacherId));
 
         schoolClass.setClassTeacher(teacher);
-        schoolClass.setUpdatedAt(LocalDateTime.now());
         return classRepository.save(schoolClass);
     }
 
     @Override
     public SchoolClass addSubject(Long classId, String subject) {
-        SchoolClass schoolClass = getClass(classId);
-        if (!schoolClass.getSubjects().contains(subject)) {
-            schoolClass.getSubjects().add(subject);
-            schoolClass.setUpdatedAt(LocalDateTime.now());
-            return classRepository.save(schoolClass);
+        SchoolClass schoolClass = classRepository.findById(classId)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
+
+        String cleanSubject = safe(subject);
+        if (cleanSubject.isBlank()) {
+            throw new RuntimeException("Subject is required");
         }
+
+        Subject foundSubject = subjectRepository.findByNameIgnoreCase(cleanSubject)
+                .orElseThrow(() -> new ResourceNotFoundException("Subject not found with name: " + cleanSubject));
+
+        boolean exists = classSubjectRepository.findBySchoolClassAndSubject(schoolClass, foundSubject).isPresent();
+        if (exists) {
+            return schoolClass;
+        }
+
+        ClassSubject classSubject = ClassSubject.builder()
+                .schoolClass(schoolClass)
+                .subject(foundSubject)
+                .build();
+
+        classSubjectRepository.save(classSubject);
         return schoolClass;
     }
 
     @Override
     public SchoolClass removeSubject(Long classId, String subject) {
-        SchoolClass schoolClass = getClass(classId);
-        schoolClass.getSubjects().remove(subject);
-        schoolClass.setUpdatedAt(LocalDateTime.now());
-        return classRepository.save(schoolClass);
+        SchoolClass schoolClass = classRepository.findById(classId)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
+
+        String cleanSubject = safe(subject);
+        if (cleanSubject.isBlank()) {
+            return schoolClass;
+        }
+
+        Subject foundSubject = subjectRepository.findByNameIgnoreCase(cleanSubject)
+                .orElseThrow(() -> new ResourceNotFoundException("Subject not found with name: " + cleanSubject));
+
+        classSubjectRepository.deleteBySchoolClassAndSubject(schoolClass, foundSubject);
+        return schoolClass;
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<StudentResponseDTO> getStudentsInClass(Long classId) {
-        SchoolClass schoolClass = getClass(classId);
-        List<Student> students = studentRepository.findByStudentClass(schoolClass.getClassName());
+        SchoolClass schoolClass = classRepository.findById(classId)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
+
+        List<Student> students = studentRepository.findByStudentClassAndClassArm(
+                schoolClass.getClassName(),
+                schoolClass.getArm()
+        );
+
         return students.stream()
                 .map(StudentResponseDTO::fromStudent)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Map<String, Object> getClassStatistics() {
-        // Implement statistics logic here
-        return Map.of(
-                "totalClasses", classRepository.count(),
-                "message", "Statistics coming soon"
-        );
+        List<SchoolClass> allClasses = classRepository.findAll();
+
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("totalClasses", allClasses.size());
+
+        int totalCapacity = allClasses.stream()
+                .mapToInt(c -> c.getCapacity() != null ? c.getCapacity() : 0)
+                .sum();
+
+        int totalEnrollment = allClasses.stream()
+                .mapToInt(c -> c.getCurrentEnrollment() != null ? c.getCurrentEnrollment() : 0)
+                .sum();
+
+        stats.put("totalCapacity", totalCapacity);
+        stats.put("totalEnrollment", totalEnrollment);
+        stats.put("availableSpaces", Math.max(totalCapacity - totalEnrollment, 0));
+
+        Map<String, Long> byCategory = new HashMap<>();
+        for (SchoolClass schoolClass : allClasses) {
+            String key = schoolClass.getCategory() != null
+                    ? schoolClass.getCategory().name()
+                    : "UNCATEGORIZED";
+            byCategory.put(key, byCategory.getOrDefault(key, 0L) + 1);
+        }
+
+        stats.put("classesByCategory", byCategory);
+
+        return stats;
     }
 
     @Override
+    @Transactional(readOnly = true)
     public byte[] generateClassListPdf(Long classId) throws Exception {
-        // Implement PDF generation here
-        throw new UnsupportedOperationException("PDF generation not implemented yet");
+        SchoolClass schoolClass = classRepository.findById(classId)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
+
+        List<Student> students = studentRepository.findByStudentClassAndClassArm(
+                schoolClass.getClassName(),
+                schoolClass.getArm()
+        );
+
+        StringBuilder content = new StringBuilder();
+        content.append("CLASS LIST\n");
+        content.append("==========\n\n");
+        content.append("Class: ")
+                .append(schoolClass.getClassName())
+                .append(" ")
+                .append(schoolClass.getArm())
+                .append("\n");
+        content.append("Generated: ").append(LocalDateTime.now()).append("\n\n");
+
+        int sn = 1;
+        for (Student student : students) {
+            content.append(sn++)
+                    .append(". ")
+                    .append(buildStudentFullName(student))
+                    .append(" - ")
+                    .append(value(student.getAdmissionNumber()))
+                    .append("\n");
+        }
+
+        return content.toString().getBytes();
     }
 
     @Override
+    @Transactional(readOnly = true)
     public byte[] generateClassListExcel(Long classId) throws Exception {
-        // Implement Excel generation here
-        throw new UnsupportedOperationException("Excel generation not implemented yet");
+        SchoolClass schoolClass = classRepository.findById(classId)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
+
+        List<Student> students = studentRepository.findByStudentClassAndClassArm(
+                schoolClass.getClassName(),
+                schoolClass.getArm()
+        );
+
+        try (Workbook workbook = new XSSFWorkbook();
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+
+            Sheet sheet = workbook.createSheet("Class List");
+
+            Row header = sheet.createRow(0);
+            header.createCell(0).setCellValue("S/N");
+            header.createCell(1).setCellValue("Admission Number");
+            header.createCell(2).setCellValue("First Name");
+            header.createCell(3).setCellValue("Last Name");
+            header.createCell(4).setCellValue("Full Name");
+            header.createCell(5).setCellValue("Gender");
+            header.createCell(6).setCellValue("Class");
+            header.createCell(7).setCellValue("Arm");
+
+            int rowNum = 1;
+            int sn = 1;
+
+            for (Student student : students) {
+                Row row = sheet.createRow(rowNum++);
+                row.createCell(0).setCellValue(sn++);
+                row.createCell(1).setCellValue(value(student.getAdmissionNumber()));
+                row.createCell(2).setCellValue(value(student.getFirstName()));
+                row.createCell(3).setCellValue(value(student.getLastName()));
+                row.createCell(4).setCellValue(buildStudentFullName(student));
+                row.createCell(5).setCellValue(student.getGender() != null ? student.getGender().name() : "");
+                row.createCell(6).setCellValue(value(student.getStudentClass()));
+                row.createCell(7).setCellValue(value(student.getClassArm()));
+            }
+
+            for (int i = 0; i < 8; i++) {
+                sheet.autoSizeColumn(i);
+            }
+
+            workbook.write(out);
+            return out.toByteArray();
+        }
+    }
+
+    private ClassDTO mapToDTO(SchoolClass schoolClass) {
+        List<StudentResponseDTO> students = studentRepository
+                .findByStudentClassAndClassArm(schoolClass.getClassName(), schoolClass.getArm())
+                .stream()
+                .map(StudentResponseDTO::fromStudent)
+                .toList();
+
+        List<String> subjects = classSubjectRepository.findBySchoolClassOrderBySubject_NameAsc(schoolClass)
+                .stream()
+                .map(cs -> cs.getSubject().getName())
+                .toList();
+
+        return ClassDTO.builder()
+                .id(schoolClass.getId())
+                .className(schoolClass.getClassName())
+                .arm(schoolClass.getArm())
+                .classCode(schoolClass.getClassCode())
+                .category(schoolClass.getCategory())
+                .description(schoolClass.getDescription())
+                .classTeacherId(
+                        schoolClass.getClassTeacher() != null ? schoolClass.getClassTeacher().getId() : null
+                )
+                .classTeacherName(
+                        schoolClass.getClassTeacher() != null
+                                ? buildTeacherFullName(schoolClass.getClassTeacher())
+                                : null
+                )
+                .subjects(new ArrayList<>(subjects))
+                .capacity(schoolClass.getCapacity())
+                .currentEnrollment(schoolClass.getCurrentEnrollment())
+                .students(students)
+                .build();
+    }
+
+    private String buildTeacherFullName(Teacher teacher) {
+        return (value(teacher.getFirstName()) + " " + value(teacher.getLastName())).trim();
+    }
+
+    private String buildStudentFullName(Student student) {
+        return (
+                value(student.getFirstName()) + " " +
+                        value(student.getMiddleName()) + " " +
+                        value(student.getLastName())
+        ).trim().replaceAll("\\s+", " ");
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private String value(String value) {
+        return value == null ? "" : value;
     }
 }

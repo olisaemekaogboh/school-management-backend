@@ -11,6 +11,8 @@ public class SchoolClassDTO {
 
     private String className;
 
+    private String arm;
+
     private String classCode;
 
     private String category;
@@ -18,6 +20,8 @@ public class SchoolClassDTO {
     private String description;
 
     private Long classTeacherId;
+
+    private String classTeacherName;
 
     private Integer capacity;
 

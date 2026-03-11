@@ -10,6 +10,9 @@ public class ClassSubjectRequestDTO {
     @NotBlank(message = "Class name is required")
     private String className;
 
-    @NotNull(message = "Subject id is required")
+    @NotBlank(message = "Class arm is required")
+    private String classArm;
+
+    @NotNull(message = "Subject ID is required")
     private Long subjectId;
 }

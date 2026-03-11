@@ -62,20 +62,9 @@ public class ResultController {
             User user = currentUser();
             accessControlService.requireStudentResultModification(user, studentId);
 
-            Result result = resultService.addOrUpdateResult(
-                    studentId,
-                    resultRequest.getSubject(),
-                    resultRequest.getSession(),
-                    resultRequest.getTerm(),
-                    Map.of(
-                            "resumptionTest", resultRequest.getResumptionTest(),
-                            "assignments", resultRequest.getAssignments(),
-                            "project", resultRequest.getProject(),
-                            "midtermTest", resultRequest.getMidtermTest(),
-                            "secondTest", resultRequest.getSecondTest(),
-                            "examination", resultRequest.getExamination()
-                    )
-            );
+            resultRequest.setStudentId(studentId);
+
+            Result result = resultService.addOrUpdateResult(resultRequest);
 
             return ResponseEntity.ok(ResultResponseDTO.fromResult(result));
 
@@ -97,7 +86,11 @@ public class ResultController {
             accessControlService.requireStudentResultAccess(user, studentId);
 
             List<Result> results = resultService.getStudentResults(studentId, session, term);
-            return ResponseEntity.ok(results);
+            List<ResultResponseDTO> response = results.stream()
+                    .map(ResultResponseDTO::fromResult)
+                    .toList();
+
+            return ResponseEntity.ok(response);
 
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
@@ -208,7 +201,7 @@ public class ResultController {
     @GetMapping("/rankings/class/{className}")
     public ResponseEntity<?> getClassRankings(
             @PathVariable String className,
-            @RequestParam String arm,
+            @RequestParam(required = false) String arm,
             @RequestParam String session,
             @RequestParam Result.Term term) {
 

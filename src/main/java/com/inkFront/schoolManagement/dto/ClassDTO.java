@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Data
@@ -13,9 +14,10 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ClassDTO {
+
     private Long id;
     private String className;
-    private String arm; // ADD THIS FIELD - it's missing!
+    private String arm;
     private String classCode;
     private SchoolClass.ClassCategory category;
     private String description;
@@ -27,17 +29,29 @@ public class ClassDTO {
     private List<StudentResponseDTO> students;
 
     public static ClassDTO fromEntity(SchoolClass schoolClass) {
+        return fromEntity(schoolClass, new ArrayList<>());
+    }
+
+    public static ClassDTO fromEntity(SchoolClass schoolClass, List<String> subjects) {
         return ClassDTO.builder()
                 .id(schoolClass.getId())
                 .className(schoolClass.getClassName())
-                .arm(schoolClass.getArm()) // ADD THIS
+                .arm(schoolClass.getArm())
                 .classCode(schoolClass.getClassCode())
                 .category(schoolClass.getCategory())
                 .description(schoolClass.getDescription())
-                .classTeacherId(schoolClass.getClassTeacher() != null ? schoolClass.getClassTeacher().getId() : null)
-                .classTeacherName(schoolClass.getClassTeacher() != null ?
-                        schoolClass.getClassTeacher().getFirstName() + " " + schoolClass.getClassTeacher().getLastName() : null)
-                .subjects(schoolClass.getSubjects())
+                .classTeacherId(
+                        schoolClass.getClassTeacher() != null
+                                ? schoolClass.getClassTeacher().getId()
+                                : null
+                )
+                .classTeacherName(
+                        schoolClass.getClassTeacher() != null
+                                ? schoolClass.getClassTeacher().getFirstName() + " " +
+                                schoolClass.getClassTeacher().getLastName()
+                                : null
+                )
+                .subjects(subjects != null ? subjects : new ArrayList<>())
                 .capacity(schoolClass.getCapacity())
                 .currentEnrollment(schoolClass.getCurrentEnrollment())
                 .build();

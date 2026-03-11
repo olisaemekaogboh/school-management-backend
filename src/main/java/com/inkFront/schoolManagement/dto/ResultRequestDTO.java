@@ -19,18 +19,19 @@ public class ResultRequestDTO {
     @NotNull(message = "Student ID is required")
     private Long studentId;
 
-    @NotBlank(message = "Subject is required")
-    @Size(min = 2, max = 100, message = "Subject must be between 2 and 100 characters")
-    private String subject;
+    @NotNull(message = "Subject ID is required")
+    private Long subjectId;
 
     @NotBlank(message = "Session is required")
-    @Pattern(regexp = "^\\d{4}/\\d{4}$", message = "Session must be in format YYYY/YYYY (e.g., 2025/2026)")
+    @Pattern(
+            regexp = "^\\d{4}/\\d{4}$",
+            message = "Session must be in format YYYY/YYYY (e.g., 2025/2026)"
+    )
     private String session;
 
     @NotNull(message = "Term is required")
     private Result.Term term;
 
-    // Continuous Assessment Components (with validation)
     @Min(value = 0, message = "Resumption test must be at least 0")
     @Max(value = 5, message = "Resumption test cannot exceed 5 marks")
     private Double resumptionTest;
@@ -51,20 +52,22 @@ public class ResultRequestDTO {
     @Max(value = 5, message = "Second test cannot exceed 5 marks")
     private Double secondTest;
 
-    // Examination
     @Min(value = 0, message = "Examination must be at least 0")
     @Max(value = 60, message = "Examination cannot exceed 60 marks")
     private Double examination;
 
-    // Optional remarks
     private String remarks;
 
-    // Helper method to create from scores map (for controller use)
-    public static ResultRequestDTO fromScoresMap(Long studentId, String subject, String session,
-                                                 Result.Term term, Map<String, Double> scores) {
+    public static ResultRequestDTO fromScoresMap(
+            Long studentId,
+            Long subjectId,
+            String session,
+            Result.Term term,
+            Map<String, Double> scores
+    ) {
         return ResultRequestDTO.builder()
                 .studentId(studentId)
-                .subject(subject)
+                .subjectId(subjectId)
                 .session(session)
                 .term(term)
                 .resumptionTest(scores.getOrDefault("resumptionTest", 0.0))
@@ -76,27 +79,24 @@ public class ResultRequestDTO {
                 .build();
     }
 
-    // Validation method to ensure total doesn't exceed maximum
     public boolean isValid() {
         double caTotal = getContinuousAssessmentTotal();
-        return caTotal <= 40 && examination <= 60 && (caTotal + examination) <= 100;
+        double examScore = examination != null ? examination : 0.0;
+        return caTotal <= 40 && examScore <= 60 && (caTotal + examScore) <= 100;
     }
 
-    // Calculate continuous assessment total
     public double getContinuousAssessmentTotal() {
-        return (resumptionTest != null ? resumptionTest : 0) +
-                (assignments != null ? assignments : 0) +
-                (project != null ? project : 0) +
-                (midtermTest != null ? midtermTest : 0) +
-                (secondTest != null ? secondTest : 0);
+        return (resumptionTest != null ? resumptionTest : 0.0) +
+                (assignments != null ? assignments : 0.0) +
+                (project != null ? project : 0.0) +
+                (midtermTest != null ? midtermTest : 0.0) +
+                (secondTest != null ? secondTest : 0.0);
     }
 
-    // Calculate total score
     public double getTotalScore() {
-        return getContinuousAssessmentTotal() + (examination != null ? examination : 0);
+        return getContinuousAssessmentTotal() + (examination != null ? examination : 0.0);
     }
 
-    // Get grade based on total
     public String getGrade() {
         double total = getTotalScore();
         if (total >= 70) return "A";
@@ -107,7 +107,6 @@ public class ResultRequestDTO {
         return "F";
     }
 
-    // Get remark based on grade
     public String getRemark() {
         double total = getTotalScore();
         if (total >= 70) return "Excellent";

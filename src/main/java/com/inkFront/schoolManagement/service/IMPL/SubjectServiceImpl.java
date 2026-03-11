@@ -17,6 +17,7 @@ import java.util.List;
 public class SubjectServiceImpl implements SubjectService {
 
     private final SubjectRepository subjectRepository;
+    private final ClassRepository classRepository;
     private final ClassSubjectRepository classSubjectRepository;
     private final TeacherSubjectRepository teacherSubjectRepository;
     private final TeacherRepository teacherRepository;
@@ -120,14 +121,20 @@ public class SubjectServiceImpl implements SubjectService {
                 .orElseThrow(() -> new ResourceNotFoundException("Subject not found with id: " + request.getSubjectId()));
 
         String className = request.getClassName().trim();
+        String classArm = request.getClassArm().trim();
 
-        classSubjectRepository.findByClassNameAndSubject(className, subject)
+        SchoolClass schoolClass = classRepository.findByClassNameAndArm(className, classArm)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Class not found: " + className + " " + classArm
+                ));
+
+        classSubjectRepository.findBySchoolClassAndSubject(schoolClass, subject)
                 .ifPresent(existing -> {
-                    throw new RuntimeException("Subject already assigned to this class");
+                    throw new RuntimeException("Subject already assigned to this class arm");
                 });
 
         ClassSubject classSubject = ClassSubject.builder()
-                .className(className)
+                .schoolClass(schoolClass)
                 .subject(subject)
                 .build();
 
@@ -135,17 +142,27 @@ public class SubjectServiceImpl implements SubjectService {
     }
 
     @Override
-    public void removeSubjectFromClass(String className, Long subjectId) {
+    public void removeSubjectFromClass(String className, String classArm, Long subjectId) {
         Subject subject = subjectRepository.findById(subjectId)
                 .orElseThrow(() -> new ResourceNotFoundException("Subject not found with id: " + subjectId));
 
-        classSubjectRepository.deleteByClassNameAndSubject(className.trim(), subject);
+        SchoolClass schoolClass = classRepository.findByClassNameAndArm(className.trim(), classArm.trim())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Class not found: " + className + " " + classArm
+                ));
+
+        classSubjectRepository.deleteBySchoolClassAndSubject(schoolClass, subject);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<ClassSubjectResponseDTO> getSubjectsForClass(String className) {
-        return classSubjectRepository.findByClassNameOrderBySubject_NameAsc(className.trim())
+    public List<ClassSubjectResponseDTO> getSubjectsForClass(String className, String classArm) {
+        SchoolClass schoolClass = classRepository.findByClassNameAndArm(className.trim(), classArm.trim())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Class not found: " + className + " " + classArm
+                ));
+
+        return classSubjectRepository.findBySchoolClassOrderBySubject_NameAsc(schoolClass)
                 .stream()
                 .map(ClassSubjectResponseDTO::fromEntity)
                 .toList();

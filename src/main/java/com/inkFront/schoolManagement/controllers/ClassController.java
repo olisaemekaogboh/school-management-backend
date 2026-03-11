@@ -1,10 +1,10 @@
-// src/main/java/com/inkFront/schoolManagement/controllers/ClassController.java
 package com.inkFront.schoolManagement.controllers;
 
 import com.inkFront.schoolManagement.dto.ClassDTO;
 import com.inkFront.schoolManagement.dto.StudentResponseDTO;
 import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.service.ClassService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -12,7 +12,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
 
