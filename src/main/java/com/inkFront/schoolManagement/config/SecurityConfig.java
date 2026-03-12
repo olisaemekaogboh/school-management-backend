@@ -4,6 +4,7 @@ import com.inkFront.schoolManagement.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -42,6 +43,10 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
 
+                        // allow preflight requests
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+                        // PUBLIC ENDPOINTS
                         .requestMatchers(
                                 "/api/auth/login",
                                 "/api/auth/register",
@@ -54,58 +59,112 @@ public class SecurityConfig {
                                 "/webjars/**"
                         ).permitAll()
 
+                        // AUTHENTICATED USER ENDPOINTS
                         .requestMatchers(
                                 "/api/auth/me",
                                 "/api/auth/logout",
                                 "/api/auth/change-password"
                         ).authenticated()
 
+                        // TEACHER SELF-SERVICE
                         .requestMatchers(
                                 "/api/teachers/me",
                                 "/api/teachers/me/**",
                                 "/api/teacher/**"
                         ).hasAnyRole("TEACHER", "ADMIN")
 
+                        // STUDENT SELF-SERVICE
                         .requestMatchers(
                                 "/api/students/me",
                                 "/api/students/me/**",
                                 "/api/student/**"
                         ).hasAnyRole("STUDENT", "ADMIN")
 
+                        // PARENT SELF-SERVICE
                         .requestMatchers(
                                 "/api/parents/me",
                                 "/api/parents/me/**",
                                 "/api/parent/**"
                         ).hasAnyRole("PARENT", "ADMIN")
 
-                        // Result endpoints
-                        .requestMatchers("/api/results/me/**").hasAnyRole("STUDENT", "ADMIN")
-                        .requestMatchers("/api/results/**").authenticated()
+                        // RESULTS
+                        .requestMatchers("/api/results/me/**")
+                        .hasAnyRole("STUDENT", "ADMIN")
 
-                        // Attendance endpoints
-                        .requestMatchers("/api/attendance/me/**").hasAnyRole("STUDENT", "ADMIN")
-                        .requestMatchers("/api/attendance/**").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/results/**")
+                        .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
 
-                        // Fee endpoints
-                        .requestMatchers("/api/fees/me/**").hasAnyRole("STUDENT", "ADMIN")
-                        .requestMatchers("/api/fees/student/**").hasAnyRole("ADMIN", "STUDENT", "PARENT")
-                        .requestMatchers("/api/fees/**").authenticated()
+                        .requestMatchers("/api/results/**")
+                        .hasAnyRole("ADMIN", "TEACHER")
 
-                        .requestMatchers(
-                                "/api/announcements/**",
-                                "/api/sessions/active"
-                        ).authenticated()
+                        // ATTENDANCE
+                        .requestMatchers("/api/attendance/me/**")
+                        .hasAnyRole("STUDENT", "ADMIN")
 
+                        .requestMatchers(HttpMethod.GET, "/api/attendance/**")
+                        .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
+
+                        .requestMatchers("/api/attendance/**")
+                        .hasAnyRole("ADMIN", "TEACHER")
+
+                        // FEES
+                        .requestMatchers("/api/fees/me/**")
+                        .hasAnyRole("STUDENT", "ADMIN")
+
+                        .requestMatchers("/api/fees/student/**")
+                        .hasAnyRole("ADMIN", "PARENT", "STUDENT")
+
+                        .requestMatchers("/api/fees/**")
+                        .hasAnyRole("ADMIN", "PARENT", "STUDENT")
+
+                        // ANNOUNCEMENTS
+                        .requestMatchers(HttpMethod.GET, "/api/announcements/**")
+                        .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
+
+                        .requestMatchers("/api/announcements/**")
+                        .hasRole("ADMIN")
+
+                        // SESSIONS
+                        .requestMatchers(HttpMethod.GET, "/api/sessions/**")
+                        .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
+
+                        .requestMatchers("/api/sessions/**")
+                        .hasRole("ADMIN")
+
+                        // SUBJECTS
+                        .requestMatchers(HttpMethod.GET, "/api/subjects/**")
+                        .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
+
+                        .requestMatchers("/api/subjects/**")
+                        .hasRole("ADMIN")
+
+                        // CLASSES
+                        .requestMatchers(HttpMethod.GET, "/api/classes/**")
+                        .hasAnyRole("ADMIN", "TEACHER")
+
+                        .requestMatchers("/api/classes/**")
+                        .hasRole("ADMIN")
+
+                        // STUDENTS
+                        .requestMatchers(HttpMethod.GET, "/api/students/**")
+                        .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
+
+                        .requestMatchers("/api/students/**")
+                        .hasRole("ADMIN")
+
+                        // TEACHERS
+                        .requestMatchers(HttpMethod.GET, "/api/teachers/**")
+                        .hasAnyRole("ADMIN", "TEACHER")
+
+                        .requestMatchers("/api/teachers/**")
+                        .hasRole("ADMIN")
+
+                        // OTHER ADMIN MODULES
                         .requestMatchers(
                                 "/api/users/**",
                                 "/api/admin/**",
-                                "/api/students/**",
-                                "/api/teachers/**",
-                                "/api/parents/**",
-                                "/api/classes/**",
                                 "/api/transport/**",
                                 "/api/library/**",
-                                "/api/sessions/**",
                                 "/api/timetable/**"
                         ).hasRole("ADMIN")
 
@@ -126,7 +185,7 @@ public class SecurityConfig {
                 "http://127.0.0.1:3000"
         ));
         configuration.setAllowedMethods(Arrays.asList(
-                "GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"
+                "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"
         ));
         configuration.setAllowedHeaders(Arrays.asList(
                 "Authorization",

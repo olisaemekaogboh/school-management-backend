@@ -207,7 +207,13 @@ public class ResultController {
 
         try {
             User user = currentUser();
-            accessControlService.requireClassTeacherOrAdmin(user, className, arm);
+
+            // Admin can access true class rankings with or without arm filter.
+            if (arm == null || arm.isBlank()) {
+                accessControlService.requireAdmin(user);
+            } else {
+                accessControlService.requireClassTeacherOrAdmin(user, className, arm);
+            }
 
             Map<String, Object> rankings = resultService.getClassRankings(className, arm, session, term);
             return ResponseEntity.ok(rankings);

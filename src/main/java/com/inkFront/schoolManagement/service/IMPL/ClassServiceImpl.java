@@ -24,7 +24,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,9 +62,7 @@ public class ClassServiceImpl implements ClassService {
                 .category(classDTO.getCategory())
                 .description(classDTO.getDescription())
                 .capacity(classDTO.getCapacity())
-                .currentEnrollment(
-                        classDTO.getCurrentEnrollment() != null ? classDTO.getCurrentEnrollment() : 0
-                )
+                .currentEnrollment(0)
                 .build();
 
         if (classDTO.getClassTeacherId() != null) {
@@ -100,12 +97,13 @@ public class ClassServiceImpl implements ClassService {
             }
         }
 
-        return savedClass;
+        return classRepository.findByIdWithTeacher(savedClass.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found after creation"));
     }
 
     @Override
     public SchoolClass updateClass(Long id, ClassDTO classDTO) {
-        SchoolClass schoolClass = classRepository.findById(id)
+        SchoolClass schoolClass = classRepository.findByIdWithTeacher(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + id));
 
         String className = safe(classDTO.getClassName());
@@ -134,10 +132,6 @@ public class ClassServiceImpl implements ClassService {
         schoolClass.setDescription(classDTO.getDescription());
         schoolClass.setCapacity(classDTO.getCapacity());
 
-        if (classDTO.getCurrentEnrollment() != null) {
-            schoolClass.setCurrentEnrollment(classDTO.getCurrentEnrollment());
-        }
-
         if (classDTO.getClassTeacherId() != null) {
             Teacher teacher = teacherRepository.findById(classDTO.getClassTeacherId())
                     .orElseThrow(() -> new ResourceNotFoundException(
@@ -154,8 +148,8 @@ public class ClassServiceImpl implements ClassService {
             List<ClassSubject> existingAssignments =
                     classSubjectRepository.findBySchoolClassOrderBySubject_NameAsc(savedClass);
 
-            for (ClassSubject assignment : existingAssignments) {
-                classSubjectRepository.delete(assignment);
+            if (!existingAssignments.isEmpty()) {
+                classSubjectRepository.deleteAll(existingAssignments);
             }
 
             for (String subjectName : classDTO.getSubjects()) {
@@ -177,13 +171,21 @@ public class ClassServiceImpl implements ClassService {
             }
         }
 
-        return savedClass;
+        return classRepository.findByIdWithTeacher(savedClass.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found after update"));
     }
 
     @Override
     @Transactional(readOnly = true)
     public SchoolClass getClass(Long id) {
-        return classRepository.findById(id)
+        return classRepository.findByIdWithTeacher(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + id));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public SchoolClass getClassWithTeacher(Long id) {
+        return classRepository.findByIdWithTeacher(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + id));
     }
 
@@ -196,7 +198,7 @@ public class ClassServiceImpl implements ClassService {
 
     @Override
     public void deleteClass(Long id) {
-        SchoolClass schoolClass = classRepository.findById(id)
+        SchoolClass schoolClass = classRepository.findByIdWithTeacher(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + id));
 
         List<ClassSubject> assignments = classSubjectRepository.findBySchoolClassOrderBySubject_NameAsc(schoolClass);
@@ -210,7 +212,7 @@ public class ClassServiceImpl implements ClassService {
     @Override
     @Transactional(readOnly = true)
     public List<ClassDTO> getAllClasses() {
-        return classRepository.findAll()
+        return classRepository.findAllWithTeacher()
                 .stream()
                 .map(this::mapToDTO)
                 .toList();
@@ -226,7 +228,7 @@ public class ClassServiceImpl implements ClassService {
             throw new RuntimeException("Invalid class category: " + category);
         }
 
-        return classRepository.findByCategory(parsedCategory)
+        return classRepository.findByCategoryWithTeacher(parsedCategory)
                 .stream()
                 .map(this::mapToDTO)
                 .toList();
@@ -234,19 +236,22 @@ public class ClassServiceImpl implements ClassService {
 
     @Override
     public SchoolClass assignClassTeacher(Long classId, Long teacherId) {
-        SchoolClass schoolClass = classRepository.findById(classId)
+        SchoolClass schoolClass = classRepository.findByIdWithTeacher(classId)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
 
         Teacher teacher = teacherRepository.findById(teacherId)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + teacherId));
 
         schoolClass.setClassTeacher(teacher);
-        return classRepository.save(schoolClass);
+        SchoolClass saved = classRepository.save(schoolClass);
+
+        return classRepository.findByIdWithTeacher(saved.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found after assigning teacher"));
     }
 
     @Override
     public SchoolClass addSubject(Long classId, String subject) {
-        SchoolClass schoolClass = classRepository.findById(classId)
+        SchoolClass schoolClass = classRepository.findByIdWithTeacher(classId)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
 
         String cleanSubject = safe(subject);
@@ -258,22 +263,22 @@ public class ClassServiceImpl implements ClassService {
                 .orElseThrow(() -> new ResourceNotFoundException("Subject not found with name: " + cleanSubject));
 
         boolean exists = classSubjectRepository.findBySchoolClassAndSubject(schoolClass, foundSubject).isPresent();
-        if (exists) {
-            return schoolClass;
+        if (!exists) {
+            ClassSubject classSubject = ClassSubject.builder()
+                    .schoolClass(schoolClass)
+                    .subject(foundSubject)
+                    .build();
+
+            classSubjectRepository.save(classSubject);
         }
 
-        ClassSubject classSubject = ClassSubject.builder()
-                .schoolClass(schoolClass)
-                .subject(foundSubject)
-                .build();
-
-        classSubjectRepository.save(classSubject);
-        return schoolClass;
+        return classRepository.findByIdWithTeacher(classId)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found after adding subject"));
     }
 
     @Override
     public SchoolClass removeSubject(Long classId, String subject) {
-        SchoolClass schoolClass = classRepository.findById(classId)
+        SchoolClass schoolClass = classRepository.findByIdWithTeacher(classId)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
 
         String cleanSubject = safe(subject);
@@ -285,13 +290,15 @@ public class ClassServiceImpl implements ClassService {
                 .orElseThrow(() -> new ResourceNotFoundException("Subject not found with name: " + cleanSubject));
 
         classSubjectRepository.deleteBySchoolClassAndSubject(schoolClass, foundSubject);
-        return schoolClass;
+
+        return classRepository.findByIdWithTeacher(classId)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found after removing subject"));
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<StudentResponseDTO> getStudentsInClass(Long classId) {
-        SchoolClass schoolClass = classRepository.findById(classId)
+        SchoolClass schoolClass = classRepository.findByIdWithTeacher(classId)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
 
         List<Student> students = studentRepository.findByStudentClassAndClassArm(
@@ -307,31 +314,45 @@ public class ClassServiceImpl implements ClassService {
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> getClassStatistics() {
-        List<SchoolClass> allClasses = classRepository.findAll();
+        List<SchoolClass> allClasses = classRepository.findAllWithTeacher();
 
         Map<String, Object> stats = new HashMap<>();
-        stats.put("totalClasses", allClasses.size());
 
-        int totalCapacity = allClasses.stream()
-                .mapToInt(c -> c.getCapacity() != null ? c.getCapacity() : 0)
-                .sum();
-
-        int totalEnrollment = allClasses.stream()
-                .mapToInt(c -> c.getCurrentEnrollment() != null ? c.getCurrentEnrollment() : 0)
-                .sum();
-
-        stats.put("totalCapacity", totalCapacity);
-        stats.put("totalEnrollment", totalEnrollment);
-        stats.put("availableSpaces", Math.max(totalCapacity - totalEnrollment, 0));
+        int totalClasses = allClasses.size();
+        int totalCapacity = 0;
+        int totalEnrollment = 0;
+        long classesWithTeacher = 0;
 
         Map<String, Long> byCategory = new HashMap<>();
+
         for (SchoolClass schoolClass : allClasses) {
+            int studentCount = studentRepository.findByStudentClassAndClassArm(
+                    schoolClass.getClassName(),
+                    schoolClass.getArm()
+            ).size();
+
+            totalCapacity += schoolClass.getCapacity() != null ? schoolClass.getCapacity() : 0;
+            totalEnrollment += studentCount;
+
+            if (schoolClass.getClassTeacher() != null) {
+                classesWithTeacher++;
+            }
+
             String key = schoolClass.getCategory() != null
                     ? schoolClass.getCategory().name()
                     : "UNCATEGORIZED";
             byCategory.put(key, byCategory.getOrDefault(key, 0L) + 1);
         }
 
+        int availableSeats = Math.max(totalCapacity - totalEnrollment, 0);
+
+        stats.put("totalClasses", totalClasses);
+        stats.put("totalStudents", totalEnrollment);
+        stats.put("totalEnrollment", totalEnrollment);
+        stats.put("totalCapacity", totalCapacity);
+        stats.put("classesWithTeacher", classesWithTeacher);
+        stats.put("availableSeats", availableSeats);
+        stats.put("availableSpaces", availableSeats);
         stats.put("classesByCategory", byCategory);
 
         return stats;
@@ -340,7 +361,7 @@ public class ClassServiceImpl implements ClassService {
     @Override
     @Transactional(readOnly = true)
     public byte[] generateClassListPdf(Long classId) throws Exception {
-        SchoolClass schoolClass = classRepository.findById(classId)
+        SchoolClass schoolClass = classRepository.findByIdWithTeacher(classId)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
 
         List<Student> students = studentRepository.findByStudentClassAndClassArm(
@@ -374,7 +395,7 @@ public class ClassServiceImpl implements ClassService {
     @Override
     @Transactional(readOnly = true)
     public byte[] generateClassListExcel(Long classId) throws Exception {
-        SchoolClass schoolClass = classRepository.findById(classId)
+        SchoolClass schoolClass = classRepository.findByIdWithTeacher(classId)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
 
         List<Student> students = studentRepository.findByStudentClassAndClassArm(
@@ -433,30 +454,7 @@ public class ClassServiceImpl implements ClassService {
                 .map(cs -> cs.getSubject().getName())
                 .toList();
 
-        return ClassDTO.builder()
-                .id(schoolClass.getId())
-                .className(schoolClass.getClassName())
-                .arm(schoolClass.getArm())
-                .classCode(schoolClass.getClassCode())
-                .category(schoolClass.getCategory())
-                .description(schoolClass.getDescription())
-                .classTeacherId(
-                        schoolClass.getClassTeacher() != null ? schoolClass.getClassTeacher().getId() : null
-                )
-                .classTeacherName(
-                        schoolClass.getClassTeacher() != null
-                                ? buildTeacherFullName(schoolClass.getClassTeacher())
-                                : null
-                )
-                .subjects(new ArrayList<>(subjects))
-                .capacity(schoolClass.getCapacity())
-                .currentEnrollment(schoolClass.getCurrentEnrollment())
-                .students(students)
-                .build();
-    }
-
-    private String buildTeacherFullName(Teacher teacher) {
-        return (value(teacher.getFirstName()) + " " + value(teacher.getLastName())).trim();
+        return ClassDTO.fromEntity(schoolClass, subjects, students);
     }
 
     private String buildStudentFullName(Student student) {

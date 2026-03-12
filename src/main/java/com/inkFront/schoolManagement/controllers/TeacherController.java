@@ -1,9 +1,19 @@
-// src/main/java/com/inkFront/schoolManagement/controllers/TeacherController.java
 package com.inkFront.schoolManagement.controllers;
 
-import com.inkFront.schoolManagement.dto.*;
+import com.inkFront.schoolManagement.dto.ApiResponse;
+import com.inkFront.schoolManagement.dto.ClassResponseDTO;
+import com.inkFront.schoolManagement.dto.CompleteRegistrationDTO;
+import com.inkFront.schoolManagement.dto.TeacherClassAttendanceRequest;
+import com.inkFront.schoolManagement.dto.TeacherDTO;
+import com.inkFront.schoolManagement.dto.TeacherInvitationDTO;
+import com.inkFront.schoolManagement.dto.TeacherInviteDTO;
 import com.inkFront.schoolManagement.dto.auth.LoginResponse;
-import com.inkFront.schoolManagement.model.*;
+import com.inkFront.schoolManagement.model.Result;
+import com.inkFront.schoolManagement.model.SchoolClass;
+import com.inkFront.schoolManagement.model.Student;
+import com.inkFront.schoolManagement.model.Teacher;
+import com.inkFront.schoolManagement.model.TeacherInvitation;
+import com.inkFront.schoolManagement.model.User;
 import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.repository.TeacherRepository;
@@ -19,6 +29,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -45,13 +56,8 @@ public class TeacherController {
     private final StudentRepository studentRepository;
     private final AttendanceService attendanceService;
     private final ResultService resultService;
-    private final TeacherRepository teacherRepository;  // Added for direct repository access
+    private final TeacherRepository teacherRepository;
 
-    // ========== BASIC CRUD OPERATIONS ==========
-
-    /**
-     * Get all teachers
-     */
     @GetMapping
     public ResponseEntity<List<TeacherDTO>> getAllTeachers() {
         log.info("GET /api/teachers - Fetching all teachers");
@@ -59,9 +65,6 @@ public class TeacherController {
         return ResponseEntity.ok(teachers);
     }
 
-    /**
-     * Get teachers with pagination
-     */
     @GetMapping("/paginated")
     public ResponseEntity<Page<TeacherDTO>> getTeachersPaginated(
             @RequestParam(defaultValue = "0") int page,
@@ -70,17 +73,15 @@ public class TeacherController {
             @RequestParam(defaultValue = "asc") String sortDir) {
 
         log.info("GET /api/teachers/paginated - Page: {}, Size: {}", page, size);
-        Sort sort = sortDir.equalsIgnoreCase("asc") ?
-                Sort.by(sortBy).ascending() : Sort.by(sortBy).descending();
-        Pageable pageable = PageRequest.of(page, size, sort);
+        Sort sort = sortDir.equalsIgnoreCase("asc")
+                ? Sort.by(sortBy).ascending()
+                : Sort.by(sortBy).descending();
 
+        Pageable pageable = PageRequest.of(page, size, sort);
         Page<TeacherDTO> teachers = teacherService.getAllTeachersPaginated(pageable);
         return ResponseEntity.ok(teachers);
     }
 
-    /**
-     * Get teacher by ID
-     */
     @GetMapping("/{id}")
     public ResponseEntity<TeacherDTO> getTeacher(@PathVariable Long id) {
         log.info("GET /api/teachers/{} - Fetching teacher", id);
@@ -88,9 +89,6 @@ public class TeacherController {
         return ResponseEntity.ok(teacher);
     }
 
-    /**
-     * Get teacher by teacher ID (e.g., TCH240001)
-     */
     @GetMapping("/teacher-id/{teacherId}")
     public ResponseEntity<TeacherDTO> getTeacherByTeacherId(@PathVariable String teacherId) {
         log.info("GET /api/teachers/teacher-id/{} - Fetching teacher", teacherId);
@@ -98,36 +96,29 @@ public class TeacherController {
         return ResponseEntity.ok(teacher);
     }
 
-    /**
-     * Create a new teacher
-     */
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping(consumes = {"multipart/form-data"})
     public ResponseEntity<TeacherDTO> createTeacher(
             @RequestPart("teacher") TeacherDTO teacherDTO,
             @RequestPart(value = "profilePicture", required = false) MultipartFile profilePicture) {
+
         log.info("POST /api/teachers - Creating new teacher: {}", teacherDTO.getEmail());
         TeacherDTO createdTeacher = teacherService.createTeacher(teacherDTO, profilePicture);
         return new ResponseEntity<>(createdTeacher, HttpStatus.CREATED);
     }
 
-    /**
-     * Update an existing teacher
-     */
     @PreAuthorize("hasRole('ADMIN')")
     @PutMapping(value = "/{id}", consumes = {"multipart/form-data"})
     public ResponseEntity<TeacherDTO> updateTeacher(
             @PathVariable Long id,
             @RequestPart("teacher") TeacherDTO teacherDTO,
             @RequestPart(value = "profilePicture", required = false) MultipartFile profilePicture) {
+
         log.info("PUT /api/teachers/{} - Updating teacher", id);
         TeacherDTO updatedTeacher = teacherService.updateTeacher(id, teacherDTO, profilePicture);
         return ResponseEntity.ok(updatedTeacher);
     }
 
-    /**
-     * Delete a teacher
-     */
     @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteTeacher(@PathVariable Long id) {
@@ -136,11 +127,6 @@ public class TeacherController {
         return ResponseEntity.noContent().build();
     }
 
-    // ========== SEARCH AND FILTER OPERATIONS ==========
-
-    /**
-     * Search teachers by name, email, or teacher ID
-     */
     @GetMapping("/search")
     public ResponseEntity<List<TeacherDTO>> searchTeachers(@RequestParam String term) {
         log.info("GET /api/teachers/search - Searching teachers with term: {}", term);
@@ -148,9 +134,6 @@ public class TeacherController {
         return ResponseEntity.ok(teachers);
     }
 
-    /**
-     * Get teachers by status (ACTIVE, INACTIVE, ON_LEAVE)
-     */
     @GetMapping("/status/{status}")
     public ResponseEntity<List<TeacherDTO>> getTeachersByStatus(@PathVariable String status) {
         log.info("GET /api/teachers/status/{} - Fetching teachers by status", status);
@@ -158,9 +141,6 @@ public class TeacherController {
         return ResponseEntity.ok(teachers);
     }
 
-    /**
-     * Get teachers by subject they teach
-     */
     @GetMapping("/subject/{subject}")
     public ResponseEntity<List<TeacherDTO>> getTeachersBySubject(@PathVariable String subject) {
         log.info("GET /api/teachers/subject/{} - Fetching teachers by subject", subject);
@@ -168,9 +148,6 @@ public class TeacherController {
         return ResponseEntity.ok(teachers);
     }
 
-    /**
-     * Get teachers by department
-     */
     @GetMapping("/department/{department}")
     public ResponseEntity<List<TeacherDTO>> getTeachersByDepartment(@PathVariable String department) {
         log.info("GET /api/teachers/department/{} - Fetching teachers by department", department);
@@ -178,11 +155,6 @@ public class TeacherController {
         return ResponseEntity.ok(teachers);
     }
 
-    // ========== SUBJECT AND QUALIFICATION MANAGEMENT ==========
-
-    /**
-     * Add a subject to a teacher
-     */
     @PostMapping("/{id}/subjects")
     public ResponseEntity<TeacherDTO> addSubject(@PathVariable Long id, @RequestParam String subject) {
         log.info("POST /api/teachers/{}/subjects - Adding subject: {}", id, subject);
@@ -190,9 +162,6 @@ public class TeacherController {
         return ResponseEntity.ok(updatedTeacher);
     }
 
-    /**
-     * Remove a subject from a teacher
-     */
     @DeleteMapping("/{id}/subjects")
     public ResponseEntity<TeacherDTO> removeSubject(@PathVariable Long id, @RequestParam String subject) {
         log.info("DELETE /api/teachers/{}/subjects - Removing subject: {}", id, subject);
@@ -200,9 +169,6 @@ public class TeacherController {
         return ResponseEntity.ok(updatedTeacher);
     }
 
-    /**
-     * Add a qualification to a teacher
-     */
     @PostMapping("/{id}/qualifications")
     public ResponseEntity<TeacherDTO> addQualification(@PathVariable Long id, @RequestParam String qualification) {
         log.info("POST /api/teachers/{}/qualifications - Adding qualification: {}", id, qualification);
@@ -210,9 +176,6 @@ public class TeacherController {
         return ResponseEntity.ok(updatedTeacher);
     }
 
-    /**
-     * Update teacher's employment status
-     */
     @PatchMapping("/{id}/status")
     public ResponseEntity<TeacherDTO> updateEmploymentStatus(@PathVariable Long id, @RequestParam String status) {
         log.info("PATCH /api/teachers/{}/status - Updating status to: {}", id, status);
@@ -220,11 +183,6 @@ public class TeacherController {
         return ResponseEntity.ok(updatedTeacher);
     }
 
-    // ========== STATISTICS AND UTILITIES ==========
-
-    /**
-     * Get teacher statistics
-     */
     @GetMapping("/statistics")
     public ResponseEntity<Map<String, Object>> getTeacherStatistics() {
         log.info("GET /api/teachers/statistics - Fetching teacher statistics");
@@ -232,9 +190,6 @@ public class TeacherController {
         return ResponseEntity.ok(statistics);
     }
 
-    /**
-     * Generate a new teacher ID
-     */
     @GetMapping("/generate-id")
     public ResponseEntity<Map<String, String>> generateTeacherId() {
         log.info("GET /api/teachers/generate-id - Generating teacher ID");
@@ -244,9 +199,6 @@ public class TeacherController {
         return ResponseEntity.ok(response);
     }
 
-    /**
-     * Check if email already exists
-     */
     @GetMapping("/check-email")
     public ResponseEntity<Map<String, Boolean>> checkEmailExists(@RequestParam String email) {
         log.info("GET /api/teachers/check-email - Checking email: {}", email);
@@ -256,9 +208,6 @@ public class TeacherController {
         return ResponseEntity.ok(response);
     }
 
-    /**
-     * Check if teacher ID already exists
-     */
     @GetMapping("/check-teacher-id")
     public ResponseEntity<Map<String, Boolean>> checkTeacherIdExists(@RequestParam String teacherId) {
         log.info("GET /api/teachers/check-teacher-id - Checking teacher ID: {}", teacherId);
@@ -268,9 +217,6 @@ public class TeacherController {
         return ResponseEntity.ok(response);
     }
 
-    /**
-     * Export teachers to PDF
-     */
     @GetMapping("/export/pdf")
     public ResponseEntity<byte[]> exportToPDF() {
         log.info("GET /api/teachers/export/pdf - Exporting teachers to PDF");
@@ -281,9 +227,6 @@ public class TeacherController {
                 .body(pdfBytes);
     }
 
-    /**
-     * Export teachers to Excel
-     */
     @GetMapping("/export/excel")
     public ResponseEntity<byte[]> exportToExcel() {
         log.info("GET /api/teachers/export/excel - Exporting teachers to Excel");
@@ -294,18 +237,12 @@ public class TeacherController {
                 .body(excelBytes);
     }
 
-    // ========== INVITATION METHODS ==========
-
-    /**
-     * Send an invitation to a teacher to complete registration
-     */
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/invite")
     public ResponseEntity<ApiResponse> inviteTeacher(@RequestBody TeacherInviteDTO inviteDTO) {
         log.info("POST /api/teachers/invite - Inviting teacher with email: {}", inviteDTO.getEmail());
 
         try {
-            // Validate input
             if (inviteDTO.getEmail() == null || inviteDTO.getEmail().isEmpty()) {
                 return ResponseEntity.badRequest().body(new ApiResponse(false, "Email is required"));
             }
@@ -316,27 +253,27 @@ public class TeacherController {
                 return ResponseEntity.badRequest().body(new ApiResponse(false, "Last name is required"));
             }
 
-            // Generate unique token
             String token = UUID.randomUUID().toString();
-
-            // Save invitation
             teacherService.createInvitation(inviteDTO, token);
 
-            // Send email with registration link
             String registrationLink = "http://localhost:3000/complete-teacher-registration?token=" + token;
-            emailService.sendTeacherInvitation(inviteDTO.getEmail(), registrationLink, inviteDTO.getFirstName());
+            emailService.sendTeacherInvitation(
+                    inviteDTO.getEmail(),
+                    registrationLink,
+                    inviteDTO.getFirstName()
+            );
 
             log.info("Invitation sent successfully to: {}", inviteDTO.getEmail());
-            return ResponseEntity.ok(new ApiResponse(true, "Invitation sent successfully to " + inviteDTO.getEmail()));
+            return ResponseEntity.ok(
+                    new ApiResponse(true, "Invitation sent successfully to " + inviteDTO.getEmail())
+            );
         } catch (Exception e) {
             log.error("Error sending invitation: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(new ApiResponse(false, "Failed to send invitation: " + e.getMessage()));
+            return ResponseEntity.badRequest()
+                    .body(new ApiResponse(false, "Failed to send invitation: " + e.getMessage()));
         }
     }
 
-    /**
-     * Verify an invitation token
-     */
     @GetMapping("/verify-invitation")
     public ResponseEntity<?> verifyInvitationToken(@RequestParam String token) {
         log.info("GET /api/teachers/verify-invitation - Verifying invitation token: {}", token);
@@ -362,29 +299,26 @@ public class TeacherController {
         }
     }
 
-    /**
-     * Complete teacher registration (set username and password)
-     */
     @PostMapping("/complete-registration")
     public ResponseEntity<?> completeTeacherRegistration(@RequestBody CompleteRegistrationDTO completeDTO) {
-        log.info("POST /api/teachers/complete-registration - Completing registration for token: {}", completeDTO.getToken());
+        log.info("POST /api/teachers/complete-registration - Completing registration for token: {}",
+                completeDTO.getToken());
 
         try {
-            // Validate input
             if (completeDTO.getToken() == null || completeDTO.getToken().isEmpty()) {
                 return ResponseEntity.badRequest().body(new ApiResponse(false, "Token is required"));
             }
             if (completeDTO.getUsername() == null || completeDTO.getUsername().length() < 3) {
-                return ResponseEntity.badRequest().body(new ApiResponse(false, "Username must be at least 3 characters"));
+                return ResponseEntity.badRequest()
+                        .body(new ApiResponse(false, "Username must be at least 3 characters"));
             }
             if (completeDTO.getPassword() == null || completeDTO.getPassword().length() < 6) {
-                return ResponseEntity.badRequest().body(new ApiResponse(false, "Password must be at least 6 characters"));
+                return ResponseEntity.badRequest()
+                        .body(new ApiResponse(false, "Password must be at least 6 characters"));
             }
 
-            // Complete registration
             User user = teacherService.completeRegistration(completeDTO);
 
-            // Generate JWT token
             String jwtToken = jwtService.generateToken(user);
             String refreshToken = jwtService.generateRefreshToken(user);
 
@@ -402,9 +336,6 @@ public class TeacherController {
         }
     }
 
-    /**
-     * Resend invitation email
-     */
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/resend-invitation")
     public ResponseEntity<ApiResponse> resendInvitation(@RequestParam String email) {
@@ -419,9 +350,6 @@ public class TeacherController {
         }
     }
 
-    /**
-     * Get all pending invitations
-     */
     @GetMapping("/invitations/pending")
     public ResponseEntity<List<TeacherInvitationDTO>> getPendingInvitations() {
         log.info("GET /api/teachers/invitations/pending - Fetching pending invitations");
@@ -429,9 +357,6 @@ public class TeacherController {
         return ResponseEntity.ok(invitations);
     }
 
-    /**
-     * Cancel an invitation
-     */
     @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/invitations/{invitationId}")
     public ResponseEntity<ApiResponse> cancelInvitation(@PathVariable Long invitationId) {
@@ -446,9 +371,6 @@ public class TeacherController {
         }
     }
 
-    /**
-     * Get current teacher's profile - FIXED for LazyInitializationException
-     */
     @GetMapping("/me")
     public ResponseEntity<?> getMyTeacherProfile() {
         var currentUser = securityUtils.getCurrentUser();
@@ -458,16 +380,13 @@ public class TeacherController {
                     .body(Map.of("message", "This account is not linked to a teacher"));
         }
 
-        // FIX: Fetch teacher with all details eagerly (subjects AND qualifications)
         Teacher teacher = teacherRepository.findByUserIdWithDetails(currentUser.getId())
-                .orElseThrow(() -> new RuntimeException("Teacher not found with user ID: " + currentUser.getId()));
+                .orElseThrow(() ->
+                        new RuntimeException("Teacher not found with user ID: " + currentUser.getId()));
 
         return ResponseEntity.ok(TeacherDTO.fromEntity(teacher));
     }
 
-    /**
-     * Get classes taught by current teacher
-     */
     @GetMapping("/me/classes")
     public ResponseEntity<?> getMyClasses() {
         var currentUser = securityUtils.getCurrentUser();
@@ -478,12 +397,30 @@ public class TeacherController {
         }
 
         Long teacherId = currentUser.getTeacher().getId();
-        return ResponseEntity.ok(classRepository.findByClassTeacherId(teacherId));
-    }
 
-    /**
-     * Validate that the current teacher owns the specified class
-     */
+        List<ClassResponseDTO> classes = classRepository.findByClassTeacherIdWithTeacher(teacherId)
+                .stream()
+                .map(schoolClass -> {
+                    int studentCount = (int) studentRepository.findAll()
+                            .stream()
+                            .filter(student ->
+                                    student.getStudentClass() != null &&
+                                            student.getClassArm() != null &&
+                                            student.getStudentClass().trim().equalsIgnoreCase(
+                                                    schoolClass.getClassName() == null ? "" : schoolClass.getClassName().trim()
+                                            ) &&
+                                            student.getClassArm().trim().equalsIgnoreCase(
+                                                    schoolClass.getArm() == null ? "" : schoolClass.getArm().trim()
+                                            )
+                            )
+                            .count();
+
+                    return ClassResponseDTO.fromEntity(schoolClass, studentCount);
+                })
+                .toList();
+
+        return ResponseEntity.ok(classes);
+    }
     private SchoolClass validateTeacherOwnsClass(Long classId) {
         var currentUser = securityUtils.getCurrentUser();
 
@@ -491,34 +428,41 @@ public class TeacherController {
             throw new RuntimeException("This account is not linked to a teacher");
         }
 
-        SchoolClass schoolClass = classRepository.findById(classId)
+        SchoolClass schoolClass = classRepository.findByIdWithTeacher(classId)
                 .orElseThrow(() -> new RuntimeException("Class not found"));
 
-        if (schoolClass.getClassTeacher() == null ||
-                !schoolClass.getClassTeacher().getId().equals(currentUser.getTeacher().getId())) {
+        if (schoolClass.getClassTeacher() == null
+                || !schoolClass.getClassTeacher().getId().equals(currentUser.getTeacher().getId())) {
             throw new RuntimeException("Only the form teacher of this class can access this resource");
         }
 
         return schoolClass;
     }
-
-    /**
-     * Get students in current teacher's class
-     */
     @GetMapping("/me/classes/{classId}/students")
     public ResponseEntity<?> getMyClassStudents(@PathVariable Long classId) {
         SchoolClass schoolClass = validateTeacherOwnsClass(classId);
-        return ResponseEntity.ok(
-                studentRepository.findByStudentClassAndClassArm(
-                        schoolClass.getClassName(),
-                        schoolClass.getArm()
+
+        String className = schoolClass.getClassName() != null
+                ? schoolClass.getClassName().trim()
+                : "";
+
+        String arm = schoolClass.getArm() != null
+                ? schoolClass.getArm().trim()
+                : "";
+
+        List<Student> students = studentRepository.findAll()
+                .stream()
+                .filter(student ->
+                        student.getStudentClass() != null &&
+                                student.getClassArm() != null &&
+                                student.getStudentClass().trim().equalsIgnoreCase(className) &&
+                                student.getClassArm().trim().equalsIgnoreCase(arm)
                 )
-        );
+                .toList();
+
+        return ResponseEntity.ok(students);
     }
 
-    /**
-     * Get results for current teacher's class
-     */
     @GetMapping("/me/classes/{classId}/results")
     public ResponseEntity<?> getMyClassResults(
             @PathVariable Long classId,
@@ -537,15 +481,10 @@ public class TeacherController {
         );
     }
 
-    /**
-     * Get attendance for current teacher's class
-     */
     @GetMapping("/me/classes/{classId}/attendance")
     public ResponseEntity<?> getMyClassAttendance(
             @PathVariable Long classId,
-            @RequestParam @org.springframework.format.annotation.DateTimeFormat(
-                    iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE
-            ) LocalDate date,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam String session,
             @RequestParam Result.Term term) {
 
@@ -562,9 +501,6 @@ public class TeacherController {
         );
     }
 
-    /**
-     * Mark attendance for current teacher's class
-     */
     @PostMapping("/me/classes/{classId}/attendance")
     public ResponseEntity<?> markMyClassAttendance(
             @PathVariable Long classId,
