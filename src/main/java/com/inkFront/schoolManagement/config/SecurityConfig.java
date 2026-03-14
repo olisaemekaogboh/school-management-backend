@@ -128,6 +128,25 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/sessions/**")
                         .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
 
+                        // SESSION RESULTS
+                        .requestMatchers("/api/session-results/me/**")
+                        .hasAnyRole("STUDENT", "ADMIN")
+
+                        .requestMatchers(HttpMethod.GET, "/api/session-results/student/**")
+                        .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
+
+                        .requestMatchers(HttpMethod.GET, "/api/session-results/report/**")
+                        .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
+
+                        .requestMatchers(HttpMethod.GET, "/api/session-results/class/**")
+                        .hasAnyRole("ADMIN", "TEACHER")
+
+                        .requestMatchers(HttpMethod.GET, "/api/session-results/rankings/**")
+                        .hasAnyRole("ADMIN", "TEACHER")
+
+                        .requestMatchers("/api/session-results/**")
+                        .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
+
                         .requestMatchers("/api/sessions/**")
                         .hasRole("ADMIN")
 
