@@ -3,20 +3,17 @@ package com.inkFront.schoolManagement.controllers;
 import com.inkFront.schoolManagement.dto.ApiResponse;
 import com.inkFront.schoolManagement.dto.ClassResponseDTO;
 import com.inkFront.schoolManagement.dto.CompleteRegistrationDTO;
+import com.inkFront.schoolManagement.dto.StudentResponseDTO;
 import com.inkFront.schoolManagement.dto.TeacherClassAttendanceRequest;
 import com.inkFront.schoolManagement.dto.TeacherDTO;
 import com.inkFront.schoolManagement.dto.TeacherInvitationDTO;
 import com.inkFront.schoolManagement.dto.TeacherInviteDTO;
 import com.inkFront.schoolManagement.dto.auth.LoginResponse;
-import com.inkFront.schoolManagement.model.Result;
-import com.inkFront.schoolManagement.model.SchoolClass;
-import com.inkFront.schoolManagement.model.Student;
-import com.inkFront.schoolManagement.model.Teacher;
-import com.inkFront.schoolManagement.model.TeacherInvitation;
-import com.inkFront.schoolManagement.model.User;
+import com.inkFront.schoolManagement.model.*;
 import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.repository.TeacherRepository;
+import com.inkFront.schoolManagement.repository.TeacherSubjectRepository;
 import com.inkFront.schoolManagement.security.JwtService;
 import com.inkFront.schoolManagement.security.SecurityUtils;
 import com.inkFront.schoolManagement.service.AttendanceService;
@@ -57,6 +54,7 @@ public class TeacherController {
     private final AttendanceService attendanceService;
     private final ResultService resultService;
     private final TeacherRepository teacherRepository;
+    private final TeacherSubjectRepository teacherSubjectRepository;
 
     @GetMapping
     public ResponseEntity<List<TeacherDTO>> getAllTeachers() {
@@ -387,40 +385,9 @@ public class TeacherController {
         return ResponseEntity.ok(TeacherDTO.fromEntity(teacher));
     }
 
-    @GetMapping("/me/classes")
-    public ResponseEntity<?> getMyClasses() {
-        var currentUser = securityUtils.getCurrentUser();
 
-        if (currentUser.getTeacher() == null) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("message", "This account is not linked to a teacher"));
-        }
 
-        Long teacherId = currentUser.getTeacher().getId();
 
-        List<ClassResponseDTO> classes = classRepository.findByClassTeacherIdWithTeacher(teacherId)
-                .stream()
-                .map(schoolClass -> {
-                    int studentCount = (int) studentRepository.findAll()
-                            .stream()
-                            .filter(student ->
-                                    student.getStudentClass() != null &&
-                                            student.getClassArm() != null &&
-                                            student.getStudentClass().trim().equalsIgnoreCase(
-                                                    schoolClass.getClassName() == null ? "" : schoolClass.getClassName().trim()
-                                            ) &&
-                                            student.getClassArm().trim().equalsIgnoreCase(
-                                                    schoolClass.getArm() == null ? "" : schoolClass.getArm().trim()
-                                            )
-                            )
-                            .count();
-
-                    return ClassResponseDTO.fromEntity(schoolClass, studentCount);
-                })
-                .toList();
-
-        return ResponseEntity.ok(classes);
-    }
     private SchoolClass validateTeacherOwnsClass(Long classId) {
         var currentUser = securityUtils.getCurrentUser();
 
@@ -438,26 +405,87 @@ public class TeacherController {
 
         return schoolClass;
     }
+    @GetMapping("/me/subject-assignments")
+    public ResponseEntity<?> getMySubjectAssignments() {
+        var currentUser = securityUtils.getCurrentUser();
+
+        if (currentUser.getTeacher() == null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("message", "This account is not linked to a teacher"));
+        }
+
+        Long teacherId = currentUser.getTeacher().getId();
+
+        List<Map<String, Object>> assignments = teacherSubjectRepository
+                .findByTeacher_IdOrderByClassNameAscClassArmAsc(teacherId)
+                .stream()
+                .map(ts -> {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("id", ts.getId());
+                    item.put("subjectId", ts.getSubject() != null ? ts.getSubject().getId() : null);
+                    item.put("subjectName", ts.getSubject() != null ? ts.getSubject().getName() : null);
+                    item.put("className", ts.getClassName());
+                    item.put("classArm", ts.getClassArm());
+                    return item;
+                })
+                .toList();
+
+        return ResponseEntity.ok(assignments);
+    }
+    @GetMapping("/me/classes")
+    public ResponseEntity<?> getMyClasses() {
+        var currentUser = securityUtils.getCurrentUser();
+
+        if (currentUser.getTeacher() == null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("message", "This account is not linked to a teacher"));
+        }
+
+        Long teacherId = currentUser.getTeacher().getId();
+
+        List<TeacherSubject> teacherSubjectAssignments =
+                teacherSubjectRepository.findByTeacher_IdOrderByClassNameAscClassArmAsc(teacherId);
+
+        List<ClassResponseDTO> classes = classRepository.findByClassTeacherIdWithTeacher(teacherId)
+                .stream()
+                .map(schoolClass -> {
+                    int studentCount = studentRepository.findByClassScopeNormalized(
+                            schoolClass.getClassName(),
+                            schoolClass.getArm()
+                    ).size();
+
+                    List<String> subjects = teacherSubjectAssignments.stream()
+                            .filter(ts ->
+                                    ts.getClassName() != null &&
+                                            ts.getClassArm() != null &&
+                                            ts.getClassName().trim().equalsIgnoreCase(
+                                                    schoolClass.getClassName() == null ? "" : schoolClass.getClassName().trim()
+                                            ) &&
+                                            ts.getClassArm().trim().equalsIgnoreCase(
+                                                    schoolClass.getArm() == null ? "" : schoolClass.getArm().trim()
+                                            )
+                            )
+                            .map(ts -> ts.getSubject().getName())
+                            .distinct()
+                            .toList();
+
+                    return ClassResponseDTO.fromEntity(schoolClass, studentCount, subjects);
+                })
+                .toList();
+
+        return ResponseEntity.ok(classes);
+    }
+
     @GetMapping("/me/classes/{classId}/students")
     public ResponseEntity<?> getMyClassStudents(@PathVariable Long classId) {
         SchoolClass schoolClass = validateTeacherOwnsClass(classId);
 
-        String className = schoolClass.getClassName() != null
-                ? schoolClass.getClassName().trim()
-                : "";
-
-        String arm = schoolClass.getArm() != null
-                ? schoolClass.getArm().trim()
-                : "";
-
-        List<Student> students = studentRepository.findAll()
-                .stream()
-                .filter(student ->
-                        student.getStudentClass() != null &&
-                                student.getClassArm() != null &&
-                                student.getStudentClass().trim().equalsIgnoreCase(className) &&
-                                student.getClassArm().trim().equalsIgnoreCase(arm)
+        List<StudentResponseDTO> students = studentRepository.findByClassScopeNormalized(
+                        schoolClass.getClassName(),
+                        schoolClass.getArm()
                 )
+                .stream()
+                .map(StudentResponseDTO::fromStudent)
                 .toList();
 
         return ResponseEntity.ok(students);
@@ -508,7 +536,7 @@ public class TeacherController {
 
         SchoolClass schoolClass = validateTeacherOwnsClass(classId);
 
-        List<Student> classStudents = studentRepository.findByStudentClassAndClassArm(
+        List<Student> classStudents = studentRepository.findByClassScopeNormalized(
                 schoolClass.getClassName(),
                 schoolClass.getArm()
         );

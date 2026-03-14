@@ -69,6 +69,25 @@ public class SessionResultController {
         }
     }
 
+    @PostMapping("/calculate/class/{className}/arm/{arm}")
+    public ResponseEntity<?> calculateClassArmSessionResults(
+            @PathVariable String className,
+            @PathVariable String arm,
+            @RequestParam String session) {
+        try {
+            accessControlService.requireResultClassAccess(currentUser(), className, arm);
+
+            List<SessionResultResponseDTO> results =
+                    sessionResultService.calculateClassArmSessionResults(className, arm, session);
+
+            return ResponseEntity.ok(results);
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to calculate class arm session results", e);
+        }
+    }
+
     @GetMapping("/rankings/school")
     public ResponseEntity<?> getSchoolRankings(@RequestParam String session) {
         try {
@@ -122,7 +141,7 @@ public class SessionResultController {
             @PathVariable Long studentId,
             @RequestParam String session) {
         try {
-            accessControlService.requireStudentAccess(currentUser(), studentId);
+            accessControlService.requireStudentResultAccess(currentUser(), studentId);
             return ResponseEntity.ok(sessionResultService.getSessionResult(studentId, session));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
@@ -136,7 +155,7 @@ public class SessionResultController {
             @PathVariable Long studentId,
             @RequestParam String session) {
         try {
-            accessControlService.requireStudentAccess(currentUser(), studentId);
+            accessControlService.requireStudentResultAccess(currentUser(), studentId);
             return ResponseEntity.ok(sessionResultService.generateSessionReport(studentId, session));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
@@ -178,7 +197,7 @@ public class SessionResultController {
             @PathVariable String arm,
             @RequestParam String session) {
         try {
-            accessControlService.requireClassTeacherOrAdmin(currentUser(), className, arm);
+            accessControlService.requireResultClassAccess(currentUser(), className, arm);
             return ResponseEntity.ok(sessionResultService.getArmSessionResults(className, arm, session));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
@@ -207,7 +226,7 @@ public class SessionResultController {
             @PathVariable String arm,
             @RequestParam String session) {
         try {
-            accessControlService.requireClassTeacherOrAdmin(currentUser(), className, arm);
+            accessControlService.requireResultClassAccess(currentUser(), className, arm);
             return ResponseEntity.ok(sessionResultService.getArmRankings(className, arm, session));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());

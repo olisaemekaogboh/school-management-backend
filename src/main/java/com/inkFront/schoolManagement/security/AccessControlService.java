@@ -3,19 +3,28 @@ package com.inkFront.schoolManagement.security;
 import com.inkFront.schoolManagement.model.Parent;
 import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.model.Student;
+import com.inkFront.schoolManagement.model.TeacherSubject;
 import com.inkFront.schoolManagement.model.User;
 import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
+import com.inkFront.schoolManagement.repository.TeacherSubjectRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AccessControlService {
 
     private final StudentRepository studentRepository;
     private final ClassRepository classRepository;
+    private final TeacherSubjectRepository teacherSubjectRepository;
 
     public void requireAdmin(User user) {
         if (!isAdmin(user)) {
@@ -42,7 +51,13 @@ public class AccessControlService {
     }
 
     public void requireStudentResultModification(User user, Long studentId) {
-        if (!canModifyStudentResult(user, studentId)) {
+        if (!canModifyStudentResult(user, studentId, null)) {
+            throw new AccessDeniedException("You are not allowed to modify this student's result");
+        }
+    }
+
+    public void requireStudentResultModification(User user, Long studentId, Long subjectId) {
+        if (!canModifyStudentResult(user, studentId, subjectId)) {
             throw new AccessDeniedException("You are not allowed to modify this student's result");
         }
     }
@@ -78,11 +93,12 @@ public class AccessControlService {
             throw new AccessDeniedException("Teacher account required");
         }
 
-        if (className == null || className.isBlank() || arm == null || arm.isBlank()) {
+        if (isBlank(className) || isBlank(arm)) {
             throw new AccessDeniedException("Teachers can only access an assigned class arm");
         }
 
-        SchoolClass schoolClass = classRepository.findByClassNameAndArm(className.trim(), arm.trim())
+        SchoolClass schoolClass = classRepository
+                .findByClassNameAndArmNormalized(className, arm)
                 .orElseThrow(() -> new RuntimeException("Class not found: " + className + " " + arm));
 
         if (schoolClass.getClassTeacher() == null) {
@@ -94,6 +110,34 @@ public class AccessControlService {
         }
     }
 
+    public void requireResultClassAccess(User user, String className, String arm) {
+        if (isAdmin(user)) {
+            return;
+        }
+
+        if (!isTeacher(user) || user.getTeacher() == null) {
+            throw new AccessDeniedException("Only admin or assigned teacher can access these results");
+        }
+
+        if (isBlank(className) || isBlank(arm)) {
+            throw new AccessDeniedException("Teachers can only access an assigned class arm");
+        }
+
+        boolean formTeacherMatch = isFormTeacherOfClass(user, className, arm);
+
+        log.info(
+                "Result class access check => teacherId={}, class='{}', arm='{}', formTeacherMatch={}",
+                user.getTeacher().getId(),
+                className,
+                arm,
+                formTeacherMatch
+        );
+
+        if (!formTeacherMatch) {
+            throw new AccessDeniedException("You can only access results for your assigned class arm");
+        }
+    }
+
     public boolean canAccessStudent(User user, Long studentId) {
         return isAdmin(user)
                 || isOwnerStudent(user, studentId)
@@ -102,14 +146,47 @@ public class AccessControlService {
     }
 
     public boolean canViewStudentResult(User user, Long studentId) {
-        return isAdmin(user)
-                || isOwnerStudent(user, studentId)
-                || isParentOfStudent(user, studentId)
-                || isFormTeacherOfStudent(user, studentId);
+        log.info("Checking result access for userId={}, role={}, studentId={}",
+                user != null ? user.getId() : null,
+                user != null ? user.getRole() : null,
+                studentId);
+
+        if (isAdmin(user) || isOwnerStudent(user, studentId) || isParentOfStudent(user, studentId)) {
+            log.info("Access granted by admin/owner/parent rule");
+            return true;
+        }
+
+        Student student = findStudent(studentId);
+        if (student == null) {
+            log.warn("Access denied: student not found");
+            return false;
+        }
+
+        log.info("Student scope => class='{}', arm='{}'",
+                student.getStudentClass(), student.getClassArm());
+
+        boolean formTeacher = isFormTeacherOfStudent(user, student);
+
+        log.info("Result access check => formTeacher={}", formTeacher);
+
+        return formTeacher;
     }
 
     public boolean canModifyStudentResult(User user, Long studentId) {
-        return isAdmin(user) || isFormTeacherOfStudent(user, studentId);
+        return canModifyStudentResult(user, studentId, null);
+    }
+
+    public boolean canModifyStudentResult(User user, Long studentId, Long subjectId) {
+        if (isAdmin(user)) {
+            return true;
+        }
+
+        Student student = findStudent(studentId);
+        if (student == null) {
+            return false;
+        }
+
+        return isTeacherAssignedToStudentSubject(user, student, subjectId);
     }
 
     public boolean canViewStudentAttendance(User user, Long studentId) {
@@ -159,33 +236,125 @@ public class AccessControlService {
         Parent parent = user.getParent();
 
         return studentRepository.findById(studentId)
-                .map(student -> student.getParent() != null
-                        && student.getParent().getId().equals(parent.getId()))
+                .map(student -> student.getParent() != null && student.getParent().getId().equals(parent.getId()))
                 .orElse(false);
     }
 
     public boolean isFormTeacherOfStudent(User user, Long studentId) {
-        if (!isTeacher(user) || user.getTeacher() == null) {
+        Student student = findStudent(studentId);
+        return student != null && isFormTeacherOfStudent(user, student);
+    }
+
+    private boolean isFormTeacherOfStudent(User user, Student student) {
+        if (!isTeacher(user) || user.getTeacher() == null || student == null) {
+            log.warn("Form teacher check failed: user is not teacher or teacher profile is null");
             return false;
         }
 
-        Student student = studentRepository.findById(studentId).orElse(null);
-        if (student == null) {
+        if (!hasStudentClassScope(student)) {
+            log.warn("Form teacher check failed: student has no valid class scope");
             return false;
         }
 
-        if (student.getStudentClass() == null || student.getClassArm() == null) {
+        Optional<SchoolClass> schoolClass = classRepository.findByClassNameAndArmNormalized(
+                student.getStudentClass(),
+                student.getClassArm()
+        );
+
+        if (schoolClass.isEmpty()) {
+            log.warn("Form teacher check failed: no SchoolClass found for class='{}', arm='{}'",
+                    student.getStudentClass(), student.getClassArm());
             return false;
         }
 
-        SchoolClass schoolClass = classRepository
-                .findByClassNameAndArm(student.getStudentClass(), student.getClassArm())
-                .orElse(null);
-
-        if (schoolClass == null || schoolClass.getClassTeacher() == null) {
+        if (schoolClass.get().getClassTeacher() == null) {
+            log.warn("Form teacher check failed: class has no class teacher");
             return false;
         }
 
-        return schoolClass.getClassTeacher().getId().equals(user.getTeacher().getId());
+        boolean match = schoolClass.get().getClassTeacher().getId().equals(user.getTeacher().getId());
+
+        log.info("Form teacher check => classTeacherId={}, currentTeacherId={}, match={}",
+                schoolClass.get().getClassTeacher().getId(),
+                user.getTeacher().getId(),
+                match);
+
+        return match;
+    }
+
+    private boolean isTeacherAssignedToStudentSubject(User user, Student student, Long subjectId) {
+        if (!isTeacher(user) || user.getTeacher() == null || student == null || !hasStudentClassScope(student)) {
+            return false;
+        }
+
+        List<TeacherSubject> assignments =
+                teacherSubjectRepository.findByTeacher_IdOrderByClassNameAscClassArmAsc(user.getTeacher().getId());
+
+        return assignments.stream().anyMatch(assignment -> {
+            boolean sameScope = sameClassScope(
+                    student.getStudentClass(),
+                    student.getClassArm(),
+                    assignment.getClassName(),
+                    assignment.getClassArm()
+            );
+
+            if (!sameScope) {
+                return false;
+            }
+
+            if (subjectId == null) {
+                return true;
+            }
+
+            return assignment.getSubject() != null
+                    && assignment.getSubject().getId() != null
+                    && assignment.getSubject().getId().equals(subjectId);
+        });
+    }
+
+    private boolean isFormTeacherOfClass(User user, String className, String arm) {
+        if (!isTeacher(user) || user.getTeacher() == null || isBlank(className) || isBlank(arm)) {
+            return false;
+        }
+
+        Optional<SchoolClass> schoolClass = classRepository.findByClassNameAndArmNormalized(className, arm);
+        return schoolClass.isPresent()
+                && schoolClass.get().getClassTeacher() != null
+                && schoolClass.get().getClassTeacher().getId().equals(user.getTeacher().getId());
+    }
+
+    private Student findStudent(Long studentId) {
+        return studentRepository.findById(studentId).orElse(null);
+    }
+
+    private boolean hasStudentClassScope(Student student) {
+        return !isBlank(student.getStudentClass()) && !isBlank(student.getClassArm());
+    }
+
+    private boolean sameClassScope(String className1, String arm1, String className2, String arm2) {
+        return normalizeCompact(className1).equals(normalizeCompact(className2))
+                && normalizeCompact(arm1).equals(normalizeCompact(arm2));
+    }
+
+    private String normalize(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim()
+                .replaceAll("\\s+", " ")
+                .toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeCompact(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim()
+                .replaceAll("\\s+", "")
+                .toUpperCase(Locale.ROOT);
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 }

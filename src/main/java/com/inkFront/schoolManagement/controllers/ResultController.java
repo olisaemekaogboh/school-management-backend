@@ -57,17 +57,19 @@ public class ResultController {
     public ResponseEntity<?> addOrUpdateResult(
             @PathVariable Long studentId,
             @Valid @RequestBody ResultRequestDTO resultRequest) {
-
         try {
             User user = currentUser();
-            accessControlService.requireStudentResultModification(user, studentId);
+
+            accessControlService.requireStudentResultModification(
+                    user,
+                    studentId,
+                    resultRequest.getSubjectId()
+            );
 
             resultRequest.setStudentId(studentId);
 
             Result result = resultService.addOrUpdateResult(resultRequest);
-
             return ResponseEntity.ok(ResultResponseDTO.fromResult(result));
-
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -80,7 +82,6 @@ public class ResultController {
             @PathVariable Long studentId,
             @RequestParam String session,
             @RequestParam Result.Term term) {
-
         try {
             User user = currentUser();
             accessControlService.requireStudentResultAccess(user, studentId);
@@ -91,7 +92,6 @@ public class ResultController {
                     .toList();
 
             return ResponseEntity.ok(response);
-
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -104,14 +104,12 @@ public class ResultController {
             @PathVariable Long studentId,
             @RequestParam String session,
             @RequestParam Result.Term term) {
-
         try {
             User user = currentUser();
             accessControlService.requireStudentResultAccess(user, studentId);
 
             Map<String, Object> resultSheet = resultService.generateResultSheet(studentId, session, term);
             return ResponseEntity.ok(resultSheet);
-
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -123,14 +121,12 @@ public class ResultController {
     public ResponseEntity<?> getAnnualResult(
             @PathVariable Long studentId,
             @RequestParam String session) {
-
         try {
             User user = currentUser();
             accessControlService.requireStudentResultAccess(user, studentId);
 
             Map<String, Object> result = resultService.generateAnnualResultSheet(studentId, session);
             return ResponseEntity.ok(result);
-
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -142,7 +138,6 @@ public class ResultController {
     public ResponseEntity<?> getMyTermResult(
             @RequestParam String session,
             @RequestParam Result.Term term) {
-
         try {
             User user = currentUser();
 
@@ -152,16 +147,13 @@ public class ResultController {
 
             Long studentId = user.getStudent().getId();
             return ResponseEntity.ok(resultService.generateResultSheet(studentId, session, term));
-
         } catch (Exception e) {
             return serverError("Unable to fetch your term result", e);
         }
     }
 
     @GetMapping("/me/annual")
-    public ResponseEntity<?> getMyAnnualResult(
-            @RequestParam String session) {
-
+    public ResponseEntity<?> getMyAnnualResult(@RequestParam String session) {
         try {
             User user = currentUser();
 
@@ -171,7 +163,6 @@ public class ResultController {
 
             Long studentId = user.getStudent().getId();
             return ResponseEntity.ok(resultService.generateAnnualResultSheet(studentId, session));
-
         } catch (Exception e) {
             return serverError("Unable to fetch your annual result", e);
         }
@@ -183,14 +174,12 @@ public class ResultController {
             @PathVariable String arm,
             @RequestParam String session,
             @RequestParam Result.Term term) {
-
         try {
             User user = currentUser();
             accessControlService.requireClassTeacherOrAdmin(user, className, arm);
 
             Map<String, Object> rankings = resultService.getArmRankings(className, arm, session, term);
             return ResponseEntity.ok(rankings);
-
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -204,11 +193,9 @@ public class ResultController {
             @RequestParam(required = false) String arm,
             @RequestParam String session,
             @RequestParam Result.Term term) {
-
         try {
             User user = currentUser();
 
-            // Admin can access true class rankings with or without arm filter.
             if (arm == null || arm.isBlank()) {
                 accessControlService.requireAdmin(user);
             } else {
@@ -217,7 +204,6 @@ public class ResultController {
 
             Map<String, Object> rankings = resultService.getClassRankings(className, arm, session, term);
             return ResponseEntity.ok(rankings);
-
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -229,14 +215,12 @@ public class ResultController {
     public ResponseEntity<?> getSchoolRankings(
             @RequestParam String session,
             @RequestParam Result.Term term) {
-
         try {
             User user = currentUser();
             accessControlService.requireAdmin(user);
 
             Map<String, Object> rankings = resultService.getSchoolRankings(session, term);
             return ResponseEntity.ok(rankings);
-
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -248,14 +232,12 @@ public class ResultController {
     public ResponseEntity<?> calculateAllTermResults(
             @RequestParam String session,
             @RequestParam Result.Term term) {
-
         try {
             User user = currentUser();
             accessControlService.requireAdmin(user);
 
             resultService.calculateAllTermResults(session, term);
             return ResponseEntity.ok(Map.of("message", "All term results calculated successfully"));
-
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -264,16 +246,13 @@ public class ResultController {
     }
 
     @PostMapping("/calculate/annual")
-    public ResponseEntity<?> calculateAllSessionResults(
-            @RequestParam String session) {
-
+    public ResponseEntity<?> calculateAllSessionResults(@RequestParam String session) {
         try {
             User user = currentUser();
             accessControlService.requireAdmin(user);
 
             resultService.calculateAllSessionResults(session);
             return ResponseEntity.ok(Map.of("message", "All annual results calculated successfully"));
-
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -287,7 +266,6 @@ public class ResultController {
             @PathVariable String arm,
             @RequestParam String session,
             @RequestParam Result.Term term) {
-
         try {
             User user = currentUser();
             accessControlService.requireClassTeacherOrAdmin(user, className, arm);
@@ -327,7 +305,6 @@ public class ResultController {
             stats.put("term", term);
 
             return ResponseEntity.ok(stats);
-
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {

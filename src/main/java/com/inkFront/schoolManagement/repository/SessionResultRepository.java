@@ -18,26 +18,66 @@ public interface SessionResultRepository extends JpaRepository<SessionResult, Lo
     Optional<SessionResult> findByStudentAndSession(Student student, String session);
 
     @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
-    @Query("SELECT sr FROM SessionResult sr WHERE sr.student.studentClass = :className AND sr.session = :session ORDER BY sr.annualAverage DESC")
-    List<SessionResult> findByClassAndSessionOrderByAnnualAverageDesc(@Param("className") String className,
-                                                                      @Param("session") String session);
+    @Query("""
+        SELECT sr
+        FROM SessionResult sr
+        WHERE UPPER(REPLACE(TRIM(sr.student.studentClass), ' ', '')) =
+              UPPER(REPLACE(TRIM(:className), ' ', ''))
+          AND sr.session = :session
+        ORDER BY sr.annualAverage DESC
+    """)
+    List<SessionResult> findByClassAndSessionOrderByAnnualAverageDesc(
+            @Param("className") String className,
+            @Param("session") String session
+    );
 
     @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
-    @Query("SELECT sr FROM SessionResult sr WHERE sr.student.studentClass = :className AND sr.student.classArm = :arm AND sr.session = :session ORDER BY sr.annualAverage DESC")
-    List<SessionResult> findByClassAndArmAndSessionOrderByAnnualAverageDesc(@Param("className") String className,
-                                                                            @Param("arm") String arm,
-                                                                            @Param("session") String session);
+    @Query("""
+        SELECT sr
+        FROM SessionResult sr
+        WHERE UPPER(REPLACE(TRIM(sr.student.studentClass), ' ', '')) =
+              UPPER(REPLACE(TRIM(:className), ' ', ''))
+          AND UPPER(REPLACE(TRIM(sr.student.classArm), ' ', '')) =
+              UPPER(REPLACE(TRIM(:arm), ' ', ''))
+          AND sr.session = :session
+        ORDER BY sr.annualAverage DESC
+    """)
+    List<SessionResult> findByClassAndArmAndSessionOrderByAnnualAverageDesc(
+            @Param("className") String className,
+            @Param("arm") String arm,
+            @Param("session") String session
+    );
 
     @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
-    @Query("SELECT sr FROM SessionResult sr WHERE sr.session = :session ORDER BY sr.annualAverage DESC")
+    @Query("""
+        SELECT sr
+        FROM SessionResult sr
+        WHERE sr.session = :session
+        ORDER BY sr.annualAverage DESC
+    """)
     List<SessionResult> findBySessionOrderByAnnualAverageDesc(@Param("session") String session);
 
-    @Query("SELECT sr.student.studentClass, AVG(sr.annualAverage) FROM SessionResult sr WHERE sr.session = :session GROUP BY sr.student.studentClass")
+    @Query("""
+        SELECT sr.student.studentClass, AVG(sr.annualAverage)
+        FROM SessionResult sr
+        WHERE sr.session = :session
+        GROUP BY sr.student.studentClass
+    """)
     List<Object[]> getClassAverageBySession(@Param("session") String session);
 
-    @Query("SELECT COUNT(sr) FROM SessionResult sr WHERE sr.promoted = true AND sr.session = :session")
+    @Query("""
+        SELECT COUNT(sr)
+        FROM SessionResult sr
+        WHERE sr.promoted = true
+          AND sr.session = :session
+    """)
     long countPromotedStudents(@Param("session") String session);
 
-    @Query("SELECT COUNT(sr) FROM SessionResult sr WHERE sr.promoted = false AND sr.session = :session")
+    @Query("""
+        SELECT COUNT(sr)
+        FROM SessionResult sr
+        WHERE sr.promoted = false
+          AND sr.session = :session
+    """)
     long countRetainedStudents(@Param("session") String session);
 }

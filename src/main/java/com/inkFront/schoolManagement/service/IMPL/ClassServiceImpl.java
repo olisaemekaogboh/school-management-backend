@@ -294,14 +294,13 @@ public class ClassServiceImpl implements ClassService {
         return classRepository.findByIdWithTeacher(classId)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found after removing subject"));
     }
-
     @Override
     @Transactional(readOnly = true)
     public List<StudentResponseDTO> getStudentsInClass(Long classId) {
         SchoolClass schoolClass = classRepository.findByIdWithTeacher(classId)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
 
-        List<Student> students = studentRepository.findByStudentClassAndClassArm(
+        List<Student> students = studentRepository.findByClassScopeNormalized(
                 schoolClass.getClassName(),
                 schoolClass.getArm()
         );

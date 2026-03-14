@@ -61,7 +61,7 @@ public class SessionResultResponseDTO {
         return new SessionResultResponseDTO(
                 sr.getId(),
                 student != null ? student.getId() : null,
-                student != null ? student.getFirstName() + " " + student.getLastName() : null,
+                student != null ? (student.getFirstName() + " " + student.getLastName()) : null,
                 student != null ? student.getAdmissionNumber() : null,
                 student != null ? student.getStudentClass() : null,
                 student != null ? student.getClassArm() : null,

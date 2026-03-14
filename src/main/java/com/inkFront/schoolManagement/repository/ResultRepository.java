@@ -56,6 +56,34 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
     );
 
     @Query("""
+        SELECT r
+        FROM Result r
+        WHERE UPPER(REPLACE(TRIM(r.student.studentClass), ' ', '')) = UPPER(REPLACE(TRIM(:className), ' ', ''))
+          AND r.session = :session
+          AND r.term = :term
+    """)
+    List<Result> findByClassAndSessionAndTermNormalized(
+            @Param("className") String className,
+            @Param("session") String session,
+            @Param("term") Result.Term term
+    );
+
+    @Query("""
+        SELECT r
+        FROM Result r
+        WHERE UPPER(REPLACE(TRIM(r.student.studentClass), ' ', '')) = UPPER(REPLACE(TRIM(:className), ' ', ''))
+          AND UPPER(REPLACE(TRIM(r.student.classArm), ' ', '')) = UPPER(REPLACE(TRIM(:arm), ' ', ''))
+          AND r.session = :session
+          AND r.term = :term
+    """)
+    List<Result> findByClassAndArmAndSessionAndTermNormalized(
+            @Param("className") String className,
+            @Param("arm") String arm,
+            @Param("session") String session,
+            @Param("term") Result.Term term
+    );
+
+    @Query("""
         SELECT r.student, AVG(r.total)
         FROM Result r
         WHERE r.session = :session
@@ -94,6 +122,38 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
         ORDER BY AVG(r.total) DESC
     """)
     List<Object[]> getArmRanking(
+            @Param("className") String className,
+            @Param("arm") String arm,
+            @Param("session") String session,
+            @Param("term") Result.Term term
+    );
+
+    @Query("""
+        SELECT r.student, AVG(r.total)
+        FROM Result r
+        WHERE UPPER(REPLACE(TRIM(r.student.studentClass), ' ', '')) = UPPER(REPLACE(TRIM(:className), ' ', ''))
+          AND r.session = :session
+          AND r.term = :term
+        GROUP BY r.student
+        ORDER BY AVG(r.total) DESC
+    """)
+    List<Object[]> getClassRankingNormalized(
+            @Param("className") String className,
+            @Param("session") String session,
+            @Param("term") Result.Term term
+    );
+
+    @Query("""
+        SELECT r.student, AVG(r.total)
+        FROM Result r
+        WHERE UPPER(REPLACE(TRIM(r.student.studentClass), ' ', '')) = UPPER(REPLACE(TRIM(:className), ' ', ''))
+          AND UPPER(REPLACE(TRIM(r.student.classArm), ' ', '')) = UPPER(REPLACE(TRIM(:arm), ' ', ''))
+          AND r.session = :session
+          AND r.term = :term
+        GROUP BY r.student
+        ORDER BY AVG(r.total) DESC
+    """)
+    List<Object[]> getArmRankingNormalized(
             @Param("className") String className,
             @Param("arm") String arm,
             @Param("session") String session,

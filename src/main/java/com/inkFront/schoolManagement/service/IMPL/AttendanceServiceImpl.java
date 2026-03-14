@@ -1,9 +1,16 @@
-// src/main/java/com/inkFront/schoolManagement/service/IMPL/AttendanceServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
-import com.inkFront.schoolManagement.model.*;
-import com.inkFront.schoolManagement.repository.*;
+import com.inkFront.schoolManagement.model.Attendance;
+import com.inkFront.schoolManagement.model.AttendanceSummary;
+import com.inkFront.schoolManagement.model.Result;
+import com.inkFront.schoolManagement.model.SessionResult;
+import com.inkFront.schoolManagement.model.Student;
+import com.inkFront.schoolManagement.model.TermResult;
+import com.inkFront.schoolManagement.repository.AttendanceRepository;
+import com.inkFront.schoolManagement.repository.SessionResultRepository;
+import com.inkFront.schoolManagement.repository.StudentRepository;
+import com.inkFront.schoolManagement.repository.TermResultRepository;
 import com.inkFront.schoolManagement.service.AttendanceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,7 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -47,13 +53,10 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         Attendance savedAttendance = attendanceRepository.save(attendance);
 
-        // Update attendance summary
         updateTermAttendanceSummary(student, session, term);
 
         return savedAttendance;
     }
-
-    // In AttendanceServiceImpl.java - Update the markBulkAttendance method
 
     @Override
     public List<Attendance> markBulkAttendance(List<Long> studentIds, LocalDate date,
@@ -77,8 +80,7 @@ public class AttendanceServiceImpl implements AttendanceService {
                 attendances.add(attendance);
                 log.info("Successfully marked attendance for student: {}", studentId);
             } catch (Exception e) {
-                log.error("Error marking attendance for student {}: {}", studentId, e.getMessage());
-                e.printStackTrace();
+                log.error("Error marking attendance for student {}: {}", studentId, e.getMessage(), e);
             }
         }
 
@@ -87,6 +89,7 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         return attendances;
     }
+
     @Override
     public Attendance getStudentAttendance(Long studentId, LocalDate date, String session, Result.Term term) {
         Student student = studentRepository.findById(studentId)
@@ -110,11 +113,9 @@ public class AttendanceServiceImpl implements AttendanceService {
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found"));
 
-        // Get all school days for this term
         List<LocalDate> schoolDays = getSchoolDays(session, term);
         int totalSchoolDays = schoolDays.size();
 
-        // Count attendance by status
         long present = attendanceRepository.countByStudentAndSessionAndTermAndStatus(
                 student, session, term, Attendance.AttendanceStatus.PRESENT);
         long absent = attendanceRepository.countByStudentAndSessionAndTermAndStatus(
@@ -124,7 +125,6 @@ public class AttendanceServiceImpl implements AttendanceService {
         long excused = attendanceRepository.countByStudentAndSessionAndTermAndStatus(
                 student, session, term, Attendance.AttendanceStatus.EXCUSED);
 
-        // Create summary
         AttendanceSummary summary = new AttendanceSummary();
         summary.setStudent(student);
         summary.setSession(session);
@@ -146,7 +146,6 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         Map<String, Object> summary = new HashMap<>();
 
-        // Get summaries for each term
         AttendanceSummary firstTerm = getStudentTermSummary(studentId, session, Result.Term.FIRST);
         AttendanceSummary secondTerm = getStudentTermSummary(studentId, session, Result.Term.SECOND);
         AttendanceSummary thirdTerm = getStudentTermSummary(studentId, session, Result.Term.THIRD);
@@ -155,7 +154,6 @@ public class AttendanceServiceImpl implements AttendanceService {
         summary.put("secondTerm", secondTerm);
         summary.put("thirdTerm", thirdTerm);
 
-        // Calculate session totals
         int totalDays = 0;
         int totalPresent = 0;
         int totalAbsent = 0;
@@ -189,13 +187,25 @@ public class AttendanceServiceImpl implements AttendanceService {
 
     @Override
     public List<Attendance> getClassAttendance(String className, String arm, LocalDate date, String session, Result.Term term) {
-        return attendanceRepository.findByStudent_StudentClassAndStudent_ClassArmAndDateAndSessionAndTerm(
-                className, arm, date, session, term
-        );
+        List<Student> students = studentRepository.findByClassScopeNormalized(className, arm);
+
+        if (students.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Attendance> attendanceList = new ArrayList<>();
+
+        for (Student student : students) {
+            attendanceRepository.findByStudentAndDateAndSessionAndTerm(student, date, session, term)
+                    .ifPresent(attendanceList::add);
+        }
+
+        return attendanceList;
     }
+
     @Override
     public Map<String, Object> getClassTermStatistics(String className, String arm, String session, Result.Term term) {
-        List<Student> students = studentRepository.findByStudentClassAndClassArm(className, arm);
+        List<Student> students = studentRepository.findByClassScopeNormalized(className, arm);
 
         int totalStudents = students.size();
         int presentCount = 0;
@@ -251,6 +261,7 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         return statistics;
     }
+
     @Override
     public Map<String, Object> getSchoolAttendanceStatistics(String session, Result.Term term) {
         List<Student> allStudents = studentRepository.findAll();
@@ -284,7 +295,7 @@ public class AttendanceServiceImpl implements AttendanceService {
         statistics.put("totalAbsent", totalAbsent);
         statistics.put("totalLate", totalLate);
         statistics.put("totalExcused", totalExcused);
-        statistics.put("attendanceRate", totalPresent * 100.0 / (totalStudents * 90)); // Assuming 90 school days per term
+        statistics.put("attendanceRate", totalStudents > 0 ? (totalPresent * 100.0 / (totalStudents * 90.0)) : 0.0);
         statistics.put("classStatistics", classStats);
 
         return statistics;
@@ -293,9 +304,6 @@ public class AttendanceServiceImpl implements AttendanceService {
     @Override
     public List<LocalDate> initializeSchoolDays(List<LocalDate> dates, String session, Result.Term term) {
         log.info("Initializing {} school days for {} term {}", dates.size(), session, term);
-
-        // You might want to store these in a separate table
-        // For now, we'll just return the list
         return dates;
     }
 
@@ -309,7 +317,6 @@ public class AttendanceServiceImpl implements AttendanceService {
             try {
                 AttendanceSummary summary = getStudentTermSummary(student.getId(), session, term);
 
-                // Update TermResult with attendance data
                 TermResult termResult = termResultRepository
                         .findByStudentAndSessionAndTerm(student, session, term)
                         .orElse(new TermResult());
@@ -325,18 +332,15 @@ public class AttendanceServiceImpl implements AttendanceService {
                 termResultRepository.save(termResult);
 
             } catch (Exception e) {
-                log.error("Error calculating attendance for student {}: {}", student.getId(), e.getMessage());
+                log.error("Error calculating attendance for student {}: {}", student.getId(), e.getMessage(), e);
             }
         }
     }
 
     private List<LocalDate> getSchoolDays(String session, Result.Term term) {
-        // This should ideally come from a database table
-        // For now, generating sample dates
         List<LocalDate> schoolDays = new ArrayList<>();
         LocalDate startDate;
 
-        // Set start dates based on term
         if (term == Result.Term.FIRST) {
             startDate = LocalDate.of(Integer.parseInt(session.split("/")[0]), 9, 8);
         } else if (term == Result.Term.SECOND) {
@@ -345,13 +349,9 @@ public class AttendanceServiceImpl implements AttendanceService {
             startDate = LocalDate.of(Integer.parseInt(session.split("/")[0]) + 1, 4, 15);
         }
 
-        // Generate 90 school days (approx 13 weeks)
         for (int i = 0; i < 90; i++) {
             LocalDate date = startDate.plusDays(i);
-            // Skip weekends (optional)
-            // if (date.getDayOfWeek().getValue() <= 5) {
             schoolDays.add(date);
-            // }
         }
 
         return schoolDays;
@@ -360,7 +360,6 @@ public class AttendanceServiceImpl implements AttendanceService {
     private void updateTermAttendanceSummary(Student student, String session, Result.Term term) {
         AttendanceSummary summary = getStudentTermSummary(student.getId(), session, term);
 
-        // Update TermResult
         TermResult termResult = termResultRepository
                 .findByStudentAndSessionAndTerm(student, session, term)
                 .orElse(new TermResult());

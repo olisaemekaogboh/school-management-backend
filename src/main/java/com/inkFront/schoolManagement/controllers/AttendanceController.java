@@ -119,7 +119,21 @@ public class AttendanceController {
             accessControlService.requireAttendanceAccess(user, studentId);
 
             Attendance attendance = attendanceService.getStudentAttendance(studentId, date, session, term);
-            return attendance != null ? ResponseEntity.ok(attendance) : ResponseEntity.notFound().build();
+
+            if (attendance != null) {
+                return ResponseEntity.ok(attendance);
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("exists", false);
+            response.put("studentId", studentId);
+            response.put("date", date);
+            response.put("session", session);
+            response.put("term", term);
+            response.put("status", null);
+            response.put("remarks", null);
+
+            return ResponseEntity.ok(response);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -360,7 +374,7 @@ public class AttendanceController {
             Map<String, Object> response = new HashMap<>();
 
             List<Student> students = (arm != null && !arm.isBlank())
-                    ? studentRepository.findByStudentClassAndClassArm(className, arm)
+                    ? studentRepository.findByClassScopeNormalized(className, arm)
                     : studentRepository.findByStudentClass(className);
 
             response.put("className", className);

@@ -18,7 +18,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -57,69 +56,6 @@ public class SessionResultServiceImpl implements SessionResultService {
             throw new RuntimeException("No term result found for this student in " + session);
         }
 
-        int totalSchoolDays = 0;
-        int totalDaysPresent = 0;
-        int totalDaysAbsent = 0;
-
-        List<Attendance> allAttendance = new ArrayList<>();
-
-        if (firstTerm != null) {
-            allAttendance.addAll(attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(
-                    student, session, Result.Term.FIRST));
-        }
-        if (secondTerm != null) {
-            allAttendance.addAll(attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(
-                    student, session, Result.Term.SECOND));
-        }
-        if (thirdTerm != null) {
-            allAttendance.addAll(attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(
-                    student, session, Result.Term.THIRD));
-        }
-
-        Map<LocalDate, Boolean> uniqueDays = new HashMap<>();
-        for (Attendance att : allAttendance) {
-            uniqueDays.put(att.getDate(), true);
-
-            if (att.getStatus() == Attendance.AttendanceStatus.PRESENT
-                    || att.getStatus() == Attendance.AttendanceStatus.LATE
-                    || att.getStatus() == Attendance.AttendanceStatus.EXCUSED) {
-                totalDaysPresent++;
-            } else if (att.getStatus() == Attendance.AttendanceStatus.ABSENT) {
-                totalDaysAbsent++;
-            }
-        }
-        totalSchoolDays = uniqueDays.size();
-
-        Map<String, Double> subjectAnnualTotals = new HashMap<>();
-        Map<String, Integer> subjectCount = new HashMap<>();
-
-        List<Result> allResults = new ArrayList<>();
-        if (firstTerm != null && firstTerm.getSubjectResults() != null) {
-            allResults.addAll(firstTerm.getSubjectResults());
-        }
-        if (secondTerm != null && secondTerm.getSubjectResults() != null) {
-            allResults.addAll(secondTerm.getSubjectResults());
-        }
-        if (thirdTerm != null && thirdTerm.getSubjectResults() != null) {
-            allResults.addAll(thirdTerm.getSubjectResults());
-        }
-
-        for (Result result : allResults) {
-            String subject = result.getSubject().getName();
-            subjectAnnualTotals.merge(subject, result.getTotal(), Double::sum);
-            subjectCount.merge(subject, 1, Integer::sum);
-        }
-
-        Map<String, Double> subjectAverages = new HashMap<>();
-        for (Map.Entry<String, Double> entry : subjectAnnualTotals.entrySet()) {
-            String subject = entry.getKey();
-            Double total = entry.getValue();
-            Integer count = subjectCount.get(subject);
-            if (count != null && count > 0) {
-                subjectAverages.put(subject, total / count);
-            }
-        }
-
         SessionResult sessionResult = sessionResultRepository
                 .findByStudentAndSession(student, session)
                 .orElse(new SessionResult());
@@ -130,42 +66,37 @@ public class SessionResultServiceImpl implements SessionResultService {
         sessionResult.setFirstTermTotal(0);
         sessionResult.setSecondTermTotal(0);
         sessionResult.setThirdTermTotal(0);
+
         sessionResult.setFirstTermAverage(0);
         sessionResult.setSecondTermAverage(0);
         sessionResult.setThirdTermAverage(0);
+
         sessionResult.setFirstTermPosition(null);
         sessionResult.setSecondTermPosition(null);
         sessionResult.setThirdTermPosition(null);
 
         if (firstTerm != null) {
-            sessionResult.setFirstTermTotal(firstTerm.getTotalScore());
-            sessionResult.setFirstTermAverage(firstTerm.getAverage());
+            sessionResult.setFirstTermTotal(safeDouble(firstTerm.getTotalScore()));
+            sessionResult.setFirstTermAverage(safeDouble(firstTerm.getAverage()));
             sessionResult.setFirstTermPosition(firstTerm.getPositionInClass());
         }
 
         if (secondTerm != null) {
-            sessionResult.setSecondTermTotal(secondTerm.getTotalScore());
-            sessionResult.setSecondTermAverage(secondTerm.getAverage());
+            sessionResult.setSecondTermTotal(safeDouble(secondTerm.getTotalScore()));
+            sessionResult.setSecondTermAverage(safeDouble(secondTerm.getAverage()));
             sessionResult.setSecondTermPosition(secondTerm.getPositionInClass());
         }
 
         if (thirdTerm != null) {
-            sessionResult.setThirdTermTotal(thirdTerm.getTotalScore());
-            sessionResult.setThirdTermAverage(thirdTerm.getAverage());
+            sessionResult.setThirdTermTotal(safeDouble(thirdTerm.getTotalScore()));
+            sessionResult.setThirdTermAverage(safeDouble(thirdTerm.getAverage()));
             sessionResult.setThirdTermPosition(thirdTerm.getPositionInClass());
         }
 
-        sessionResult.setTotalSchoolDays(totalSchoolDays);
-        sessionResult.setTotalDaysPresent(totalDaysPresent);
-        sessionResult.setTotalDaysAbsent(totalDaysAbsent);
-        sessionResult.setAttendancePercentage(totalSchoolDays > 0
-                ? (totalDaysPresent * 100.0 / totalSchoolDays)
-                : 0);
-
-        sessionResult.setSubjectAnnualTotals(subjectAnnualTotals);
-        sessionResult.setSubjectAverages(subjectAverages);
-
-        sessionResult.calculateAnnualAverage();
+        populateAttendance(sessionResult, student, session, firstTerm, secondTerm, thirdTerm);
+        populateSubjectPerformance(sessionResult, student, session);
+        populateAnnualSummary(sessionResult, firstTerm, secondTerm, thirdTerm);
+        applyPromotionDecision(sessionResult);
 
         SessionResult savedResult = sessionResultRepository.save(sessionResult);
 
@@ -198,13 +129,49 @@ public class SessionResultServiceImpl implements SessionResultService {
     }
 
     @Override
+    public List<SessionResultResponseDTO> calculateClassArmSessionResults(String className, String arm, String session) {
+        log.info("Calculating class arm session results for class: {} arm: {} session: {}", className, arm, session);
+
+        List<Student> students = studentRepository.findByStudentClassAndClassArmNormalized(className, arm);
+
+        log.info("Found {} students for normalized class lookup: class='{}', arm='{}'", students.size(), className, arm);
+
+        if (students.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<SessionResultResponseDTO> results = new ArrayList<>();
+
+        for (Student student : students) {
+            try {
+                SessionResultResponseDTO result = calculateSessionResult(student.getId(), session);
+                results.add(result);
+            } catch (Exception e) {
+                log.error(
+                        "Error calculating session result for student {} ({} {}): {}",
+                        student.getId(),
+                        student.getFirstName(),
+                        student.getLastName(),
+                        e.getMessage(),
+                        e
+                );
+            }
+        }
+
+        calculateAllPositions(session);
+
+        return results;
+    }
+    @Override
     @Transactional(readOnly = true)
     public SessionResultResponseDTO getSessionResult(Long studentId, String session) {
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found"));
 
         SessionResult result = sessionResultRepository.findByStudentAndSession(student, session)
-                .orElseThrow(() -> new RuntimeException("Session result not found"));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Session result not found for student ID " + studentId + " in session " + session
+                ));
 
         return SessionResultResponseDTO.fromEntity(result);
     }
@@ -345,6 +312,8 @@ public class SessionResultServiceImpl implements SessionResultService {
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found"));
 
+        calculateSessionResult(studentId, session);
+
         SessionResult sessionResult = sessionResultRepository.findByStudentAndSession(student, session)
                 .orElseThrow(() -> new RuntimeException("Session result not found"));
 
@@ -394,35 +363,56 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         report.put("termSummaries", termSummaries);
 
+        List<Result> firstTermResults = firstTerm == null
+                ? List.of()
+                : resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.FIRST);
+
+        List<Result> secondTermResults = secondTerm == null
+                ? List.of()
+                : resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.SECOND);
+
+        List<Result> thirdTermResults = thirdTerm == null
+                ? List.of()
+                : resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.THIRD);
+
         List<Map<String, Object>> subjectPerformance = new ArrayList<>();
-        for (Map.Entry<String, Double> entry : sessionResult.getSubjectAverages().entrySet()) {
+
+        Map<String, Double> sortedSubjectAverages = new TreeMap<>(sessionResult.getSubjectAverages());
+
+        for (Map.Entry<String, Double> entry : sortedSubjectAverages.entrySet()) {
+            String subjectName = entry.getKey();
+
             Map<String, Object> subject = new HashMap<>();
-            subject.put("subject", entry.getKey());
+            subject.put("subject", subjectName);
             subject.put("annualAverage", entry.getValue());
 
             Map<String, Double> termScores = new HashMap<>();
-            if (firstTerm != null && firstTerm.getSubjectResults() != null) {
-                firstTerm.getSubjectResults().stream()
-                        .filter(r -> r.getSubject().equals(entry.getKey()))
-                        .findFirst()
-                        .ifPresent(r -> termScores.put("first", r.getTotal()));
-            }
-            if (secondTerm != null && secondTerm.getSubjectResults() != null) {
-                secondTerm.getSubjectResults().stream()
-                        .filter(r -> r.getSubject().equals(entry.getKey()))
-                        .findFirst()
-                        .ifPresent(r -> termScores.put("second", r.getTotal()));
-            }
-            if (thirdTerm != null && thirdTerm.getSubjectResults() != null) {
-                thirdTerm.getSubjectResults().stream()
-                        .filter(r -> r.getSubject().equals(entry.getKey()))
-                        .findFirst()
-                        .ifPresent(r -> termScores.put("third", r.getTotal()));
-            }
+
+            firstTermResults.stream()
+                    .filter(r -> r.getSubject() != null
+                            && r.getSubject().getName() != null
+                            && r.getSubject().getName().equalsIgnoreCase(subjectName))
+                    .findFirst()
+                    .ifPresent(r -> termScores.put("first", safeDouble(r.getTotal())));
+
+            secondTermResults.stream()
+                    .filter(r -> r.getSubject() != null
+                            && r.getSubject().getName() != null
+                            && r.getSubject().getName().equalsIgnoreCase(subjectName))
+                    .findFirst()
+                    .ifPresent(r -> termScores.put("second", safeDouble(r.getTotal())));
+
+            thirdTermResults.stream()
+                    .filter(r -> r.getSubject() != null
+                            && r.getSubject().getName() != null
+                            && r.getSubject().getName().equalsIgnoreCase(subjectName))
+                    .findFirst()
+                    .ifPresent(r -> termScores.put("third", safeDouble(r.getTotal())));
 
             subject.put("termScores", termScores);
             subjectPerformance.add(subject);
         }
+
         report.put("subjectPerformance", subjectPerformance);
 
         Map<String, Object> annualSummary = new HashMap<>();
@@ -599,6 +589,135 @@ public class SessionResultServiceImpl implements SessionResultService {
         return graduates;
     }
 
+    private void populateAttendance(SessionResult sessionResult,
+                                    Student student,
+                                    String session,
+                                    TermResult firstTerm,
+                                    TermResult secondTerm,
+                                    TermResult thirdTerm) {
+
+        List<Attendance> allAttendance = new ArrayList<>();
+
+        if (firstTerm != null) {
+            allAttendance.addAll(attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(
+                    student, session, Result.Term.FIRST
+            ));
+        }
+        if (secondTerm != null) {
+            allAttendance.addAll(attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(
+                    student, session, Result.Term.SECOND
+            ));
+        }
+        if (thirdTerm != null) {
+            allAttendance.addAll(attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(
+                    student, session, Result.Term.THIRD
+            ));
+        }
+
+        Set<String> uniqueSchoolDays = new HashSet<>();
+        int totalPresentEquivalent = 0;
+        int totalAbsent = 0;
+
+        for (Attendance att : allAttendance) {
+            uniqueSchoolDays.add(att.getTerm() + "_" + att.getDate());
+
+            if (att.getStatus() == Attendance.AttendanceStatus.PRESENT
+                    || att.getStatus() == Attendance.AttendanceStatus.LATE
+                    || att.getStatus() == Attendance.AttendanceStatus.EXCUSED) {
+                totalPresentEquivalent++;
+            } else if (att.getStatus() == Attendance.AttendanceStatus.ABSENT) {
+                totalAbsent++;
+            }
+        }
+
+        int totalSchoolDays = uniqueSchoolDays.size();
+
+        sessionResult.setTotalSchoolDays(totalSchoolDays);
+        sessionResult.setTotalDaysPresent(totalPresentEquivalent);
+        sessionResult.setTotalDaysAbsent(totalAbsent);
+        sessionResult.setAttendancePercentage(
+                totalSchoolDays > 0 ? (totalPresentEquivalent * 100.0 / totalSchoolDays) : 0
+        );
+    }
+
+    private void populateSubjectPerformance(SessionResult sessionResult, Student student, String session) {
+        List<Result> first = resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.FIRST);
+        List<Result> second = resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.SECOND);
+        List<Result> third = resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.THIRD);
+
+        List<Result> allResults = new ArrayList<>();
+        allResults.addAll(first);
+        allResults.addAll(second);
+        allResults.addAll(third);
+
+        Map<String, Double> subjectAnnualTotals = new HashMap<>();
+        Map<String, Integer> subjectCount = new HashMap<>();
+
+        for (Result result : allResults) {
+            if (result.getSubject() == null || result.getSubject().getName() == null) {
+                continue;
+            }
+
+            String subjectName = result.getSubject().getName();
+            subjectAnnualTotals.merge(subjectName, safeDouble(result.getTotal()), Double::sum);
+            subjectCount.merge(subjectName, 1, Integer::sum);
+        }
+
+        Map<String, Double> subjectAverages = new HashMap<>();
+        for (Map.Entry<String, Double> entry : subjectAnnualTotals.entrySet()) {
+            String subject = entry.getKey();
+            int count = subjectCount.getOrDefault(subject, 0);
+            subjectAverages.put(subject, count > 0 ? (entry.getValue() / count) : 0);
+        }
+
+        sessionResult.setSubjectAnnualTotals(subjectAnnualTotals);
+        sessionResult.setSubjectAverages(subjectAverages);
+    }
+
+    private void populateAnnualSummary(SessionResult sessionResult,
+                                       TermResult firstTerm,
+                                       TermResult secondTerm,
+                                       TermResult thirdTerm) {
+
+        double annualTotal = 0;
+        double averageSum = 0;
+        int termCount = 0;
+
+        if (firstTerm != null) {
+            annualTotal += safeDouble(firstTerm.getTotalScore());
+            averageSum += safeDouble(firstTerm.getAverage());
+            termCount++;
+        }
+        if (secondTerm != null) {
+            annualTotal += safeDouble(secondTerm.getTotalScore());
+            averageSum += safeDouble(secondTerm.getAverage());
+            termCount++;
+        }
+        if (thirdTerm != null) {
+            annualTotal += safeDouble(thirdTerm.getTotalScore());
+            averageSum += safeDouble(thirdTerm.getAverage());
+            termCount++;
+        }
+
+        sessionResult.setAnnualTotal(annualTotal);
+        sessionResult.setAnnualAverage(termCount > 0 ? (averageSum / termCount) : 0);
+    }
+
+    private void applyPromotionDecision(SessionResult sessionResult) {
+        boolean promoted = sessionResult.getAnnualAverage() >= 50
+                && sessionResult.getAttendancePercentage() >= 50;
+
+        sessionResult.setPromoted(promoted);
+
+        if (promoted) {
+            sessionResult.setPromotionRemark("Promoted");
+        } else if (sessionResult.getAnnualAverage() < 50) {
+            sessionResult.setPromotionRemark("Retained due to low academic performance");
+        } else {
+            sessionResult.setPromotionRemark("Retained due to poor attendance");
+        }
+    }
+
     private void calculateAnnualPositions(SessionResult sessionResult) {
         String className = sessionResult.getStudent().getStudentClass();
         String arm = sessionResult.getStudent().getClassArm();
@@ -624,6 +743,8 @@ public class SessionResultServiceImpl implements SessionResultService {
                     sessionResult.setAnnualPositionInArm(i + 1);
                 }
             }
+
+            sessionResultRepository.saveAll(armResults);
         }
 
         List<SessionResult> schoolResults = sessionResultRepository.findBySessionOrderByAnnualAverageDesc(session);
@@ -706,5 +827,9 @@ public class SessionResultServiceImpl implements SessionResultService {
         progression.put("SSS 3", "GRADUATED");
 
         return progression.getOrDefault(currentClass, currentClass);
+    }
+
+    private double safeDouble(Number value) {
+        return value == null ? 0.0 : value.doubleValue();
     }
 }

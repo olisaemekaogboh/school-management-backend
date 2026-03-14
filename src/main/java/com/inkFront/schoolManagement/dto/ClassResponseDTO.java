@@ -6,6 +6,9 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -25,11 +28,21 @@ public class ClassResponseDTO {
     private Long classTeacherId;
     private String classTeacherName;
 
+    private List<String> subjects;
+
     public static ClassResponseDTO fromEntity(SchoolClass schoolClass) {
-        return fromEntity(schoolClass, 0);
+        return fromEntity(schoolClass, 0, new ArrayList<>());
     }
 
     public static ClassResponseDTO fromEntity(SchoolClass schoolClass, int studentCount) {
+        return fromEntity(schoolClass, studentCount, new ArrayList<>());
+    }
+
+    public static ClassResponseDTO fromEntity(
+            SchoolClass schoolClass,
+            int studentCount,
+            List<String> subjects
+    ) {
         if (schoolClass == null) {
             return null;
         }
@@ -63,6 +76,7 @@ public class ClassResponseDTO {
                 .studentCount(studentCount)
                 .classTeacherId(teacherId)
                 .classTeacherName(teacherName)
+                .subjects(subjects == null ? new ArrayList<>() : subjects)
                 .build();
     }
 }

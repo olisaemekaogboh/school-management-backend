@@ -438,11 +438,10 @@ public class ResultServiceImpl implements ResultService {
         List<Object[]> rankings;
 
         if (arm != null && !arm.isBlank()) {
-            rankings = resultRepository.getArmRanking(className, arm, session, term);
+            rankings = resultRepository.getArmRankingNormalized(className, arm, session, term);
         } else {
-            rankings = resultRepository.getClassRanking(className, session, term);
+            rankings = resultRepository.getClassRankingNormalized(className, session, term);
         }
-
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (int i = 0; i < rankings.size(); i++) {
             Student student = (Student) rankings.get(i)[0];
@@ -473,7 +472,7 @@ public class ResultServiceImpl implements ResultService {
 
     @Override
     public Map<String, Object> getArmRankings(String className, String arm, String session, Result.Term term) {
-        List<Object[]> rankings = resultRepository.getArmRanking(className, arm, session, term);
+        List<Object[]> rankings = resultRepository.getArmRankingNormalized(className, arm, session, term);
 
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (int i = 0; i < rankings.size(); i++) {

@@ -11,6 +11,8 @@ public interface SessionResultService {
 
     List<SessionResultResponseDTO> calculateAllSessionResults(String session);
 
+
+
     SessionResultResponseDTO getSessionResult(Long studentId, String session);
 
     List<SessionResultResponseDTO> getClassSessionResults(String className, String session);
@@ -30,4 +32,5 @@ public interface SessionResultService {
     Map<String, Object> promoteStudents(String session);
 
     List<Map<String, Object>> getGraduationList(String session);
+    List<SessionResultResponseDTO> calculateClassArmSessionResults(String className, String arm, String session);
 }

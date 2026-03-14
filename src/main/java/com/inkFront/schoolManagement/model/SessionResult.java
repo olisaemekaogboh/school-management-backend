@@ -120,26 +120,10 @@ public class SessionResult {
 
         this.completedTermsCount = termCount;
         this.annualAverage = termCount > 0 ? averageSum / termCount : 0;
+    }
 
-        boolean sessionCompleted = termCount == 3;
-        boolean passedAcademically = annualAverage >= 40;
-        boolean metAttendanceRequirement = attendancePercentage >= 75;
-
-        if (!sessionCompleted) {
-            this.promoted = false;
-            this.promotionRemark = "Session still in progress";
-            return;
-        }
-
-        this.promoted = passedAcademically && metAttendanceRequirement;
-
-        if (!passedAcademically) {
-            this.promotionRemark = "Failed to meet academic requirements";
-        } else if (!metAttendanceRequirement) {
-            this.promotionRemark = "Failed to meet attendance requirements";
-        } else {
-            this.promotionRemark = "Promoted to next class";
-        }
+    public boolean hasCompletedSession() {
+        return completedTermsCount == 3;
     }
 
     private boolean hasFirstTerm() {
