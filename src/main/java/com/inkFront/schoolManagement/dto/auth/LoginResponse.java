@@ -41,28 +41,12 @@ public class LoginResponse {
         private LocalDateTime lastLogin;
         private LocalDateTime createdAt;
 
-        // linked entity ids
-        private Long studentId;
         private Long teacherId;
+        private Long studentId;
         private Long parentId;
-
-        // flat student fields for frontend convenience
-        private String admissionNumber;
-        private String studentClass;
-        private String classArm;
-        private String status;
-
-        // optional nested summaries
-        private StudentSummary student;
-        private TeacherSummary teacher;
-        private ParentSummary parent;
 
         public static UserResponse fromUser(User user) {
             if (user == null) return null;
-
-            Student student = user.getStudent();
-            Teacher teacher = user.getTeacher();
-            Parent parent = user.getParent();
 
             return UserResponse.builder()
                     .id(user.getId())
@@ -77,32 +61,10 @@ public class LoginResponse {
                     .emailVerified(user.isEmailVerified())
                     .lastLogin(user.getLastLogin())
                     .createdAt(user.getCreatedAt())
-
-                    .studentId(student != null ? student.getId() : null)
-                    .teacherId(teacher != null ? teacher.getId() : null)
-                    .parentId(parent != null ? parent.getId() : null)
-
-                    .admissionNumber(student != null ? student.getAdmissionNumber() : null)
-                    .studentClass(student != null ? student.getStudentClass() : null)
-                    .classArm(student != null ? student.getClassArm() : null)
-                    .status(resolveStudentStatus(student))
-
-                    .student(StudentSummary.from(student))
-                    .teacher(TeacherSummary.from(teacher))
-                    .parent(ParentSummary.from(parent))
+                    .teacherId(user.getTeacher() != null ? user.getTeacher().getId() : null)
+                    .studentId(user.getStudent() != null ? user.getStudent().getId() : null)
+                    .parentId(user.getParent() != null ? user.getParent().getId() : null)
                     .build();
-        }
-
-        private static String resolveStudentStatus(Student student) {
-            if (student == null || student.getStatus() == null) {
-                return null;
-            }
-
-            try {
-                return student.getStatus().toString();
-            } catch (Exception ex) {
-                return null;
-            }
         }
     }
 
