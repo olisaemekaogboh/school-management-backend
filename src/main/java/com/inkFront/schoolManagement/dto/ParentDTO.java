@@ -1,26 +1,23 @@
-// src/main/java/com/inkFront/schoolManagement/dto/ParentDTO.java
 package com.inkFront.schoolManagement.dto;
 
 import com.inkFront.schoolManagement.model.Parent;
 import com.inkFront.schoolManagement.model.Student;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Data
-@Builder
 @NoArgsConstructor
-@AllArgsConstructor
 public class ParentDTO {
     private Long id;
     private String firstName;
     private String lastName;
     private String middleName;
+    private String fullName;
     private String email;
     private String phoneNumber;
     private String alternatePhone;
@@ -28,9 +25,7 @@ public class ParentDTO {
     private String occupation;
     private String companyName;
     private String officeAddress;
-    private String relationship;
-    private List<Long> wardIds;
-    private List<String> wardNames;
+    private Parent.Relationship relationship;
     private String emergencyContactName;
     private String emergencyContactPhone;
     private String emergencyContactRelationship;
@@ -38,15 +33,24 @@ public class ParentDTO {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
-    // Convert Entity to DTO
-    public static ParentDTO fromEntity(Parent parent) {
-        if (parent == null) return null;
+    // Ward IDs only
+    private List<Long> wardIds = new ArrayList<>();
 
+    // Safe simplified ward info
+    private List<WardInfoDTO> wards = new ArrayList<>();
+
+    public static ParentDTO fromParent(Parent parent) {
         ParentDTO dto = new ParentDTO();
+
         dto.setId(parent.getId());
         dto.setFirstName(parent.getFirstName());
         dto.setLastName(parent.getLastName());
         dto.setMiddleName(parent.getMiddleName());
+        dto.setFullName(buildFullName(
+                parent.getFirstName(),
+                parent.getMiddleName(),
+                parent.getLastName()
+        ));
         dto.setEmail(parent.getEmail());
         dto.setPhoneNumber(parent.getPhoneNumber());
         dto.setAlternatePhone(parent.getAlternatePhone());
@@ -54,17 +58,7 @@ public class ParentDTO {
         dto.setOccupation(parent.getOccupation());
         dto.setCompanyName(parent.getCompanyName());
         dto.setOfficeAddress(parent.getOfficeAddress());
-        dto.setRelationship(parent.getRelationship() != null ? parent.getRelationship().name() : null);
-
-        if (parent.getWards() != null && !parent.getWards().isEmpty()) {
-            dto.setWardIds(parent.getWards().stream()
-                    .map(Student::getId)
-                    .collect(Collectors.toList()));
-            dto.setWardNames(parent.getWards().stream()
-                    .map(s -> s.getFirstName() + " " + s.getLastName())
-                    .collect(Collectors.toList()));
-        }
-
+        dto.setRelationship(parent.getRelationship());
         dto.setEmergencyContactName(parent.getEmergencyContactName());
         dto.setEmergencyContactPhone(parent.getEmergencyContactPhone());
         dto.setEmergencyContactRelationship(parent.getEmergencyContactRelationship());
@@ -72,40 +66,82 @@ public class ParentDTO {
         dto.setCreatedAt(parent.getCreatedAt());
         dto.setUpdatedAt(parent.getUpdatedAt());
 
+        if (parent.getWards() != null) {
+            dto.setWardIds(parent.getWards().stream()
+                    .map(Student::getId)
+                    .collect(Collectors.toList()));
+
+            dto.setWards(parent.getWards().stream()
+                    .map(WardInfoDTO::fromStudent)
+                    .collect(Collectors.toList()));
+        }
+
         return dto;
     }
 
-    // Alias for fromEntity (to match the method call in PublicController)
-    public static ParentDTO fromParent(Parent parent) {
-        return fromEntity(parent);
-    }
+    private static String buildFullName(String firstName, String middleName, String lastName) {
+        StringBuilder sb = new StringBuilder();
 
-    // Convert DTO to Entity
-    public static Parent toEntity(ParentDTO dto) {
-        if (dto == null) return null;
-
-        Parent parent = new Parent();
-        parent.setId(dto.getId());
-        parent.setFirstName(dto.getFirstName());
-        parent.setLastName(dto.getLastName());
-        parent.setMiddleName(dto.getMiddleName());
-        parent.setEmail(dto.getEmail());
-        parent.setPhoneNumber(dto.getPhoneNumber());
-        parent.setAlternatePhone(dto.getAlternatePhone());
-        parent.setAddress(dto.getAddress());
-        parent.setOccupation(dto.getOccupation());
-        parent.setCompanyName(dto.getCompanyName());
-        parent.setOfficeAddress(dto.getOfficeAddress());
-
-        if (dto.getRelationship() != null) {
-            parent.setRelationship(Parent.Relationship.valueOf(dto.getRelationship()));
+        if (firstName != null && !firstName.isBlank()) {
+            sb.append(firstName.trim());
+        }
+        if (middleName != null && !middleName.isBlank()) {
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(middleName.trim());
+        }
+        if (lastName != null && !lastName.isBlank()) {
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(lastName.trim());
         }
 
-        parent.setEmergencyContactName(dto.getEmergencyContactName());
-        parent.setEmergencyContactPhone(dto.getEmergencyContactPhone());
-        parent.setEmergencyContactRelationship(dto.getEmergencyContactRelationship());
-        parent.setProfilePictureUrl(dto.getProfilePictureUrl());
+        return sb.toString().trim();
+    }
 
-        return parent;
+    @Data
+    @NoArgsConstructor
+    public static class WardInfoDTO {
+        private Long id;
+        private String firstName;
+        private String lastName;
+        private String middleName;
+        private String fullName;
+        private String admissionNumber;
+        private String studentClass;
+        private String classArm;
+        private String status;
+        private String profilePictureUrl;
+
+        public static WardInfoDTO fromStudent(Student student) {
+            WardInfoDTO dto = new WardInfoDTO();
+            dto.setId(student.getId());
+            dto.setFirstName(student.getFirstName());
+            dto.setLastName(student.getLastName());
+            dto.setMiddleName(student.getMiddleName());
+            dto.setFullName(buildStudentFullName(student));
+            dto.setAdmissionNumber(student.getAdmissionNumber());
+            dto.setStudentClass(student.getStudentClass());
+            dto.setClassArm(student.getClassArm());
+            dto.setStatus(student.getStatus() != null ? student.getStatus().name() : null);
+            dto.setProfilePictureUrl(student.getProfilePictureUrl());
+            return dto;
+        }
+
+        private static String buildStudentFullName(Student student) {
+            StringBuilder sb = new StringBuilder();
+
+            if (student.getFirstName() != null && !student.getFirstName().isBlank()) {
+                sb.append(student.getFirstName().trim());
+            }
+            if (student.getMiddleName() != null && !student.getMiddleName().isBlank()) {
+                if (sb.length() > 0) sb.append(" ");
+                sb.append(student.getMiddleName().trim());
+            }
+            if (student.getLastName() != null && !student.getLastName().isBlank()) {
+                if (sb.length() > 0) sb.append(" ");
+                sb.append(student.getLastName().trim());
+            }
+
+            return sb.toString().trim();
+        }
     }
 }

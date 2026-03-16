@@ -1,14 +1,21 @@
 package com.inkFront.schoolManagement.service.IMPL;
 
 import com.inkFront.schoolManagement.dto.TimetableDTO;
+import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
+import com.inkFront.schoolManagement.model.Parent;
 import com.inkFront.schoolManagement.model.SchoolClass;
+import com.inkFront.schoolManagement.model.Student;
 import com.inkFront.schoolManagement.model.Teacher;
 import com.inkFront.schoolManagement.model.Timetable;
+import com.inkFront.schoolManagement.model.User;
 import com.inkFront.schoolManagement.repository.ClassRepository;
+import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.repository.TeacherRepository;
 import com.inkFront.schoolManagement.repository.TimetableRepository;
+import com.inkFront.schoolManagement.repository.UserRepository;
 import com.inkFront.schoolManagement.service.TimetableService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,31 +33,52 @@ public class TimetableServiceImpl implements TimetableService {
     private final TimetableRepository timetableRepository;
     private final ClassRepository classRepository;
     private final TeacherRepository teacherRepository;
+    private final UserRepository userRepository;
+    private final StudentRepository studentRepository;
 
     private TimetableDTO toDTO(Timetable t) {
         TimetableDTO dto = new TimetableDTO();
         dto.setId(t.getId());
 
-        dto.setSchoolClassId(t.getSchoolClass() != null ? t.getSchoolClass().getId() : null);
-        dto.setTeacherId(t.getTeacher() != null ? t.getTeacher().getId() : null);
+        if (t.getSchoolClass() != null) {
+            dto.setSchoolClassId(t.getSchoolClass().getId());
+            dto.setClassName(t.getSchoolClass().getClassName());
+            dto.setClassArm(t.getSchoolClass().getArm());
+        }
+
+        if (t.getTeacher() != null) {
+            dto.setTeacherId(t.getTeacher().getId());
+            dto.setTeacherName(
+                    (
+                            (t.getTeacher().getFirstName() != null ? t.getTeacher().getFirstName() : "") +
+                                    " " +
+                                    (t.getTeacher().getLastName() != null ? t.getTeacher().getLastName() : "")
+                    ).trim()
+            );
+        }
 
         dto.setSubject(t.getSubject());
         dto.setDayOfWeek(t.getDayOfWeek() != null ? t.getDayOfWeek().name() : null);
-
         dto.setStartTime(t.getStartTime() != null ? t.getStartTime().toString() : null);
         dto.setEndTime(t.getEndTime() != null ? t.getEndTime().toString() : null);
-
         dto.setRoom(t.getRoom());
         dto.setSession(t.getSession());
         dto.setTerm(t.getTerm() != null ? t.getTerm().name() : null);
-
         dto.setActive(t.isActive());
 
         return dto;
     }
 
+    private User findUserByUsernameOrEmail(String usernameOrEmail) {
+        return userRepository.findByEmail(usernameOrEmail)
+                .or(() -> userRepository.findByUsername(usernameOrEmail))
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+    }
+
     private static Timetable.Term parseTerm(String term) {
-        if (term == null) throw new RuntimeException("Term is required");
+        if (term == null) {
+            throw new RuntimeException("Term is required");
+        }
         try {
             return Timetable.Term.valueOf(term.trim().toUpperCase());
         } catch (Exception e) {
@@ -59,7 +87,9 @@ public class TimetableServiceImpl implements TimetableService {
     }
 
     private static DayOfWeek parseDay(String day) {
-        if (day == null) throw new RuntimeException("Day is required");
+        if (day == null) {
+            throw new RuntimeException("Day is required");
+        }
         try {
             return DayOfWeek.valueOf(day.trim().toUpperCase());
         } catch (Exception e) {
@@ -68,26 +98,28 @@ public class TimetableServiceImpl implements TimetableService {
     }
 
     private static LocalTime parseTime(String time) {
-        if (time == null) throw new RuntimeException("Time is required");
+        if (time == null) {
+            throw new RuntimeException("Time is required");
+        }
         try {
-            return LocalTime.parse(time.trim()); // expects HH:mm or HH:mm:ss
+            return LocalTime.parse(time.trim());
         } catch (Exception e) {
-            throw new RuntimeException("Invalid time: " + time + ". Use HH:mm (e.g. 09:30).");
+            throw new RuntimeException("Invalid time: " + time + ". Use HH:mm.");
         }
     }
 
     private void apply(Timetable t, TimetableDTO dto) {
-
         if (dto.getSchoolClassId() == null) throw new RuntimeException("schoolClassId is required");
         if (dto.getTeacherId() == null) throw new RuntimeException("teacherId is required");
         if (dto.getSubject() == null || dto.getSubject().trim().isEmpty()) throw new RuntimeException("subject is required");
-        if (dto.getDayOfWeek() == null) throw new RuntimeException("dayOfWeek is required");
+        if (dto.getDayOfWeek() == null || dto.getDayOfWeek().trim().isEmpty()) throw new RuntimeException("dayOfWeek is required");
         if (dto.getStartTime() == null || dto.getEndTime() == null) throw new RuntimeException("startTime and endTime are required");
         if (dto.getSession() == null || dto.getSession().trim().isEmpty()) throw new RuntimeException("session is required");
-        if (dto.getTerm() == null) throw new RuntimeException("term is required");
+        if (dto.getTerm() == null || dto.getTerm().trim().isEmpty()) throw new RuntimeException("term is required");
 
         SchoolClass schoolClass = classRepository.findById(dto.getSchoolClassId())
                 .orElseThrow(() -> new RuntimeException("Class not found"));
+
         Teacher teacher = teacherRepository.findById(dto.getTeacherId())
                 .orElseThrow(() -> new RuntimeException("Teacher not found"));
 
@@ -108,7 +140,6 @@ public class TimetableServiceImpl implements TimetableService {
         t.setSession(dto.getSession().trim());
         t.setTerm(parseTerm(dto.getTerm()));
 
-        // allow UI to set active (optional)
         if (dto.getActive() != null) {
             t.setActive(dto.getActive());
         }
@@ -175,7 +206,6 @@ public class TimetableServiceImpl implements TimetableService {
     @Override
     @Transactional(readOnly = true)
     public boolean checkAvailability(Long teacherId, String day, String startTime, String endTime, String session, String term) {
-
         boolean conflict =
                 timetableRepository.existsByTeacher_IdAndSessionAndTermAndDayOfWeekAndStartTimeLessThanAndEndTimeGreaterThan(
                         teacherId,
@@ -187,5 +217,87 @@ public class TimetableServiceImpl implements TimetableService {
                 );
 
         return !conflict;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TimetableDTO> getStudentOwnTimetable(String usernameOrEmail, String session, String term) {
+        User user = findUserByUsernameOrEmail(usernameOrEmail);
+
+        Student student = user.getStudent();
+        if (student == null) {
+            throw new AccessDeniedException("This account is not linked to a student");
+        }
+
+        String className = student.getStudentClass();
+        String classArm = student.getClassArm();
+
+        if (className == null || className.isBlank() || classArm == null || classArm.isBlank()) {
+            return List.of();
+        }
+
+        return timetableRepository
+                .findBySchoolClass_ClassNameAndSchoolClass_ArmAndSessionAndTerm(
+                        className,
+                        classArm,
+                        session,
+                        parseTerm(term)
+                )
+                .stream()
+                .map(this::toDTO)
+                .collect(toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TimetableDTO> getTeacherOwnTimetable(String usernameOrEmail, String session, String term) {
+        User user = findUserByUsernameOrEmail(usernameOrEmail);
+
+        Teacher teacher = user.getTeacher();
+        if (teacher == null) {
+            throw new AccessDeniedException("This account is not linked to a teacher");
+        }
+
+        return timetableRepository
+                .findByTeacher_IdAndSessionAndTerm(teacher.getId(), session, parseTerm(term))
+                .stream()
+                .map(this::toDTO)
+                .collect(toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TimetableDTO> getParentWardTimetable(String usernameOrEmail, Long studentId, String session, String term) {
+        User user = findUserByUsernameOrEmail(usernameOrEmail);
+
+        Parent parent = user.getParent();
+        if (parent == null) {
+            throw new AccessDeniedException("This account is not linked to a parent");
+        }
+
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Student not found"));
+
+        if (student.getParent() == null || !student.getParent().getId().equals(parent.getId())) {
+            throw new AccessDeniedException("You can only view timetable for your own ward");
+        }
+
+        String className = student.getStudentClass();
+        String classArm = student.getClassArm();
+
+        if (className == null || className.isBlank() || classArm == null || classArm.isBlank()) {
+            return List.of();
+        }
+
+        return timetableRepository
+                .findBySchoolClass_ClassNameAndSchoolClass_ArmAndSessionAndTerm(
+                        className,
+                        classArm,
+                        session,
+                        parseTerm(term)
+                )
+                .stream()
+                .map(this::toDTO)
+                .collect(toList());
     }
 }

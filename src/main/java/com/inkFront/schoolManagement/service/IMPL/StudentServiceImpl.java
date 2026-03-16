@@ -1,7 +1,9 @@
 package com.inkFront.schoolManagement.service.IMPL;
 
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
+import com.inkFront.schoolManagement.model.Parent;
 import com.inkFront.schoolManagement.model.Student;
+import com.inkFront.schoolManagement.repository.ParentRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.service.StudentService;
 import com.inkFront.schoolManagement.utils.ClassProgression;
@@ -24,11 +26,17 @@ import java.util.stream.Collectors;
 public class StudentServiceImpl implements StudentService {
 
     private static final Logger log = LoggerFactory.getLogger(StudentServiceImpl.class);
+
     private final StudentRepository studentRepository;
+    private final ParentRepository parentRepository;
 
     @Autowired
-    public StudentServiceImpl(StudentRepository studentRepository) {
+    public StudentServiceImpl(
+            StudentRepository studentRepository,
+            ParentRepository parentRepository
+    ) {
         this.studentRepository = studentRepository;
+        this.parentRepository = parentRepository;
     }
 
     @Override
@@ -51,7 +59,13 @@ public class StudentServiceImpl implements StudentService {
             student.setProfilePictureUrl("/uploads/profile-pictures/default.png");
         }
 
-        log.info("Saving student with profile picture URL: {}", student.getProfilePictureUrl());
+        linkParentIfPossible(student);
+
+        log.info(
+                "Saving student with profile picture URL: {} and parentId: {}",
+                student.getProfilePictureUrl(),
+                student.getParent() != null ? student.getParent().getId() : null
+        );
 
         return studentRepository.save(student);
     }
@@ -70,28 +84,85 @@ public class StudentServiceImpl implements StudentService {
         existingStudent.setClassArm(studentDetails.getClassArm());
         existingStudent.setGender(studentDetails.getGender());
         existingStudent.setDateOfBirth(studentDetails.getDateOfBirth());
+
         existingStudent.setParentName(studentDetails.getParentName());
         existingStudent.setParentPhone(studentDetails.getParentPhone());
         existingStudent.setParentEmail(studentDetails.getParentEmail());
+
         existingStudent.setAddress(studentDetails.getAddress());
         existingStudent.setLocalGovtArea(studentDetails.getLocalGovtArea());
         existingStudent.setStateOfOrigin(studentDetails.getStateOfOrigin());
         existingStudent.setNationality(studentDetails.getNationality());
         existingStudent.setReligion(studentDetails.getReligion());
         existingStudent.setStatus(studentDetails.getStatus());
+
         existingStudent.setEmergencyContactName(studentDetails.getEmergencyContactName());
         existingStudent.setEmergencyContactPhone(studentDetails.getEmergencyContactPhone());
         existingStudent.setEmergencyContactRelationship(studentDetails.getEmergencyContactRelationship());
+
         existingStudent.setExcludeFromPromotion(studentDetails.isExcludeFromPromotion());
         existingStudent.setPromotionHoldReason(studentDetails.getPromotionHoldReason());
+        existingStudent.setPreviousSchool(studentDetails.getPreviousSchool());
 
         if (studentDetails.getProfilePictureUrl() != null && !studentDetails.getProfilePictureUrl().isEmpty()) {
             existingStudent.setProfilePictureUrl(studentDetails.getProfilePictureUrl());
         }
 
-        log.info("Updated student profile picture URL: {}", existingStudent.getProfilePictureUrl());
+        linkParentIfPossible(existingStudent);
+
+        log.info(
+                "Updated student profile picture URL: {}, parentId: {}",
+                existingStudent.getProfilePictureUrl(),
+                existingStudent.getParent() != null ? existingStudent.getParent().getId() : null
+        );
 
         return studentRepository.save(existingStudent);
+    }
+
+    private void linkParentIfPossible(Student student) {
+        String parentEmail = normalize(student.getParentEmail());
+
+        if (parentEmail == null) {
+            student.setParent(null);
+            return;
+        }
+
+        Optional<Parent> parentOpt = parentRepository.findByEmailIgnoreCase(parentEmail);
+
+        if (parentOpt.isPresent()) {
+            Parent parent = parentOpt.get();
+
+            student.setParent(parent);
+
+            if (isBlank(student.getParentName())) {
+                student.setParentName(buildParentName(parent));
+            }
+            if (isBlank(student.getParentPhone())) {
+                student.setParentPhone(parent.getPhoneNumber());
+            }
+        } else {
+            log.warn("No parent record found for email: {}", parentEmail);
+            student.setParent(null);
+        }
+    }
+
+    private String buildParentName(Parent parent) {
+        return Arrays.asList(parent.getFirstName(), parent.getMiddleName(), parent.getLastName())
+                .stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.joining(" "));
+    }
+
+    private String normalize(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 
     @Override
@@ -180,6 +251,7 @@ public class StudentServiceImpl implements StudentService {
     public Map<String, Long> getStudentCountByClass() {
         log.debug("Calculating student count by class");
         List<Object[]> results = studentRepository.countStudentsByClass();
+
         return results.stream()
                 .collect(Collectors.toMap(
                         arr -> (String) arr[0],
@@ -238,7 +310,7 @@ public class StudentServiceImpl implements StudentService {
     @Override
     public byte[] generateStudentReport(Long studentId) {
         log.info("Generating report for student ID: {}", studentId);
-        Student student = studentRepository.findById(studentId)
+        studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
         return new byte[0];
     }
@@ -246,21 +318,25 @@ public class StudentServiceImpl implements StudentService {
     @Override
     public byte[] generateClassReport(String studentClass) {
         log.info("Generating report for class: {}", studentClass);
-        List<Student> students = studentRepository.findByStudentClass(studentClass);
+        studentRepository.findByStudentClass(studentClass);
         return new byte[0];
     }
 
     @Override
     public Map<String, Object> getPromotionPreview() {
         log.debug("Generating promotion preview");
+
         List<Student> allStudents = studentRepository.findAll();
+
         Map<String, Long> currentDistribution = studentRepository.countStudentsByClass()
-                .stream().collect(Collectors.toMap(
+                .stream()
+                .collect(Collectors.toMap(
                         arr -> (String) arr[0],
                         arr -> (Long) arr[1]
                 ));
+
         Map<String, Long> projectedDistribution = new HashMap<>();
-        List<Map<String, String>> promotions = new ArrayList<>();
+        List<Map<String, Object>> promotions = new ArrayList<>();
         int excluded = 0;
 
         for (Student student : allStudents) {
@@ -268,23 +344,25 @@ public class StudentServiceImpl implements StudentService {
 
             if (student.isExcludeFromPromotion()) {
                 excluded++;
-                Map<String, String> promo = new HashMap<>();
+                Map<String, Object> promo = new HashMap<>();
                 promo.put("studentId", student.getId().toString());
                 promo.put("student", student.getFirstName() + " " + student.getLastName());
                 promo.put("from", student.getStudentClass());
                 promo.put("to", "EXCLUDED");
                 promo.put("status", "EXCLUDED");
-                promo.put("reason", student.getPromotionHoldReason() != null ?
-                        student.getPromotionHoldReason() : "No reason provided");
+                promo.put("reason", student.getPromotionHoldReason() != null
+                        ? student.getPromotionHoldReason()
+                        : "No reason provided");
                 promotions.add(promo);
                 continue;
             }
 
             String currentClass = student.getStudentClass();
             String nextClass = ClassProgression.getNextClass(currentClass);
+
             projectedDistribution.merge(nextClass, 1L, Long::sum);
 
-            Map<String, String> promo = new HashMap<>();
+            Map<String, Object> promo = new HashMap<>();
             promo.put("studentId", student.getId().toString());
             promo.put("student", student.getFirstName() + " " + student.getLastName());
             promo.put("from", currentClass);
@@ -299,6 +377,7 @@ public class StudentServiceImpl implements StudentService {
         preview.put("promotions", promotions);
         preview.put("totalStudents", allStudents.size());
         preview.put("excludedCount", excluded);
+
         return preview;
     }
 
@@ -306,9 +385,10 @@ public class StudentServiceImpl implements StudentService {
     @Transactional
     public Map<String, Object> promoteAllStudents() {
         log.info("Starting end-of-session promotion for all students");
+
         List<Student> allStudents = studentRepository.findAll();
         int promoted = 0, graduated = 0, unchanged = 0, excluded = 0;
-        List<Map<String, String>> promotionDetails = new ArrayList<>();
+        List<Map<String, Object>> promotionDetails = new ArrayList<>();
 
         for (Student student : allStudents) {
             if (student.getStatus() != Student.StudentStatus.ACTIVE) {
@@ -318,21 +398,23 @@ public class StudentServiceImpl implements StudentService {
 
             if (student.isExcludeFromPromotion()) {
                 excluded++;
-                Map<String, String> detail = new HashMap<>();
+                Map<String, Object> detail = new HashMap<>();
                 detail.put("studentId", student.getId().toString());
                 detail.put("studentName", student.getFirstName() + " " + student.getLastName());
                 detail.put("currentClass", student.getStudentClass());
                 detail.put("nextClass", "EXCLUDED");
                 detail.put("status", "EXCLUDED");
-                detail.put("reason", student.getPromotionHoldReason() != null ?
-                        student.getPromotionHoldReason() : "No reason provided");
+                detail.put("reason", student.getPromotionHoldReason() != null
+                        ? student.getPromotionHoldReason()
+                        : "No reason provided");
                 promotionDetails.add(detail);
                 continue;
             }
 
             String currentClass = student.getStudentClass();
             String nextClass = ClassProgression.getNextClass(currentClass);
-            Map<String, String> detail = new HashMap<>();
+
+            Map<String, Object> detail = new HashMap<>();
             detail.put("studentId", student.getId().toString());
             detail.put("studentName", student.getFirstName() + " " + student.getLastName());
             detail.put("currentClass", currentClass);
@@ -350,6 +432,7 @@ public class StudentServiceImpl implements StudentService {
                 detail.put("status", "UNCHANGED");
                 unchanged++;
             }
+
             promotionDetails.add(detail);
         }
 
@@ -364,8 +447,10 @@ public class StudentServiceImpl implements StudentService {
         result.put("details", promotionDetails);
         result.put("timestamp", LocalDateTime.now());
 
-        log.info("Promotion complete: {} promoted, {} graduated, {} unchanged, {} excluded",
-                promoted, graduated, unchanged, excluded);
+        log.info(
+                "Promotion complete: {} promoted, {} graduated, {} unchanged, {} excluded",
+                promoted, graduated, unchanged, excluded
+        );
 
         return result;
     }
@@ -374,6 +459,7 @@ public class StudentServiceImpl implements StudentService {
     @Transactional
     public Map<String, Object> promoteSelectedStudents(List<Long> studentIds) {
         log.info("Promoting {} selected students", studentIds.size());
+
         List<Student> selectedStudents = studentRepository.findAllById(studentIds);
         int promoted = 0, graduated = 0;
 
@@ -406,6 +492,7 @@ public class StudentServiceImpl implements StudentService {
     @Transactional
     public Student togglePromotionExclusion(Long studentId, boolean exclude, String reason) {
         log.info("Toggling promotion exclusion for student {}: exclude={}", studentId, exclude);
+
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 

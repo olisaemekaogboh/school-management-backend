@@ -21,4 +21,10 @@ public interface TimetableService {
     List<TimetableDTO> getSchoolTimetable(String session, String term);
 
     boolean checkAvailability(Long teacherId, String day, String startTime, String endTime, String session, String term);
+
+    List<TimetableDTO> getStudentOwnTimetable(String usernameOrEmail, String session, String term);
+
+    List<TimetableDTO> getTeacherOwnTimetable(String usernameOrEmail, String session, String term);
+
+    List<TimetableDTO> getParentWardTimetable(String usernameOrEmail, Long studentId, String session, String term);
 }

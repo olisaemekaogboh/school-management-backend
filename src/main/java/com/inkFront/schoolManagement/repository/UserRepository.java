@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/repository/UserRepository.java
 package com.inkFront.schoolManagement.repository;
 
 import com.inkFront.schoolManagement.model.User;
@@ -31,4 +30,5 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @Query("SELECT u FROM User u WHERE u.parent.id = :parentId")
     Optional<User> findByParentId(@Param("parentId") Long parentId);
+    Optional<User> findByEmailOrUsername(String email, String username);
 }

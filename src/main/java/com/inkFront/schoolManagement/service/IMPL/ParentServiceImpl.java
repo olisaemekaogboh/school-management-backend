@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/service/IMPL/ParentServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
 import com.inkFront.schoolManagement.dto.ParentDTO;
@@ -31,16 +30,15 @@ public class ParentServiceImpl implements ParentService {
     public ParentDTO createParent(ParentDTO parentDTO) {
         log.info("Creating new parent with email: {}", parentDTO.getEmail());
 
-        // Check if email already exists
-        if (parentRepository.existsByEmail(parentDTO.getEmail())) {
+        if (parentDTO.getEmail() != null && parentRepository.existsByEmail(parentDTO.getEmail())) {
             throw new RuntimeException("Parent with email " + parentDTO.getEmail() + " already exists");
         }
 
-        Parent parent = ParentDTO.toEntity(parentDTO);
+        Parent parent = mapToEntity(parentDTO);
         Parent savedParent = parentRepository.save(parent);
-        log.info("Parent created successfully with ID: {}", savedParent.getId());
 
-        return ParentDTO.fromEntity(savedParent);
+        log.info("Parent created successfully with ID: {}", savedParent.getId());
+        return ParentDTO.fromParent(savedParent);
     }
 
     @Override
@@ -50,13 +48,13 @@ public class ParentServiceImpl implements ParentService {
         Parent existingParent = parentRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Parent not found with ID: " + id));
 
-        // Check if email is being changed and if it's already taken
-        if (!existingParent.getEmail().equals(parentDTO.getEmail()) &&
-                parentRepository.existsByEmail(parentDTO.getEmail())) {
+        if (parentDTO.getEmail() != null
+                && existingParent.getEmail() != null
+                && !existingParent.getEmail().equalsIgnoreCase(parentDTO.getEmail())
+                && parentRepository.existsByEmail(parentDTO.getEmail())) {
             throw new RuntimeException("Email " + parentDTO.getEmail() + " is already taken");
         }
 
-        // Update fields
         existingParent.setFirstName(parentDTO.getFirstName());
         existingParent.setLastName(parentDTO.getLastName());
         existingParent.setMiddleName(parentDTO.getMiddleName());
@@ -67,8 +65,7 @@ public class ParentServiceImpl implements ParentService {
         existingParent.setOccupation(parentDTO.getOccupation());
         existingParent.setCompanyName(parentDTO.getCompanyName());
         existingParent.setOfficeAddress(parentDTO.getOfficeAddress());
-        existingParent.setRelationship(parentDTO.getRelationship() != null ?
-                Parent.Relationship.valueOf(parentDTO.getRelationship()) : null);
+        existingParent.setRelationship(parentDTO.getRelationship());
         existingParent.setEmergencyContactName(parentDTO.getEmergencyContactName());
         existingParent.setEmergencyContactPhone(parentDTO.getEmergencyContactPhone());
         existingParent.setEmergencyContactRelationship(parentDTO.getEmergencyContactRelationship());
@@ -77,7 +74,7 @@ public class ParentServiceImpl implements ParentService {
         Parent updatedParent = parentRepository.save(existingParent);
         log.info("Parent updated successfully with ID: {}", updatedParent.getId());
 
-        return ParentDTO.fromEntity(updatedParent);
+        return ParentDTO.fromParent(updatedParent);
     }
 
     @Override
@@ -87,7 +84,6 @@ public class ParentServiceImpl implements ParentService {
         Parent parent = parentRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Parent not found with ID: " + id));
 
-        // Check if parent has wards
         if (parent.getWards() != null && !parent.getWards().isEmpty()) {
             throw new RuntimeException("Cannot delete parent with assigned wards. Please reassign wards first.");
         }
@@ -97,32 +93,36 @@ public class ParentServiceImpl implements ParentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Optional<ParentDTO> getParentById(Long id) {
         log.info("Fetching parent with ID: {}", id);
         return parentRepository.findByIdWithWards(id)
-                .map(ParentDTO::fromEntity);
+                .map(ParentDTO::fromParent);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<ParentDTO> getAllParents() {
         log.info("Fetching all parents");
         return parentRepository.findAll().stream()
-                .map(ParentDTO::fromEntity)
+                .map(ParentDTO::fromParent)
                 .collect(Collectors.toList());
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<ParentDTO> getAllParentsPaginated(Pageable pageable) {
         log.info("Fetching parents page: {}", pageable.getPageNumber());
         return parentRepository.findAll(pageable)
-                .map(ParentDTO::fromEntity);
+                .map(ParentDTO::fromParent);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Optional<ParentDTO> getParentByEmail(String email) {
         log.info("Fetching parent with email: {}", email);
         return parentRepository.findByEmailIgnoreCase(email)
-                .map(ParentDTO::fromEntity);
+                .map(ParentDTO::fromParent);
     }
 
     @Override
@@ -139,15 +139,15 @@ public class ParentServiceImpl implements ParentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<ParentDTO> searchParents(String searchTerm) {
         log.info("Searching parents with term: {}", searchTerm);
         return parentRepository.searchParents(searchTerm).stream()
-                .map(ParentDTO::fromEntity)
+                .map(ParentDTO::fromParent)
                 .collect(Collectors.toList());
     }
 
     @Override
-    @Transactional
     public ParentDTO addWardToParent(Long parentId, Long studentId) {
         log.info("Adding ward {} to parent {}", studentId, parentId);
 
@@ -160,28 +160,37 @@ public class ParentServiceImpl implements ParentService {
         student.setParent(parent);
         studentRepository.save(student);
 
-        return ParentDTO.fromEntity(parentRepository.findByIdWithWards(parentId).orElse(parent));
+        Parent refreshedParent = parentRepository.findByIdWithWards(parentId).orElse(parent);
+        return ParentDTO.fromParent(refreshedParent);
     }
 
     @Override
-    @Transactional
     public ParentDTO removeWardFromParent(Long parentId, Long studentId) {
         log.info("Removing ward {} from parent {}", studentId, parentId);
+
+        Parent parent = parentRepository.findById(parentId)
+                .orElseThrow(() -> new RuntimeException("Parent not found with ID: " + parentId));
 
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new RuntimeException("Student not found with ID: " + studentId));
 
+        if (student.getParent() == null || !student.getParent().getId().equals(parentId)) {
+            throw new RuntimeException("Student is not linked to this parent");
+        }
+
         student.setParent(null);
         studentRepository.save(student);
 
-        return getParentById(parentId).orElse(null);
+        Parent refreshedParent = parentRepository.findByIdWithWards(parentId).orElse(parent);
+        return ParentDTO.fromParent(refreshedParent);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<ParentDTO> getParentsWithNoWards() {
         log.info("Fetching parents with no wards");
         return parentRepository.findParentsWithNoWards().stream()
-                .map(ParentDTO::fromEntity)
+                .map(ParentDTO::fromParent)
                 .collect(Collectors.toList());
     }
 
@@ -190,18 +199,41 @@ public class ParentServiceImpl implements ParentService {
         log.info("Creating {} parents", parentDTOs.size());
 
         List<Parent> parents = parentDTOs.stream()
-                .map(ParentDTO::toEntity)
+                .map(this::mapToEntity)
                 .collect(Collectors.toList());
 
         List<Parent> savedParents = parentRepository.saveAll(parents);
 
         return savedParents.stream()
-                .map(ParentDTO::fromEntity)
+                .map(ParentDTO::fromParent)
                 .collect(Collectors.toList());
     }
 
     @Override
+    @Transactional(readOnly = true)
     public long getTotalParentCount() {
         return parentRepository.count();
+    }
+
+    private Parent mapToEntity(ParentDTO dto) {
+        Parent parent = new Parent();
+
+        parent.setFirstName(dto.getFirstName());
+        parent.setLastName(dto.getLastName());
+        parent.setMiddleName(dto.getMiddleName());
+        parent.setEmail(dto.getEmail());
+        parent.setPhoneNumber(dto.getPhoneNumber());
+        parent.setAlternatePhone(dto.getAlternatePhone());
+        parent.setAddress(dto.getAddress());
+        parent.setOccupation(dto.getOccupation());
+        parent.setCompanyName(dto.getCompanyName());
+        parent.setOfficeAddress(dto.getOfficeAddress());
+        parent.setRelationship(dto.getRelationship());
+        parent.setEmergencyContactName(dto.getEmergencyContactName());
+        parent.setEmergencyContactPhone(dto.getEmergencyContactPhone());
+        parent.setEmergencyContactRelationship(dto.getEmergencyContactRelationship());
+        parent.setProfilePictureUrl(dto.getProfilePictureUrl());
+
+        return parent;
     }
 }

@@ -43,10 +43,9 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
 
-                        // allow preflight requests
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // PUBLIC ENDPOINTS
+                        // PUBLIC
                         .requestMatchers(
                                 "/api/auth/login",
                                 "/api/auth/register",
@@ -59,7 +58,7 @@ public class SecurityConfig {
                                 "/webjars/**"
                         ).permitAll()
 
-                        // AUTHENTICATED USER ENDPOINTS
+                        // AUTHENTICATED
                         .requestMatchers(
                                 "/api/auth/me",
                                 "/api/auth/logout",
@@ -128,6 +127,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/sessions/**")
                         .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
 
+                        .requestMatchers("/api/sessions/**")
+                        .hasRole("ADMIN")
+
                         // SESSION RESULTS
                         .requestMatchers("/api/session-results/me/**")
                         .hasAnyRole("STUDENT", "ADMIN")
@@ -146,9 +148,6 @@ public class SecurityConfig {
 
                         .requestMatchers("/api/session-results/**")
                         .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
-
-                        .requestMatchers("/api/sessions/**")
-                        .hasRole("ADMIN")
 
                         // SUBJECTS
                         .requestMatchers(HttpMethod.GET, "/api/subjects/**")
@@ -178,13 +177,37 @@ public class SecurityConfig {
                         .requestMatchers("/api/teachers/**")
                         .hasRole("ADMIN")
 
+                        // TIMETABLE
+                        .requestMatchers(HttpMethod.GET, "/api/timetable/me")
+                        .hasAnyRole("TEACHER", "ADMIN")
+
+                        .requestMatchers(HttpMethod.GET, "/api/timetable/student/me")
+                        .hasAnyRole("STUDENT", "ADMIN")
+
+                        .requestMatchers(HttpMethod.GET, "/api/timetable/parent/ward/**")
+                        .hasAnyRole("PARENT", "ADMIN")
+
+                        .requestMatchers(HttpMethod.GET, "/api/timetable/class/**")
+                        .hasAnyRole("ADMIN", "TEACHER")
+
+                        .requestMatchers(HttpMethod.GET, "/api/timetable/school")
+                        .hasAnyRole("ADMIN", "TEACHER")
+
+                        .requestMatchers(HttpMethod.GET, "/api/timetable/check-availability")
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(HttpMethod.GET, "/api/timetable/{id}")
+                        .hasAnyRole("ADMIN", "TEACHER")
+
+                        .requestMatchers("/api/timetable/**")
+                        .hasRole("ADMIN")
+
                         // OTHER ADMIN MODULES
                         .requestMatchers(
                                 "/api/users/**",
                                 "/api/admin/**",
                                 "/api/transport/**",
-                                "/api/library/**",
-                                "/api/timetable/**"
+                                "/api/library/**"
                         ).hasRole("ADMIN")
 
                         .anyRequest().authenticated()

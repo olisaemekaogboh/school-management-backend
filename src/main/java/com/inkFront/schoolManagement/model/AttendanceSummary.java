@@ -1,6 +1,7 @@
 // src/main/java/com/inkFront/schoolManagement/model/AttendanceSummary.java
 package com.inkFront.schoolManagement.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -19,11 +20,10 @@ public class AttendanceSummary {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @ManyToOne
-    @JoinColumn(name = "student_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "student_id")
+    @JsonIgnore
     private Student student;
-
     @Column(nullable = false)
     private String session;
 

@@ -9,11 +9,29 @@ import java.util.List;
 
 public interface TimetableRepository extends JpaRepository<Timetable, Long> {
 
-    List<Timetable> findBySchoolClass_IdAndSessionAndTerm(Long classId, String session, Timetable.Term term);
+    List<Timetable> findBySchoolClass_IdAndSessionAndTerm(
+            Long classId,
+            String session,
+            Timetable.Term term
+    );
 
-    List<Timetable> findByTeacher_IdAndSessionAndTerm(Long teacherId, String session, Timetable.Term term);
+    List<Timetable> findByTeacher_IdAndSessionAndTerm(
+            Long teacherId,
+            String session,
+            Timetable.Term term
+    );
 
-    List<Timetable> findBySessionAndTerm(String session, Timetable.Term term);
+    List<Timetable> findBySessionAndTerm(
+            String session,
+            Timetable.Term term
+    );
+
+    List<Timetable> findBySchoolClass_ClassNameAndSchoolClass_ArmAndSessionAndTerm(
+            String className,
+            String arm,
+            String session,
+            Timetable.Term term
+    );
 
     boolean existsByTeacher_IdAndSessionAndTermAndDayOfWeekAndStartTimeLessThanAndEndTimeGreaterThan(
             Long teacherId,
