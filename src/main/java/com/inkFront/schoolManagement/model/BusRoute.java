@@ -1,12 +1,12 @@
-// src/main/java/com/inkFront/schoolManagement/model/BusRoute.java
 package com.inkFront.schoolManagement.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -15,7 +15,6 @@ import java.util.List;
 @Entity
 @Table(name = "bus_routes")
 @Data
-@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class BusRoute {
@@ -27,57 +26,64 @@ public class BusRoute {
     @Column(nullable = false)
     private String routeName;
 
-    private String routeNumber;
+    @Column(nullable = false, unique = true)
+    private String routeCode;
 
+    @Column(nullable = false)
+    private String pickupLocation;
+
+    @Column(nullable = false)
+    private String dropoffLocation;
+
+    @Column(nullable = false)
+    private LocalTime pickupTime;
+
+    @Column(nullable = false)
+    private LocalTime dropoffTime;
+
+    @Column(nullable = false)
     private String driverName;
 
+    @Column(nullable = false)
     private String driverPhone;
 
     private String assistantName;
 
     private String assistantPhone;
 
-    private String busNumber;
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal monthlyFee;
 
+    @Column(nullable = false)
     private Integer capacity;
 
-    @ElementCollection
-    @CollectionTable(name = "route_stops", joinColumns = @JoinColumn(name = "route_id"))
-    @Column(name = "stop")
-    private List<String> stops = new ArrayList<>();
+    @Column(nullable = false)
+    private Boolean active = true;
 
-    private LocalTime morningPickupTime;
+    private Double currentLatitude;
 
-    private LocalTime afternoonDropoffTime;
-
-
-    @OneToMany(mappedBy = "busRoute", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private List<Student> students = new ArrayList<>();
-    private Double monthlyFee;
-
-    @Enumerated(EnumType.STRING)
-    private RouteStatus status;
+    private Double currentLongitude;
 
     @Column(updatable = false)
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
 
+    @JsonIgnore
+    @OneToMany(mappedBy = "busRoute", fetch = FetchType.LAZY)
+    private List<Student> students = new ArrayList<>();
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
-        if (status == null) {
-            status = RouteStatus.ACTIVE;
+        if (active == null) {
+            active = true;
         }
     }
 
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
-    }
-
-    public enum RouteStatus {
-        ACTIVE, INACTIVE, MAINTENANCE
     }
 }

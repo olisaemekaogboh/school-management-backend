@@ -126,7 +126,6 @@ public class AttendanceServiceImpl implements AttendanceService {
                 student, session, term, Attendance.AttendanceStatus.EXCUSED);
 
         AttendanceSummary summary = new AttendanceSummary();
-        summary.setStudent(student);
         summary.setSession(session);
         summary.setTerm(term);
         summary.setTotalSchoolDays(totalSchoolDays);
@@ -135,7 +134,6 @@ public class AttendanceServiceImpl implements AttendanceService {
         summary.setDaysLate((int) late);
         summary.setDaysExcused((int) excused);
         summary.calculatePercentage();
-
         return summary;
     }
 

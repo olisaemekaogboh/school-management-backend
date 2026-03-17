@@ -274,18 +274,19 @@ public class StudentController {
     public ResponseEntity<Map<String, Object>> getStudentStatistics() {
         log.debug("GET /api/students/statistics - Fetching student statistics");
 
-        Map<String, Object> statistics = Map.of(
-                "totalStudents", studentService.getTotalStudentCount(),
-                "activeStudents", studentService.getActiveStudentCount(),
-                "studentsByClass", studentService.getStudentCountByClass(),
-                "recentAdmissions", studentService.getRecentAdmissions(30).stream()
+        Map<String, Object> statistics = new java.util.HashMap<>();
+        statistics.put("totalStudents", studentService.getTotalStudentCount());
+        statistics.put("activeStudents", studentService.getActiveStudentCount());
+        statistics.put("studentsByClass", studentService.getStudentCountByClass());
+        statistics.put(
+                "recentAdmissions",
+                studentService.getRecentAdmissions(30).stream()
                         .map(StudentResponseDTO::fromStudent)
                         .collect(Collectors.toList())
         );
 
         return ResponseEntity.ok(statistics);
     }
-
     // ==================== DELETE METHODS ====================
 
     @DeleteMapping("/{id}")

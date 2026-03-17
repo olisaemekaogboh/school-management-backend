@@ -45,7 +45,6 @@ public class SecurityConfig {
 
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // PUBLIC
                         .requestMatchers(
                                 "/api/auth/login",
                                 "/api/auth/register",
@@ -58,35 +57,30 @@ public class SecurityConfig {
                                 "/webjars/**"
                         ).permitAll()
 
-                        // AUTHENTICATED
                         .requestMatchers(
                                 "/api/auth/me",
                                 "/api/auth/logout",
                                 "/api/auth/change-password"
                         ).authenticated()
 
-                        // TEACHER SELF-SERVICE
                         .requestMatchers(
                                 "/api/teachers/me",
                                 "/api/teachers/me/**",
                                 "/api/teacher/**"
                         ).hasAnyRole("TEACHER", "ADMIN")
 
-                        // STUDENT SELF-SERVICE
                         .requestMatchers(
                                 "/api/students/me",
                                 "/api/students/me/**",
                                 "/api/student/**"
                         ).hasAnyRole("STUDENT", "ADMIN")
 
-                        // PARENT SELF-SERVICE
                         .requestMatchers(
                                 "/api/parents/me",
                                 "/api/parents/me/**",
                                 "/api/parent/**"
                         ).hasAnyRole("PARENT", "ADMIN")
 
-                        // RESULTS
                         .requestMatchers("/api/results/me/**")
                         .hasAnyRole("STUDENT", "ADMIN")
 
@@ -96,7 +90,6 @@ public class SecurityConfig {
                         .requestMatchers("/api/results/**")
                         .hasAnyRole("ADMIN", "TEACHER")
 
-                        // ATTENDANCE
                         .requestMatchers("/api/attendance/me/**")
                         .hasAnyRole("STUDENT", "ADMIN")
 
@@ -106,7 +99,6 @@ public class SecurityConfig {
                         .requestMatchers("/api/attendance/**")
                         .hasAnyRole("ADMIN", "TEACHER")
 
-                        // FEES
                         .requestMatchers("/api/fees/me/**")
                         .hasAnyRole("STUDENT", "ADMIN")
 
@@ -116,21 +108,18 @@ public class SecurityConfig {
                         .requestMatchers("/api/fees/**")
                         .hasAnyRole("ADMIN", "PARENT", "STUDENT")
 
-                        // ANNOUNCEMENTS
                         .requestMatchers(HttpMethod.GET, "/api/announcements/**")
                         .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
 
                         .requestMatchers("/api/announcements/**")
                         .hasRole("ADMIN")
 
-                        // SESSIONS
                         .requestMatchers(HttpMethod.GET, "/api/sessions/**")
                         .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
 
                         .requestMatchers("/api/sessions/**")
                         .hasRole("ADMIN")
 
-                        // SESSION RESULTS
                         .requestMatchers("/api/session-results/me/**")
                         .hasAnyRole("STUDENT", "ADMIN")
 
@@ -149,35 +138,30 @@ public class SecurityConfig {
                         .requestMatchers("/api/session-results/**")
                         .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
 
-                        // SUBJECTS
                         .requestMatchers(HttpMethod.GET, "/api/subjects/**")
                         .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
 
                         .requestMatchers("/api/subjects/**")
                         .hasRole("ADMIN")
 
-                        // CLASSES
                         .requestMatchers(HttpMethod.GET, "/api/classes/**")
                         .hasAnyRole("ADMIN", "TEACHER")
 
                         .requestMatchers("/api/classes/**")
                         .hasRole("ADMIN")
 
-                        // STUDENTS
                         .requestMatchers(HttpMethod.GET, "/api/students/**")
                         .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
 
                         .requestMatchers("/api/students/**")
                         .hasRole("ADMIN")
 
-                        // TEACHERS
                         .requestMatchers(HttpMethod.GET, "/api/teachers/**")
                         .hasAnyRole("ADMIN", "TEACHER")
 
                         .requestMatchers("/api/teachers/**")
                         .hasRole("ADMIN")
 
-                        // TIMETABLE
                         .requestMatchers(HttpMethod.GET, "/api/timetable/me")
                         .hasAnyRole("TEACHER", "ADMIN")
 
@@ -202,11 +186,42 @@ public class SecurityConfig {
                         .requestMatchers("/api/timetable/**")
                         .hasRole("ADMIN")
 
-                        // OTHER ADMIN MODULES
+                        .requestMatchers(HttpMethod.GET, "/api/transport/routes/*/students")
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(HttpMethod.GET, "/api/transport/statistics")
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(HttpMethod.POST, "/api/transport/update-location/**")
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(HttpMethod.POST, "/api/transport/assign")
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(HttpMethod.DELETE, "/api/transport/remove/**")
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(HttpMethod.POST, "/api/transport/routes")
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(HttpMethod.PUT, "/api/transport/routes/**")
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(HttpMethod.DELETE, "/api/transport/routes/**")
+                        .hasRole("ADMIN")
+
+                        .requestMatchers(HttpMethod.GET, "/api/transport/routes/**")
+                        .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
+
+                        .requestMatchers(HttpMethod.GET, "/api/transport/location/**")
+                        .hasAnyRole("ADMIN", "STUDENT", "PARENT")
+
+                        .requestMatchers(HttpMethod.GET, "/api/transport/student/**")
+                        .hasAnyRole("ADMIN", "STUDENT", "PARENT")
+
                         .requestMatchers(
                                 "/api/users/**",
                                 "/api/admin/**",
-                                "/api/transport/**",
                                 "/api/library/**"
                         ).hasRole("ADMIN")
 

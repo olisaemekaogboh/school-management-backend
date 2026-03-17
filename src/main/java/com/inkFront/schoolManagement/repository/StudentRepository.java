@@ -1,5 +1,6 @@
 package com.inkFront.schoolManagement.repository;
 
+import com.inkFront.schoolManagement.model.BusRoute;
 import com.inkFront.schoolManagement.model.Student;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -68,13 +69,40 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
 
     @Query("SELECT s FROM Student s WHERE s.admissionDate >= :date")
     List<Student> findRecentAdmissions(@Param("date") LocalDate date);
+
     @Query("""
-    SELECT s
-    FROM Student s
-    WHERE lower(replace(trim(s.studentClass), ' ', '')) = lower(replace(trim(:className), ' ', ''))
-      AND lower(trim(s.classArm)) = lower(trim(:arm))
-    ORDER BY s.lastName, s.firstName
-""")
+        SELECT s
+        FROM Student s
+        WHERE lower(replace(trim(s.studentClass), ' ', '')) = lower(replace(trim(:className), ' ', ''))
+          AND lower(trim(s.classArm)) = lower(trim(:arm))
+        ORDER BY s.lastName, s.firstName
+        """)
     List<Student> findByStudentClassAndClassArmNormalized(@Param("className") String className,
                                                           @Param("arm") String arm);
+
+    // ================================
+    // TRANSPORT-SPECIFIC METHODS
+    // ================================
+
+    List<Student> findByBusRouteIdOrderByLastNameAscFirstNameAsc(Long busRouteId);
+
+    List<Student> findByBusRoute(BusRoute busRoute);
+
+    long countByBusRouteId(Long busRouteId);
+
+    long countByBusRoute(BusRoute busRoute);
+
+    long countByBusRouteIsNotNull();
+
+    long countByBusRouteIsNull();
+
+    boolean existsByBusRouteId(Long busRouteId);
+
+    @Query("""
+        SELECT s
+        FROM Student s
+        WHERE s.busRoute.id = :routeId
+        ORDER BY s.lastName ASC, s.firstName ASC
+        """)
+    List<Student> findTransportStudentsByRouteId(@Param("routeId") Long routeId);
 }

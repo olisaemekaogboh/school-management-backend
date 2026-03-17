@@ -1,9 +1,11 @@
 package com.inkFront.schoolManagement.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -64,23 +66,28 @@ public class Student {
 
     private String profilePictureUrl;
 
-
-    // PROMOTION FIELDS
     @Column(columnDefinition = "boolean default false")
     private boolean excludeFromPromotion;
 
     private String promotionHoldReason;
 
-    // EMERGENCY CONTACT FIELDS
     private String emergencyContactName;
     private String emergencyContactPhone;
     private String emergencyContactRelationship;
 
-    // TIMESTAMP FIELDS
     @Column(updatable = false)
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
+
+    @ManyToOne
+    @JoinColumn(name = "parent_id")
+    private Parent parent;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "bus_route_id")
+    @JsonIgnoreProperties({"students"})
+    private BusRoute busRoute;
 
     @PrePersist
     protected void onCreate() {
@@ -103,11 +110,4 @@ public class Student {
     public enum StudentStatus {
         ACTIVE, GRADUATED, TRANSFERRED, SUSPENDED, WITHDRAWN
     }
-    @ManyToOne
-    @JoinColumn(name = "parent_id")
-    private Parent parent;
-
-    @ManyToOne
-    @JoinColumn(name = "bus_route_id")
-    private BusRoute busRoute;
 }

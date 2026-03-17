@@ -1,9 +1,6 @@
 package com.inkFront.schoolManagement.controllers;
 
-import com.inkFront.schoolManagement.model.Attendance;
-import com.inkFront.schoolManagement.model.Result;
-import com.inkFront.schoolManagement.model.Student;
-import com.inkFront.schoolManagement.model.User;
+import com.inkFront.schoolManagement.model.*;
 import com.inkFront.schoolManagement.repository.AttendanceRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.security.AccessControlService;
@@ -150,9 +147,35 @@ public class AttendanceController {
             User user = currentUser();
             accessControlService.requireAttendanceAccess(user, studentId);
 
-            return ResponseEntity.ok(
-                    attendanceService.getStudentTermAttendance(studentId, session, term)
-            );
+            List<Attendance> attendanceList =
+                    attendanceService.getStudentTermAttendance(studentId, session, term);
+
+            List<Map<String, Object>> response = attendanceList.stream().map(att -> {
+                Map<String, Object> item = new HashMap<>();
+                item.put("id", att.getId());
+                item.put("date", att.getDate());
+                item.put("session", att.getSession());
+                item.put("term", att.getTerm());
+                item.put("status", att.getStatus());
+                item.put("remarks", att.getRemarks());
+
+                if (att.getStudent() != null) {
+                    Map<String, Object> studentMap = new HashMap<>();
+                    studentMap.put("id", att.getStudent().getId());
+                    studentMap.put("firstName", att.getStudent().getFirstName());
+                    studentMap.put("lastName", att.getStudent().getLastName());
+                    studentMap.put("admissionNumber", att.getStudent().getAdmissionNumber());
+                    studentMap.put("studentClass", att.getStudent().getStudentClass());
+                    studentMap.put("classArm", att.getStudent().getClassArm());
+                    item.put("student", studentMap);
+                } else {
+                    item.put("student", null);
+                }
+
+                return item;
+            }).toList();
+
+            return ResponseEntity.ok(response);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -169,15 +192,39 @@ public class AttendanceController {
             User user = currentUser();
             accessControlService.requireAttendanceAccess(user, studentId);
 
-            return ResponseEntity.ok(
-                    attendanceService.getStudentTermSummary(studentId, session, term)
-            );
+            AttendanceSummary summary =
+                    attendanceService.getStudentTermSummary(studentId, session, term);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("studentId", summary.getStudent() != null ? summary.getStudent().getId() : null);
+            response.put("studentName",
+                    summary.getStudent() != null
+                            ? (summary.getStudent().getFirstName() + " " + summary.getStudent().getLastName()).trim()
+                            : null);
+            response.put("admissionNumber",
+                    summary.getStudent() != null ? summary.getStudent().getAdmissionNumber() : null);
+            response.put("studentClass",
+                    summary.getStudent() != null ? summary.getStudent().getStudentClass() : null);
+            response.put("classArm",
+                    summary.getStudent() != null ? summary.getStudent().getClassArm() : null);
+
+            response.put("session", summary.getSession());
+            response.put("term", summary.getTerm());
+            response.put("totalSchoolDays", summary.getTotalSchoolDays());
+            response.put("daysPresent", summary.getDaysPresent());
+            response.put("daysAbsent", summary.getDaysAbsent());
+            response.put("daysLate", summary.getDaysLate());
+            response.put("daysExcused", summary.getDaysExcused());
+            response.put("attendancePercentage", summary.getAttendancePercentage());
+
+            return ResponseEntity.ok(response);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to fetch attendance summary", e);
         }
     }
+
 
     @GetMapping("/student/{studentId}/session")
     public ResponseEntity<?> getStudentSessionSummary(
