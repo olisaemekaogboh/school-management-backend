@@ -109,13 +109,27 @@ public class TimetableServiceImpl implements TimetableService {
     }
 
     private void apply(Timetable t, TimetableDTO dto) {
-        if (dto.getSchoolClassId() == null) throw new RuntimeException("schoolClassId is required");
-        if (dto.getTeacherId() == null) throw new RuntimeException("teacherId is required");
-        if (dto.getSubject() == null || dto.getSubject().trim().isEmpty()) throw new RuntimeException("subject is required");
-        if (dto.getDayOfWeek() == null || dto.getDayOfWeek().trim().isEmpty()) throw new RuntimeException("dayOfWeek is required");
-        if (dto.getStartTime() == null || dto.getEndTime() == null) throw new RuntimeException("startTime and endTime are required");
-        if (dto.getSession() == null || dto.getSession().trim().isEmpty()) throw new RuntimeException("session is required");
-        if (dto.getTerm() == null || dto.getTerm().trim().isEmpty()) throw new RuntimeException("term is required");
+        if (dto.getSchoolClassId() == null) {
+            throw new RuntimeException("schoolClassId is required");
+        }
+        if (dto.getTeacherId() == null) {
+            throw new RuntimeException("teacherId is required");
+        }
+        if (dto.getSubject() == null || dto.getSubject().trim().isEmpty()) {
+            throw new RuntimeException("subject is required");
+        }
+        if (dto.getDayOfWeek() == null || dto.getDayOfWeek().trim().isEmpty()) {
+            throw new RuntimeException("dayOfWeek is required");
+        }
+        if (dto.getStartTime() == null || dto.getEndTime() == null) {
+            throw new RuntimeException("startTime and endTime are required");
+        }
+        if (dto.getSession() == null || dto.getSession().trim().isEmpty()) {
+            throw new RuntimeException("session is required");
+        }
+        if (dto.getTerm() == null || dto.getTerm().trim().isEmpty()) {
+            throw new RuntimeException("term is required");
+        }
 
         SchoolClass schoolClass = classRepository.findById(dto.getSchoolClassId())
                 .orElseThrow(() -> new RuntimeException("Class not found"));
@@ -177,7 +191,7 @@ public class TimetableServiceImpl implements TimetableService {
     @Transactional(readOnly = true)
     public List<TimetableDTO> getClassTimetable(Long classId, String session, String term) {
         return timetableRepository
-                .findBySchoolClass_IdAndSessionAndTerm(classId, session, parseTerm(term))
+                .findBySchoolClass_IdAndSessionAndTerm(classId, session.trim(), parseTerm(term))
                 .stream()
                 .map(this::toDTO)
                 .collect(toList());
@@ -187,7 +201,7 @@ public class TimetableServiceImpl implements TimetableService {
     @Transactional(readOnly = true)
     public List<TimetableDTO> getTeacherTimetable(Long teacherId, String session, String term) {
         return timetableRepository
-                .findByTeacher_IdAndSessionAndTerm(teacherId, session, parseTerm(term))
+                .findByTeacher_IdAndSessionAndTerm(teacherId, session.trim(), parseTerm(term))
                 .stream()
                 .map(this::toDTO)
                 .collect(toList());
@@ -197,7 +211,7 @@ public class TimetableServiceImpl implements TimetableService {
     @Transactional(readOnly = true)
     public List<TimetableDTO> getSchoolTimetable(String session, String term) {
         return timetableRepository
-                .findBySessionAndTerm(session, parseTerm(term))
+                .findBySessionAndTerm(session.trim(), parseTerm(term))
                 .stream()
                 .map(this::toDTO)
                 .collect(toList());
@@ -205,11 +219,18 @@ public class TimetableServiceImpl implements TimetableService {
 
     @Override
     @Transactional(readOnly = true)
-    public boolean checkAvailability(Long teacherId, String day, String startTime, String endTime, String session, String term) {
+    public boolean checkAvailability(
+            Long teacherId,
+            String day,
+            String startTime,
+            String endTime,
+            String session,
+            String term
+    ) {
         boolean conflict =
                 timetableRepository.existsByTeacher_IdAndSessionAndTermAndDayOfWeekAndStartTimeLessThanAndEndTimeGreaterThan(
                         teacherId,
-                        session,
+                        session.trim(),
                         parseTerm(term),
                         parseDay(day),
                         parseTime(endTime),
@@ -232,20 +253,44 @@ public class TimetableServiceImpl implements TimetableService {
         String className = student.getStudentClass();
         String classArm = student.getClassArm();
 
+        System.out.println("=== STUDENT TIMETABLE DEBUG ===");
+        System.out.println("usernameOrEmail = [" + usernameOrEmail + "]");
+        System.out.println("studentId = [" + student.getId() + "]");
+        System.out.println("studentClass = [" + className + "]");
+        System.out.println("classArm = [" + classArm + "]");
+        System.out.println("requestedSession = [" + session + "]");
+        System.out.println("requestedTerm = [" + term + "]");
+
         if (className == null || className.isBlank() || classArm == null || classArm.isBlank()) {
+            System.out.println("Student className/classArm is blank, returning empty list");
+            System.out.println("===============================");
             return List.of();
         }
 
-        return timetableRepository
-                .findBySchoolClass_ClassNameAndSchoolClass_ArmAndSessionAndTerm(
-                        className,
-                        classArm,
-                        session,
+        SchoolClass schoolClass = classRepository
+                .findByClassNameAndArmNormalized(className.trim(), classArm.trim())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "No matching class found for studentClass=" + className + ", classArm=" + classArm
+                ));
+
+        System.out.println("resolvedSchoolClassId = [" + schoolClass.getId() + "]");
+        System.out.println("resolvedSchoolClassName = [" + schoolClass.getClassName() + "]");
+        System.out.println("resolvedSchoolClassArm = [" + schoolClass.getArm() + "]");
+
+        List<TimetableDTO> result = timetableRepository
+                .findBySchoolClass_IdAndSessionAndTerm(
+                        schoolClass.getId(),
+                        session.trim(),
                         parseTerm(term)
                 )
                 .stream()
                 .map(this::toDTO)
                 .collect(toList());
+
+        System.out.println("timetableResultCount = [" + result.size() + "]");
+        System.out.println("===============================");
+
+        return result;
     }
 
     @Override
@@ -259,7 +304,7 @@ public class TimetableServiceImpl implements TimetableService {
         }
 
         return timetableRepository
-                .findByTeacher_IdAndSessionAndTerm(teacher.getId(), session, parseTerm(term))
+                .findByTeacher_IdAndSessionAndTerm(teacher.getId(), session.trim(), parseTerm(term))
                 .stream()
                 .map(this::toDTO)
                 .collect(toList());
@@ -289,11 +334,16 @@ public class TimetableServiceImpl implements TimetableService {
             return List.of();
         }
 
+        SchoolClass schoolClass = classRepository
+                .findByClassNameAndArmNormalized(className.trim(), classArm.trim())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "No matching class found for studentClass=" + className + ", classArm=" + classArm
+                ));
+
         return timetableRepository
-                .findBySchoolClass_ClassNameAndSchoolClass_ArmAndSessionAndTerm(
-                        className,
-                        classArm,
-                        session,
+                .findBySchoolClass_IdAndSessionAndTerm(
+                        schoolClass.getId(),
+                        session.trim(),
                         parseTerm(term)
                 )
                 .stream()
