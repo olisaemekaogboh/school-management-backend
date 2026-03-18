@@ -126,6 +126,7 @@ public class AttendanceServiceImpl implements AttendanceService {
                 student, session, term, Attendance.AttendanceStatus.EXCUSED);
 
         AttendanceSummary summary = new AttendanceSummary();
+        summary.setStudent(student);
         summary.setSession(session);
         summary.setTerm(term);
         summary.setTotalSchoolDays(totalSchoolDays);
@@ -142,15 +143,9 @@ public class AttendanceServiceImpl implements AttendanceService {
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found"));
 
-        Map<String, Object> summary = new HashMap<>();
-
         AttendanceSummary firstTerm = getStudentTermSummary(studentId, session, Result.Term.FIRST);
         AttendanceSummary secondTerm = getStudentTermSummary(studentId, session, Result.Term.SECOND);
         AttendanceSummary thirdTerm = getStudentTermSummary(studentId, session, Result.Term.THIRD);
-
-        summary.put("firstTerm", firstTerm);
-        summary.put("secondTerm", secondTerm);
-        summary.put("thirdTerm", thirdTerm);
 
         int totalDays = 0;
         int totalPresent = 0;
@@ -172,15 +167,44 @@ public class AttendanceServiceImpl implements AttendanceService {
             totalAbsent += thirdTerm.getDaysAbsent();
         }
 
+        Map<String, Object> response = new HashMap<>();
+        response.put("studentId", student.getId());
+        response.put("studentName", (student.getFirstName() + " " + student.getLastName()).trim());
+        response.put("admissionNumber", student.getAdmissionNumber());
+        response.put("studentClass", student.getStudentClass());
+        response.put("classArm", student.getClassArm());
+        response.put("session", session);
+
+        response.put("firstTerm", buildSummaryMap(firstTerm));
+        response.put("secondTerm", buildSummaryMap(secondTerm));
+        response.put("thirdTerm", buildSummaryMap(thirdTerm));
+
         Map<String, Object> sessionSummary = new HashMap<>();
         sessionSummary.put("totalSchoolDays", totalDays);
         sessionSummary.put("daysPresent", totalPresent);
         sessionSummary.put("daysAbsent", totalAbsent);
-        sessionSummary.put("attendancePercentage", totalDays > 0 ? (totalPresent * 100.0 / totalDays) : 0);
+        sessionSummary.put("attendancePercentage", totalDays > 0 ? (totalPresent * 100.0 / totalDays) : 0.0);
 
-        summary.put("sessionSummary", sessionSummary);
+        response.put("sessionSummary", sessionSummary);
 
-        return summary;
+        return response;
+    }
+
+    private Map<String, Object> buildSummaryMap(AttendanceSummary summary) {
+        if (summary == null) {
+            return null;
+        }
+
+        Map<String, Object> map = new HashMap<>();
+        map.put("session", summary.getSession());
+        map.put("term", summary.getTerm() != null ? summary.getTerm().name() : null);
+        map.put("totalSchoolDays", summary.getTotalSchoolDays());
+        map.put("daysPresent", summary.getDaysPresent());
+        map.put("daysAbsent", summary.getDaysAbsent());
+        map.put("daysLate", summary.getDaysLate());
+        map.put("daysExcused", summary.getDaysExcused());
+        map.put("attendancePercentage", summary.getAttendancePercentage());
+        return map;
     }
 
     @Override
@@ -248,7 +272,7 @@ public class AttendanceServiceImpl implements AttendanceService {
         statistics.put("className", className);
         statistics.put("arm", arm);
         statistics.put("session", session);
-        statistics.put("term", term);
+        statistics.put("term", term.name());
         statistics.put("totalStudents", totalStudents);
         statistics.put("totalPresent", presentCount);
         statistics.put("totalAbsent", absentCount);
@@ -287,7 +311,7 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         Map<String, Object> statistics = new HashMap<>();
         statistics.put("session", session);
-        statistics.put("term", term);
+        statistics.put("term", term.name());
         statistics.put("totalStudents", totalStudents);
         statistics.put("totalPresent", totalPresent);
         statistics.put("totalAbsent", totalAbsent);

@@ -5,13 +5,11 @@ import com.inkFront.schoolManagement.model.Student;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
-@Repository
 public interface StudentRepository extends JpaRepository<Student, Long> {
 
     List<Student> findByEmergencyContactPhone(String emergencyContactPhone);
@@ -27,7 +25,11 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     @Query("SELECT s FROM Student s WHERE s.status = 'ACTIVE'")
     List<Student> findAllActiveStudents();
 
-    @Query("SELECT s FROM Student s WHERE s.studentClass IN :classes")
+    @Query("""
+        SELECT s
+        FROM Student s
+        WHERE s.schoolClass.className IN :classes
+    """)
     List<Student> findByStudentClasses(@Param("classes") List<String> classes);
 
     List<Student> findByExcludeFromPromotionTrue();
@@ -36,9 +38,25 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
 
     Optional<Student> findByAdmissionNumber(String admissionNumber);
 
-    List<Student> findByStudentClass(String studentClass);
+    @Query("""
+        SELECT s
+        FROM Student s
+        WHERE LOWER(REPLACE(TRIM(s.schoolClass.className), ' ', '')) = LOWER(REPLACE(TRIM(:studentClass), ' ', ''))
+        ORDER BY s.lastName ASC, s.firstName ASC
+    """)
+    List<Student> findByStudentClass(@Param("studentClass") String studentClass);
 
-    List<Student> findByStudentClassAndClassArm(String studentClass, String classArm);
+    @Query("""
+        SELECT s
+        FROM Student s
+        WHERE LOWER(REPLACE(TRIM(s.schoolClass.className), ' ', '')) = LOWER(REPLACE(TRIM(:studentClass), ' ', ''))
+          AND LOWER(TRIM(s.schoolClass.arm)) = LOWER(TRIM(:classArm))
+        ORDER BY s.lastName ASC, s.firstName ASC
+    """)
+    List<Student> findByStudentClassAndClassArm(
+            @Param("studentClass") String studentClass,
+            @Param("classArm") String classArm
+    );
 
     List<Student> findByParentEmail(String parentEmail);
 
@@ -47,10 +65,10 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     @Query("""
         SELECT s
         FROM Student s
-        WHERE LOWER(REPLACE(TRIM(s.studentClass), ' ', '')) = LOWER(REPLACE(TRIM(:studentClass), ' ', ''))
-          AND LOWER(TRIM(s.classArm)) = LOWER(TRIM(:classArm))
+        WHERE LOWER(REPLACE(TRIM(s.schoolClass.className), ' ', '')) = LOWER(REPLACE(TRIM(:studentClass), ' ', ''))
+          AND LOWER(TRIM(s.schoolClass.arm)) = LOWER(TRIM(:classArm))
         ORDER BY s.lastName ASC, s.firstName ASC
-        """)
+    """)
     List<Student> findByClassScopeNormalized(
             @Param("studentClass") String studentClass,
             @Param("classArm") String classArm
@@ -64,7 +82,11 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
         """)
     List<Student> searchByName(@Param("searchTerm") String searchTerm);
 
-    @Query("SELECT s.studentClass, COUNT(s) FROM Student s GROUP BY s.studentClass")
+    @Query("""
+        SELECT s.schoolClass.className, COUNT(s)
+        FROM Student s
+        GROUP BY s.schoolClass.className
+    """)
     List<Object[]> countStudentsByClass();
 
     @Query("SELECT s FROM Student s WHERE s.admissionDate >= :date")
@@ -73,16 +95,14 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     @Query("""
         SELECT s
         FROM Student s
-        WHERE lower(replace(trim(s.studentClass), ' ', '')) = lower(replace(trim(:className), ' ', ''))
-          AND lower(trim(s.classArm)) = lower(trim(:arm))
+        WHERE LOWER(REPLACE(TRIM(s.schoolClass.className), ' ', '')) = LOWER(REPLACE(TRIM(:className), ' ', ''))
+          AND LOWER(TRIM(s.schoolClass.arm)) = LOWER(TRIM(:arm))
         ORDER BY s.lastName, s.firstName
         """)
-    List<Student> findByStudentClassAndClassArmNormalized(@Param("className") String className,
-                                                          @Param("arm") String arm);
-
-    // ================================
-    // TRANSPORT-SPECIFIC METHODS
-    // ================================
+    List<Student> findByStudentClassAndClassArmNormalized(
+            @Param("className") String className,
+            @Param("arm") String arm
+    );
 
     List<Student> findByBusRouteIdOrderByLastNameAscFirstNameAsc(Long busRouteId);
 

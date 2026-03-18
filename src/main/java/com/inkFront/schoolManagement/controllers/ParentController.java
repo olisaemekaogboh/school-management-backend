@@ -1,13 +1,18 @@
 package com.inkFront.schoolManagement.controllers;
 
 import com.inkFront.schoolManagement.dto.ParentDTO;
+import com.inkFront.schoolManagement.dto.SessionResultResponseDTO;
+import com.inkFront.schoolManagement.model.AttendanceSummary;
+import com.inkFront.schoolManagement.model.Fee;
 import com.inkFront.schoolManagement.model.Student;
 import com.inkFront.schoolManagement.model.User;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.security.SecurityUtils;
 import com.inkFront.schoolManagement.service.AttendanceService;
+import com.inkFront.schoolManagement.service.FeeService;
 import com.inkFront.schoolManagement.service.ParentService;
 import com.inkFront.schoolManagement.service.ResultService;
+import com.inkFront.schoolManagement.service.SessionResultService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -33,7 +38,9 @@ public class ParentController {
     private final StudentRepository studentRepository;
     private final SecurityUtils securityUtils;
     private final ResultService resultService;
+    private final SessionResultService sessionResultService;
     private final AttendanceService attendanceService;
+    private final FeeService feeService;
 
     private User currentUser() {
         return securityUtils.getCurrentUser();
@@ -61,6 +68,120 @@ public class ParentController {
         if (!allowed) {
             throw new RuntimeException("You are not allowed to access this student's record");
         }
+    }
+
+    private Map<String, Object> parentToMap(com.inkFront.schoolManagement.model.Parent parent) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", parent.getId());
+        map.put("firstName", parent.getFirstName());
+        map.put("lastName", parent.getLastName());
+        map.put("middleName", parent.getMiddleName());
+        map.put(
+                "fullName",
+                ((parent.getFirstName() != null ? parent.getFirstName() : "") + " " +
+                        (parent.getMiddleName() != null ? parent.getMiddleName() + " " : "") +
+                        (parent.getLastName() != null ? parent.getLastName() : ""))
+                        .replaceAll("\\s+", " ")
+                        .trim()
+        );
+        map.put("email", parent.getEmail());
+        map.put("phoneNumber", parent.getPhoneNumber());
+        map.put("alternatePhone", parent.getAlternatePhone());
+        map.put("relationship", parent.getRelationship());
+        map.put("occupation", parent.getOccupation());
+        map.put("companyName", parent.getCompanyName());
+        map.put("address", parent.getAddress());
+        map.put("officeAddress", parent.getOfficeAddress());
+        map.put("profilePictureUrl", parent.getProfilePictureUrl());
+        map.put("emergencyContactName", parent.getEmergencyContactName());
+        map.put("emergencyContactPhone", parent.getEmergencyContactPhone());
+        map.put("emergencyContactRelationship", parent.getEmergencyContactRelationship());
+        map.put("createdAt", parent.getCreatedAt());
+        map.put("updatedAt", parent.getUpdatedAt());
+        return map;
+    }
+
+    private Map<String, Object> wardToMap(Student student) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", student.getId());
+        map.put("firstName", student.getFirstName());
+        map.put("lastName", student.getLastName());
+        map.put("middleName", student.getMiddleName());
+        map.put(
+                "fullName",
+                ((student.getFirstName() != null ? student.getFirstName() : "") + " " +
+                        (student.getMiddleName() != null ? student.getMiddleName() + " " : "") +
+                        (student.getLastName() != null ? student.getLastName() : ""))
+                        .replaceAll("\\s+", " ")
+                        .trim()
+        );
+        map.put("admissionNumber", student.getAdmissionNumber());
+        map.put("studentClass", student.getStudentClass());
+        map.put("classArm", student.getClassArm());
+        map.put("classId", student.getSchoolClass() != null ? student.getSchoolClass().getId() : null);
+        map.put("profilePictureUrl", student.getProfilePictureUrl());
+        map.put("status", student.getStatus() != null ? student.getStatus().name() : null);
+        return map;
+    }
+
+    private Map<String, Object> attendanceSummaryToMap(AttendanceSummary summary) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("studentId", summary.getStudent() != null ? summary.getStudent().getId() : null);
+        response.put("studentName",
+                summary.getStudent() != null
+                        ? (summary.getStudent().getFirstName() + " " + summary.getStudent().getLastName()).trim()
+                        : null);
+        response.put("admissionNumber",
+                summary.getStudent() != null ? summary.getStudent().getAdmissionNumber() : null);
+        response.put("studentClass",
+                summary.getStudent() != null ? summary.getStudent().getStudentClass() : null);
+        response.put("classArm",
+                summary.getStudent() != null ? summary.getStudent().getClassArm() : null);
+        response.put("classId",
+                summary.getStudent() != null && summary.getStudent().getSchoolClass() != null
+                        ? summary.getStudent().getSchoolClass().getId()
+                        : null);
+
+        response.put("session", summary.getSession());
+        response.put("term", summary.getTerm() != null ? summary.getTerm().name() : null);
+        response.put("totalSchoolDays", summary.getTotalSchoolDays());
+        response.put("daysPresent", summary.getDaysPresent());
+        response.put("daysAbsent", summary.getDaysAbsent());
+        response.put("daysLate", summary.getDaysLate());
+        response.put("daysExcused", summary.getDaysExcused());
+        response.put("attendancePercentage", summary.getAttendancePercentage());
+
+        return response;
+    }
+
+    private Map<String, Object> feeToMap(Fee fee) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", fee.getId());
+        map.put("feeType", fee.getFeeType() != null ? fee.getFeeType().name() : null);
+        map.put("amount", fee.getAmount());
+        map.put("paidAmount", fee.getPaidAmount());
+        map.put("balance", fee.getBalance());
+        map.put("status", fee.getStatus() != null ? fee.getStatus().name() : null);
+        map.put("session", fee.getSession());
+        map.put("term", fee.getTerm() != null ? fee.getTerm().name() : null);
+        map.put("description", fee.getDescription());
+        map.put("dueDate", fee.getDueDate());
+        map.put("paidDate", fee.getPaidDate());
+
+        // fee.getReceiptNumber() does not exist in your Fee model
+        // so use paymentReference instead
+        map.put("receiptNumber", fee.getPaymentReference());
+
+        if (fee.getStudent() != null) {
+            map.put("studentId", fee.getStudent().getId());
+            map.put("studentName",
+                    (fee.getStudent().getFirstName() + " " + fee.getStudent().getLastName()).trim());
+            map.put("admissionNumber", fee.getStudent().getAdmissionNumber());
+            map.put("studentClass", fee.getStudent().getStudentClass());
+            map.put("classArm", fee.getStudent().getClassArm());
+        }
+
+        return map;
     }
 
     @PostMapping
@@ -132,7 +253,7 @@ public class ParentController {
                     .body(Map.of("message", "This account is not linked to a parent"));
         }
 
-        return ResponseEntity.ok(currentUser.getParent());
+        return ResponseEntity.ok(parentToMap(currentUser.getParent()));
     }
 
     @GetMapping("/me/wards")
@@ -149,7 +270,11 @@ public class ParentController {
                         student.getParent().getId().equals(currentUser.getParent().getId()))
                 .toList();
 
-        return ResponseEntity.ok(wards);
+        List<Map<String, Object>> response = wards.stream()
+                .map(this::wardToMap)
+                .toList();
+
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/by-email")
@@ -333,7 +458,8 @@ public class ParentController {
             @RequestParam String session) {
 
         validateWardAccess(studentId);
-        return ResponseEntity.ok(resultService.generateAnnualResultSheet(studentId, session));
+        SessionResultResponseDTO result = sessionResultService.calculateSessionResult(studentId, session);
+        return ResponseEntity.ok(result);
     }
 
     @GetMapping("/me/wards/{studentId}/attendance")
@@ -343,6 +469,24 @@ public class ParentController {
             @RequestParam com.inkFront.schoolManagement.model.Result.Term term) {
 
         validateWardAccess(studentId);
-        return ResponseEntity.ok(attendanceService.getStudentTermSummary(studentId, session, term));
+        AttendanceSummary summary = attendanceService.getStudentTermSummary(studentId, session, term);
+        return ResponseEntity.ok(attendanceSummaryToMap(summary));
+    }
+
+    @GetMapping("/me/wards/{studentId}/fees")
+    public ResponseEntity<?> getWardFees(
+            @PathVariable Long studentId,
+            @RequestParam String session,
+            @RequestParam Fee.Term term) {
+
+        validateWardAccess(studentId);
+
+        List<Fee> fees = feeService.getStudentFees(studentId, session, term);
+
+        List<Map<String, Object>> response = fees.stream()
+                .map(this::feeToMap)
+                .toList();
+
+        return ResponseEntity.ok(response);
     }
 }

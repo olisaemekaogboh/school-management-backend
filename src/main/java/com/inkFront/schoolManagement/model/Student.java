@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Student {
 
     @Id
@@ -31,10 +32,10 @@ public class Student {
     @Column(unique = true, nullable = false)
     private String admissionNumber;
 
-    @Column(nullable = false)
-    private String studentClass;
-
-    private String classArm;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "class_id")
+    @JsonIgnoreProperties({"classTeacher"})
+    private SchoolClass schoolClass;
 
     @Enumerated(EnumType.STRING)
     private Gender gender;
@@ -42,28 +43,20 @@ public class Student {
     private LocalDate dateOfBirth;
 
     private String parentName;
-
     private String parentPhone;
-
     private String parentEmail;
 
     private String address;
-
     private String localGovtArea;
-
     private String stateOfOrigin;
-
     private String nationality;
-
     private String religion;
 
     @Enumerated(EnumType.STRING)
     private StudentStatus status;
 
     private LocalDate admissionDate;
-
     private String previousSchool;
-
     private String profilePictureUrl;
 
     @Column(columnDefinition = "boolean default false")
@@ -101,6 +94,14 @@ public class Student {
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+
+    public String getStudentClass() {
+        return schoolClass != null ? schoolClass.getClassName() : null;
+    }
+
+    public String getClassArm() {
+        return schoolClass != null ? schoolClass.getArm() : null;
     }
 
     public enum Gender {

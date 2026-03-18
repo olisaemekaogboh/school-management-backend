@@ -7,6 +7,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
 import java.time.LocalDate;
 
 @Data
@@ -36,13 +37,10 @@ public class StudentRequestDTO {
     private String nationality;
 
     // Academic Information
-    @NotBlank(message = "Class is required")
-    private String studentClass;
-
-    private String classArm;
+    @NotNull(message = "Class is required")
+    private Long classId;
 
     private Student.StudentStatus status;
-
     private String previousSchool;
 
     // Parent/Guardian Information
@@ -77,35 +75,6 @@ public class StudentRequestDTO {
     private Boolean excludeFromPromotion;
     private String promotionHoldReason;
 
-    // URL of the profile picture (after upload) - NOT the file itself
+    // URL of the profile picture
     private String profilePictureUrl;
-
-    // Helper method to convert DTO to Entity
-    public Student toEntity() {
-        Student student = new Student();
-        student.setFirstName(this.firstName);
-        student.setLastName(this.lastName);
-        student.setMiddleName(this.middleName);
-        student.setGender(this.gender);
-        student.setDateOfBirth(this.dateOfBirth);
-        student.setReligion(this.religion);
-        student.setNationality(this.nationality);
-        student.setStudentClass(this.studentClass);
-        student.setClassArm(this.classArm);
-        student.setStatus(this.status);
-        student.setPreviousSchool(this.previousSchool);
-        student.setParentName(this.parentName);
-        student.setParentPhone(this.parentPhone);
-        student.setParentEmail(this.parentEmail);
-        student.setAddress(this.address);
-        student.setLocalGovtArea(this.localGovtArea);
-        student.setStateOfOrigin(this.stateOfOrigin);
-        student.setEmergencyContactName(this.emergencyContactName);
-        student.setEmergencyContactPhone(this.emergencyContactPhone);
-        student.setEmergencyContactRelationship(this.emergencyContactRelationship);
-        student.setExcludeFromPromotion(this.excludeFromPromotion);
-        student.setPromotionHoldReason(this.promotionHoldReason);
-        student.setProfilePictureUrl(this.profilePictureUrl);
-        return student;
-    }
 }

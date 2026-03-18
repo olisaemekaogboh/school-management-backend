@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.inkFront.schoolManagement.dto.StudentRequestDTO;
 import com.inkFront.schoolManagement.dto.StudentResponseDTO;
+import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.model.Student;
 import com.inkFront.schoolManagement.security.SecurityUtils;
 import com.inkFront.schoolManagement.service.StudentService;
@@ -44,8 +45,6 @@ public class StudentController {
     private final SecurityUtils securityUtils;
 
     private static final String UPLOAD_DIR = "uploads/profile-pictures/";
-
-    // ==================== CREATE METHODS ====================
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<StudentResponseDTO> registerStudentWithFile(
@@ -107,8 +106,6 @@ public class StudentController {
         return new ResponseEntity<>(StudentResponseDTO.fromStudent(savedStudent), HttpStatus.CREATED);
     }
 
-    // ==================== UPDATE METHODS ====================
-
     @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<StudentResponseDTO> updateStudentWithFile(
             @PathVariable Long id,
@@ -148,11 +145,8 @@ public class StudentController {
         return ResponseEntity.ok(StudentResponseDTO.fromStudent(updatedStudent));
     }
 
-    // ==================== READ METHODS ====================
-
     @GetMapping
     public ResponseEntity<List<StudentResponseDTO>> getAllStudents() {
-        log.debug("GET /api/students - Fetching all students");
         List<Student> students = studentService.getAllStudents();
         List<StudentResponseDTO> response = students.stream()
                 .map(StudentResponseDTO::fromStudent)
@@ -166,8 +160,6 @@ public class StudentController {
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "id") String sortBy,
             @RequestParam(defaultValue = "asc") String sortDir) {
-
-        log.debug("GET /api/students/paginated - Page: {}, Size: {}", page, size);
 
         Sort sort = sortDir.equalsIgnoreCase("asc")
                 ? Sort.by(sortBy).ascending()
@@ -183,7 +175,6 @@ public class StudentController {
 
     @GetMapping("/{id}")
     public ResponseEntity<StudentResponseDTO> getStudentById(@PathVariable Long id) {
-        log.debug("GET /api/students/{} - Fetching student by ID", id);
         return studentService.getStudentById(id)
                 .map(student -> ResponseEntity.ok(StudentResponseDTO.fromStudent(student)))
                 .orElse(ResponseEntity.notFound().build());
@@ -191,7 +182,6 @@ public class StudentController {
 
     @GetMapping("/admission/{admissionNumber}")
     public ResponseEntity<StudentResponseDTO> getStudentByAdmissionNumber(@PathVariable String admissionNumber) {
-        log.debug("GET /api/students/admission/{} - Fetching student by admission number", admissionNumber);
         return studentService.getStudentByAdmissionNumber(admissionNumber)
                 .map(student -> ResponseEntity.ok(StudentResponseDTO.fromStudent(student)))
                 .orElse(ResponseEntity.notFound().build());
@@ -199,7 +189,6 @@ public class StudentController {
 
     @GetMapping("/search")
     public ResponseEntity<List<StudentResponseDTO>> searchStudents(@RequestParam String term) {
-        log.debug("GET /api/students/search - Searching students with term: {}", term);
         List<Student> students = studentService.searchStudents(term);
         List<StudentResponseDTO> response = students.stream()
                 .map(StudentResponseDTO::fromStudent)
@@ -209,7 +198,6 @@ public class StudentController {
 
     @GetMapping("/class/{className}")
     public ResponseEntity<List<StudentResponseDTO>> getStudentsByClass(@PathVariable String className) {
-        log.debug("GET /api/students/class/{} - Fetching students by class", className);
         List<Student> students = studentService.getStudentsByClass(className);
         List<StudentResponseDTO> response = students.stream()
                 .map(StudentResponseDTO::fromStudent)
@@ -221,7 +209,7 @@ public class StudentController {
     public ResponseEntity<List<StudentResponseDTO>> getStudentsByClassAndArm(
             @PathVariable String className,
             @PathVariable String arm) {
-        log.debug("GET /api/students/class/{}/arm/{} - Fetching students by class and arm", className, arm);
+
         List<Student> students = studentService.getStudentsByClassAndArm(className, arm);
         List<StudentResponseDTO> response = students.stream()
                 .map(StudentResponseDTO::fromStudent)
@@ -231,7 +219,6 @@ public class StudentController {
 
     @GetMapping("/state/{state}")
     public ResponseEntity<List<StudentResponseDTO>> getStudentsByState(@PathVariable String state) {
-        log.debug("GET /api/students/state/{} - Fetching students by state", state);
         List<Student> students = studentService.getStudentsByState(state);
         List<StudentResponseDTO> response = students.stream()
                 .map(StudentResponseDTO::fromStudent)
@@ -241,7 +228,6 @@ public class StudentController {
 
     @GetMapping("/lga/{lga}")
     public ResponseEntity<List<StudentResponseDTO>> getStudentsByLGA(@PathVariable String lga) {
-        log.debug("GET /api/students/lga/{} - Fetching students by LGA", lga);
         List<Student> students = studentService.getStudentsByLGA(lga);
         List<StudentResponseDTO> response = students.stream()
                 .map(StudentResponseDTO::fromStudent)
@@ -251,7 +237,6 @@ public class StudentController {
 
     @GetMapping("/active")
     public ResponseEntity<List<StudentResponseDTO>> getActiveStudents() {
-        log.debug("GET /api/students/active - Fetching active students");
         List<Student> students = studentService.getActiveStudents();
         List<StudentResponseDTO> response = students.stream()
                 .map(StudentResponseDTO::fromStudent)
@@ -262,7 +247,6 @@ public class StudentController {
     @GetMapping("/status/{status}")
     public ResponseEntity<List<StudentResponseDTO>> getStudentsByStatus(
             @PathVariable Student.StudentStatus status) {
-        log.debug("GET /api/students/status/{} - Fetching students by status", status);
         List<Student> students = studentService.getStudentsByStatus(status);
         List<StudentResponseDTO> response = students.stream()
                 .map(StudentResponseDTO::fromStudent)
@@ -272,8 +256,6 @@ public class StudentController {
 
     @GetMapping("/statistics")
     public ResponseEntity<Map<String, Object>> getStudentStatistics() {
-        log.debug("GET /api/students/statistics - Fetching student statistics");
-
         Map<String, Object> statistics = new java.util.HashMap<>();
         statistics.put("totalStudents", studentService.getTotalStudentCount());
         statistics.put("activeStudents", studentService.getActiveStudentCount());
@@ -287,29 +269,22 @@ public class StudentController {
 
         return ResponseEntity.ok(statistics);
     }
-    // ==================== DELETE METHODS ====================
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteStudent(@PathVariable Long id) {
-        log.info("DELETE /api/students/{} - Deleting student", id);
         studentService.deleteStudent(id);
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/admission/{admissionNumber}")
     public ResponseEntity<Void> deleteStudentByAdmissionNumber(@PathVariable String admissionNumber) {
-        log.info("DELETE /api/students/admission/{} - Deleting student", admissionNumber);
         studentService.deleteStudentByAdmissionNumber(admissionNumber);
         return ResponseEntity.noContent().build();
     }
 
-    // ==================== BULK OPERATIONS ====================
-
     @PostMapping("/bulk")
     public ResponseEntity<List<StudentResponseDTO>> registerBulkStudents(
             @Valid @RequestBody List<StudentRequestDTO> studentRequests) {
-
-        log.info("POST /api/students/bulk - Registering {} students in bulk", studentRequests.size());
 
         List<Student> students = studentRequests.stream()
                 .map(this::mapToEntity)
@@ -328,32 +303,24 @@ public class StudentController {
             @RequestParam String newClass,
             @RequestBody List<Long> studentIds) {
 
-        log.info("PATCH /api/students/bulk/class - Updating {} students to class {}", studentIds.size(), newClass);
         studentService.updateBulkStudentClass(studentIds, newClass);
         return ResponseEntity.ok().build();
     }
 
-    // ==================== UTILITY METHODS ====================
-
     @GetMapping("/generate-admission")
     public ResponseEntity<Map<String, String>> generateAdmissionNumber() {
-        log.debug("GET /api/students/generate-admission - Generating admission number");
         String admissionNumber = studentService.generateAdmissionNumber();
         return ResponseEntity.ok(Map.of("admissionNumber", admissionNumber));
     }
 
     @GetMapping("/check-admission/{admissionNumber}")
     public ResponseEntity<Map<String, Boolean>> checkAdmissionNumber(@PathVariable String admissionNumber) {
-        log.debug("GET /api/students/check-admission/{} - Checking admission number", admissionNumber);
         boolean exists = !studentService.isAdmissionNumberUnique(admissionNumber);
         return ResponseEntity.ok(Map.of("exists", exists));
     }
 
-    // ==================== REPORT METHODS ====================
-
     @GetMapping("/{id}/report")
     public ResponseEntity<byte[]> generateStudentReport(@PathVariable Long id) {
-        log.info("GET /api/students/{}/report - Generating student report", id);
         byte[] report = studentService.generateStudentReport(id);
         return ResponseEntity.ok()
                 .header("Content-Type", "application/pdf")
@@ -363,7 +330,6 @@ public class StudentController {
 
     @GetMapping("/class/{className}/report")
     public ResponseEntity<byte[]> generateClassReport(@PathVariable String className) {
-        log.info("GET /api/students/class/{}/report - Generating class report", className);
         byte[] report = studentService.generateClassReport(className);
         return ResponseEntity.ok()
                 .header("Content-Type", "application/pdf")
@@ -371,18 +337,14 @@ public class StudentController {
                 .body(report);
     }
 
-    // ==================== PROMOTION METHODS ====================
-
     @GetMapping("/promote/preview")
     public ResponseEntity<Map<String, Object>> getPromotionPreview() {
-        log.info("GET /api/students/promote/preview - Getting promotion preview");
         Map<String, Object> preview = studentService.getPromotionPreview();
         return ResponseEntity.ok(preview);
     }
 
     @GetMapping("/excluded")
     public ResponseEntity<List<StudentResponseDTO>> getExcludedStudents() {
-        log.info("GET /api/students/excluded - Fetching excluded students");
         List<Student> excludedStudents = studentService.getExcludedStudents();
         List<StudentResponseDTO> response = excludedStudents.stream()
                 .map(StudentResponseDTO::fromStudent)
@@ -392,14 +354,12 @@ public class StudentController {
 
     @PostMapping("/promote/all")
     public ResponseEntity<Map<String, Object>> promoteAllStudents() {
-        log.info("POST /api/students/promote/all - Promoting all eligible students");
         Map<String, Object> result = studentService.promoteAllStudents();
         return ResponseEntity.ok(result);
     }
 
     @PostMapping("/promote/selected")
     public ResponseEntity<Map<String, Object>> promoteSelectedStudents(@RequestBody List<Long> studentIds) {
-        log.info("POST /api/students/promote/selected - Promoting {} selected students", studentIds.size());
         Map<String, Object> result = studentService.promoteSelectedStudents(studentIds);
         return ResponseEntity.ok(result);
     }
@@ -410,7 +370,6 @@ public class StudentController {
             @RequestParam boolean exclude,
             @RequestParam(required = false) String reason) {
 
-        log.info("POST /api/students/{}/toggle-exclusion - exclude={}, reason={}", id, exclude, reason);
         Student student = studentService.togglePromotionExclusion(id, exclude, reason);
         return ResponseEntity.ok(StudentResponseDTO.fromStudent(student));
     }
@@ -419,8 +378,6 @@ public class StudentController {
     public ResponseEntity<Map<String, Object>> promoteClass(
             @PathVariable String className,
             @RequestParam(required = false) String arm) {
-
-        log.info("POST /api/students/promote/class/{} - Promoting class", className);
 
         List<Student> students;
         if (arm != null && !arm.isEmpty()) {
@@ -440,8 +397,6 @@ public class StudentController {
         return ResponseEntity.ok(result);
     }
 
-    // ==================== CURRENT STUDENT ====================
-
     @GetMapping("/me")
     public ResponseEntity<?> getMyProfile() {
         var currentUser = securityUtils.getCurrentUser();
@@ -453,8 +408,6 @@ public class StudentController {
 
         return ResponseEntity.ok(StudentResponseDTO.fromStudent(currentUser.getStudent()));
     }
-
-    // ==================== HELPER METHODS ====================
 
     private String saveProfilePicture(MultipartFile file) throws IOException {
         if (file.getSize() > 5 * 1024 * 1024) {
@@ -489,8 +442,11 @@ public class StudentController {
         student.setFirstName(dto.getFirstName());
         student.setLastName(dto.getLastName());
         student.setMiddleName(dto.getMiddleName());
-        student.setStudentClass(dto.getStudentClass());
-        student.setClassArm(dto.getClassArm());
+
+        SchoolClass schoolClass = new SchoolClass();
+        schoolClass.setId(dto.getClassId());
+        student.setSchoolClass(schoolClass);
+
         student.setGender(dto.getGender());
         student.setDateOfBirth(dto.getDateOfBirth());
         student.setParentName(dto.getParentName());
@@ -506,13 +462,7 @@ public class StudentController {
         student.setEmergencyContactRelationship(dto.getEmergencyContactRelationship());
         student.setStatus(dto.getStatus());
         student.setPreviousSchool(dto.getPreviousSchool());
-
-        if (dto.getExcludeFromPromotion() != null) {
-            student.setExcludeFromPromotion(dto.getExcludeFromPromotion());
-        } else {
-            student.setExcludeFromPromotion(false);
-        }
-
+        student.setExcludeFromPromotion(dto.getExcludeFromPromotion() != null && dto.getExcludeFromPromotion());
         student.setPromotionHoldReason(dto.getPromotionHoldReason());
         student.setProfilePictureUrl(dto.getProfilePictureUrl());
 

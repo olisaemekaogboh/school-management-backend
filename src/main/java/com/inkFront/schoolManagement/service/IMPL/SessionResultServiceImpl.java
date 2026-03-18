@@ -4,10 +4,12 @@ import com.inkFront.schoolManagement.dto.SessionResultResponseDTO;
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
 import com.inkFront.schoolManagement.model.Attendance;
 import com.inkFront.schoolManagement.model.Result;
+import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.model.SessionResult;
 import com.inkFront.schoolManagement.model.Student;
 import com.inkFront.schoolManagement.model.TermResult;
 import com.inkFront.schoolManagement.repository.AttendanceRepository;
+import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.ResultRepository;
 import com.inkFront.schoolManagement.repository.SessionResultRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
@@ -32,6 +34,7 @@ public class SessionResultServiceImpl implements SessionResultService {
     private final SessionResultRepository sessionResultRepository;
     private final ResultRepository resultRepository;
     private final AttendanceRepository attendanceRepository;
+    private final ClassRepository classRepository;
 
     @Override
     public SessionResultResponseDTO calculateSessionResult(Long studentId, String session) {
@@ -162,6 +165,7 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         return results;
     }
+
     @Override
     @Transactional(readOnly = true)
     public SessionResultResponseDTO getSessionResult(Long studentId, String session) {
@@ -539,9 +543,15 @@ public class SessionResultServiceImpl implements SessionResultService {
                     detail.put("nextClass", "GRADUATED");
                     graduated++;
                 } else {
-                    student.setStudentClass(nextClass);
+                    SchoolClass nextSchoolClass = classRepository
+                            .findByClassNameAndArmNormalized(nextClass, student.getClassArm())
+                            .orElseThrow(() -> new ResourceNotFoundException(
+                                    "Class not found for promotion: " + nextClass + " " + student.getClassArm()
+                            ));
+
+                    student.setSchoolClass(nextSchoolClass);
                     detail.put("status", "PROMOTED");
-                    detail.put("nextClass", nextClass);
+                    detail.put("nextClass", nextSchoolClass.getClassName());
                     promoted++;
                 }
             } else {
@@ -573,7 +583,7 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         for (SessionResult sr : allResults) {
             Student student = sr.getStudent();
-            if ("SSS 3".equals(student.getStudentClass()) && sr.isPromoted()) {
+            if (isSeniorFinalClass(student.getStudentClass()) && sr.isPromoted()) {
                 Map<String, Object> grad = new HashMap<>();
                 grad.put("studentId", student.getId());
                 grad.put("studentName", student.getFirstName() + " " + student.getLastName());
@@ -808,25 +818,42 @@ public class SessionResultServiceImpl implements SessionResultService {
     }
 
     private String getNextClass(String currentClass) {
-        Map<String, String> progression = new HashMap<>();
-        progression.put("Nursery 1", "Nursery 2");
-        progression.put("Nursery 2", "Kindergarten 1");
-        progression.put("Kindergarten 1", "Kindergarten 2");
-        progression.put("Kindergarten 2", "Primary 1");
-        progression.put("Primary 1", "Primary 2");
-        progression.put("Primary 2", "Primary 3");
-        progression.put("Primary 3", "Primary 4");
-        progression.put("Primary 4", "Primary 5");
-        progression.put("Primary 5", "Primary 6");
-        progression.put("Primary 6", "JSS 1");
-        progression.put("JSS 1", "JSS 2");
-        progression.put("JSS 2", "JSS 3");
-        progression.put("JSS 3", "SSS 1");
-        progression.put("SSS 1", "SSS 2");
-        progression.put("SSS 2", "SSS 3");
-        progression.put("SSS 3", "GRADUATED");
+        if (currentClass == null) {
+            return null;
+        }
 
-        return progression.getOrDefault(currentClass, currentClass);
+        String normalized = currentClass.trim().replaceAll("\\s+", "").toLowerCase();
+
+        Map<String, String> progression = new HashMap<>();
+        progression.put("nursery1", "nursery2");
+        progression.put("nursery2", "kindergarten1");
+        progression.put("kindergarten1", "kindergarten2");
+        progression.put("kindergarten2", "primary1");
+        progression.put("primary1", "primary2");
+        progression.put("primary2", "primary3");
+        progression.put("primary3", "primary4");
+        progression.put("primary4", "primary5");
+        progression.put("primary5", "primary6");
+        progression.put("primary6", "jss1");
+        progression.put("jss1", "jss2");
+        progression.put("jss2", "jss3");
+        progression.put("jss3", "ss1");
+        progression.put("sss1", "ss2");
+        progression.put("ss1", "ss2");
+        progression.put("sss2", "ss3");
+        progression.put("ss2", "ss3");
+        progression.put("sss3", "GRADUATED");
+        progression.put("ss3", "GRADUATED");
+
+        return progression.getOrDefault(normalized, currentClass);
+    }
+
+    private boolean isSeniorFinalClass(String currentClass) {
+        if (currentClass == null) {
+            return false;
+        }
+        String normalized = currentClass.trim().replaceAll("\\s+", "").toLowerCase();
+        return normalized.equals("sss3") || normalized.equals("ss3");
     }
 
     private double safeDouble(Number value) {

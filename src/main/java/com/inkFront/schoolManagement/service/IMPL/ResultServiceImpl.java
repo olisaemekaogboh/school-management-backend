@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/service/IMPL/ResultServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
 import com.inkFront.schoolManagement.dto.ResultRequestDTO;
@@ -37,8 +36,6 @@ public class ResultServiceImpl implements ResultService {
     private final SessionResultRepository sessionResultRepository;
     private final AttendanceRepository attendanceRepository;
     private final SubjectRepository subjectRepository;
-
-    // ==================== ADD/UPDATE RESULT METHODS ====================
 
     @Override
     @Transactional
@@ -91,7 +88,7 @@ public class ResultServiceImpl implements ResultService {
         Result savedResult = resultRepository.save(result);
 
         if (termResult.getSubjectResults() == null) {
-            termResult.setSubjectResults(new java.util.ArrayList<>());
+            termResult.setSubjectResults(new ArrayList<>());
         }
 
         if (!termResult.getSubjectResults().contains(savedResult)) {
@@ -104,6 +101,7 @@ public class ResultServiceImpl implements ResultService {
         log.info("Result saved successfully with ID: {}", savedResult.getId());
         return savedResult;
     }
+
     @Override
     @Transactional
     public Result addOrUpdateResult(Long studentId, String subjectName, String session,
@@ -189,8 +187,6 @@ public class ResultServiceImpl implements ResultService {
         calculatePositions(termResult);
     }
 
-    // ==================== GET RESULT METHODS ====================
-
     @Override
     public List<Result> getStudentResults(Long studentId, String session, Result.Term term) {
         Student student = studentRepository.findById(studentId)
@@ -198,8 +194,6 @@ public class ResultServiceImpl implements ResultService {
 
         return resultRepository.findByStudentAndSessionAndTerm(student, session, term);
     }
-
-    // ==================== TERM RESULT CALCULATION ====================
 
     @Override
     public TermResult calculateTermResult(Long studentId, String session, Result.Term term) {
@@ -250,7 +244,9 @@ public class ResultServiceImpl implements ResultService {
 
         try {
             List<TermResult> classResults = termResultRepository
-                    .findByStudent_StudentClassAndSessionAndTermOrderByAverageDesc(className, session, term);
+                    .findByStudent_SchoolClass_ClassNameAndSessionAndTermOrderByAverageDesc(
+                            className, session, term
+                    );
 
             for (int i = 0; i < classResults.size(); i++) {
                 TermResult tr = classResults.get(i);
@@ -264,7 +260,7 @@ public class ResultServiceImpl implements ResultService {
 
             if (arm != null && !arm.isBlank() && !"null".equalsIgnoreCase(arm)) {
                 List<TermResult> armResults = termResultRepository
-                        .findByStudent_StudentClassAndStudent_ClassArmAndSessionAndTermOrderByAverageDesc(
+                        .findByStudent_SchoolClass_ClassNameAndStudent_SchoolClass_ArmAndSessionAndTermOrderByAverageDesc(
                                 className, arm, session, term
                         );
 
@@ -431,8 +427,6 @@ public class ResultServiceImpl implements ResultService {
         }
     }
 
-    // ==================== RANKING METHODS ====================
-
     @Override
     public Map<String, Object> getClassRankings(String className, String arm, String session, Result.Term term) {
         List<Object[]> rankings;
@@ -442,6 +436,7 @@ public class ResultServiceImpl implements ResultService {
         } else {
             rankings = resultRepository.getClassRankingNormalized(className, session, term);
         }
+
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (int i = 0; i < rankings.size(); i++) {
             Student student = (Student) rankings.get(i)[0];
@@ -532,8 +527,6 @@ public class ResultServiceImpl implements ResultService {
         return response;
     }
 
-    // ==================== BULK CALCULATION METHODS ====================
-
     @Override
     public void calculateAllTermResults(String session, Result.Term term) {
         log.info("Calculating term results for all students in session: {}, term: {}", session, term);
@@ -569,8 +562,6 @@ public class ResultServiceImpl implements ResultService {
 
         log.info("Completed calculating session results for all students");
     }
-
-    // ==================== RESULT SHEET GENERATION ====================
 
     @Override
     public Map<String, Object> generateResultSheet(Long studentId, String session, Result.Term term) {

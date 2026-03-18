@@ -1,6 +1,10 @@
 package com.inkFront.schoolManagement.controllers;
 
-import com.inkFront.schoolManagement.model.*;
+import com.inkFront.schoolManagement.model.Attendance;
+import com.inkFront.schoolManagement.model.AttendanceSummary;
+import com.inkFront.schoolManagement.model.Result;
+import com.inkFront.schoolManagement.model.Student;
+import com.inkFront.schoolManagement.model.User;
 import com.inkFront.schoolManagement.repository.AttendanceRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.security.AccessControlService;
@@ -50,6 +54,66 @@ public class AttendanceController {
                 ));
     }
 
+    private Map<String, Object> studentToMap(Student student) {
+        if (student == null) {
+            return null;
+        }
+
+        Map<String, Object> studentMap = new HashMap<>();
+        studentMap.put("id", student.getId());
+        studentMap.put("firstName", student.getFirstName());
+        studentMap.put("lastName", student.getLastName());
+        studentMap.put("fullName", (student.getFirstName() + " " + student.getLastName()).trim());
+        studentMap.put("admissionNumber", student.getAdmissionNumber());
+        studentMap.put("studentClass", student.getStudentClass());
+        studentMap.put("classArm", student.getClassArm());
+        studentMap.put("classId", student.getSchoolClass() != null ? student.getSchoolClass().getId() : null);
+        studentMap.put("profilePictureUrl", student.getProfilePictureUrl());
+        return studentMap;
+    }
+
+    private Map<String, Object> attendanceToMap(Attendance att) {
+        Map<String, Object> item = new HashMap<>();
+        item.put("id", att.getId());
+        item.put("date", att.getDate());
+        item.put("session", att.getSession());
+        item.put("term", att.getTerm() != null ? att.getTerm().name() : null);
+        item.put("status", att.getStatus() != null ? att.getStatus().name() : null);
+        item.put("remarks", att.getRemarks());
+        item.put("student", studentToMap(att.getStudent()));
+        return item;
+    }
+
+    private Map<String, Object> summaryToMap(AttendanceSummary summary) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("studentId", summary.getStudent() != null ? summary.getStudent().getId() : null);
+        response.put("studentName",
+                summary.getStudent() != null
+                        ? (summary.getStudent().getFirstName() + " " + summary.getStudent().getLastName()).trim()
+                        : null);
+        response.put("admissionNumber",
+                summary.getStudent() != null ? summary.getStudent().getAdmissionNumber() : null);
+        response.put("studentClass",
+                summary.getStudent() != null ? summary.getStudent().getStudentClass() : null);
+        response.put("classArm",
+                summary.getStudent() != null ? summary.getStudent().getClassArm() : null);
+        response.put("classId",
+                summary.getStudent() != null && summary.getStudent().getSchoolClass() != null
+                        ? summary.getStudent().getSchoolClass().getId()
+                        : null);
+
+        response.put("session", summary.getSession());
+        response.put("term", summary.getTerm() != null ? summary.getTerm().name() : null);
+        response.put("totalSchoolDays", summary.getTotalSchoolDays());
+        response.put("daysPresent", summary.getDaysPresent());
+        response.put("daysAbsent", summary.getDaysAbsent());
+        response.put("daysLate", summary.getDaysLate());
+        response.put("daysExcused", summary.getDaysExcused());
+        response.put("attendancePercentage", summary.getAttendancePercentage());
+
+        return response;
+    }
+
     @PostMapping("/student/{studentId}")
     public ResponseEntity<?> markAttendance(
             @PathVariable Long studentId,
@@ -66,7 +130,7 @@ public class AttendanceController {
                     studentId, date, session, term, status, remarks
             );
 
-            return new ResponseEntity<>(attendance, HttpStatus.CREATED);
+            return new ResponseEntity<>(attendanceToMap(attendance), HttpStatus.CREATED);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -97,7 +161,11 @@ public class AttendanceController {
                     studentIds, date, session, term, status
             );
 
-            return new ResponseEntity<>(attendances, HttpStatus.CREATED);
+            List<Map<String, Object>> response = attendances.stream()
+                    .map(this::attendanceToMap)
+                    .toList();
+
+            return new ResponseEntity<>(response, HttpStatus.CREATED);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -118,7 +186,7 @@ public class AttendanceController {
             Attendance attendance = attendanceService.getStudentAttendance(studentId, date, session, term);
 
             if (attendance != null) {
-                return ResponseEntity.ok(attendance);
+                return ResponseEntity.ok(attendanceToMap(attendance));
             }
 
             Map<String, Object> response = new HashMap<>();
@@ -126,7 +194,7 @@ public class AttendanceController {
             response.put("studentId", studentId);
             response.put("date", date);
             response.put("session", session);
-            response.put("term", term);
+            response.put("term", term.name());
             response.put("status", null);
             response.put("remarks", null);
 
@@ -150,30 +218,9 @@ public class AttendanceController {
             List<Attendance> attendanceList =
                     attendanceService.getStudentTermAttendance(studentId, session, term);
 
-            List<Map<String, Object>> response = attendanceList.stream().map(att -> {
-                Map<String, Object> item = new HashMap<>();
-                item.put("id", att.getId());
-                item.put("date", att.getDate());
-                item.put("session", att.getSession());
-                item.put("term", att.getTerm());
-                item.put("status", att.getStatus());
-                item.put("remarks", att.getRemarks());
-
-                if (att.getStudent() != null) {
-                    Map<String, Object> studentMap = new HashMap<>();
-                    studentMap.put("id", att.getStudent().getId());
-                    studentMap.put("firstName", att.getStudent().getFirstName());
-                    studentMap.put("lastName", att.getStudent().getLastName());
-                    studentMap.put("admissionNumber", att.getStudent().getAdmissionNumber());
-                    studentMap.put("studentClass", att.getStudent().getStudentClass());
-                    studentMap.put("classArm", att.getStudent().getClassArm());
-                    item.put("student", studentMap);
-                } else {
-                    item.put("student", null);
-                }
-
-                return item;
-            }).toList();
+            List<Map<String, Object>> response = attendanceList.stream()
+                    .map(this::attendanceToMap)
+                    .toList();
 
             return ResponseEntity.ok(response);
         } catch (AccessDeniedException e) {
@@ -195,36 +242,13 @@ public class AttendanceController {
             AttendanceSummary summary =
                     attendanceService.getStudentTermSummary(studentId, session, term);
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("studentId", summary.getStudent() != null ? summary.getStudent().getId() : null);
-            response.put("studentName",
-                    summary.getStudent() != null
-                            ? (summary.getStudent().getFirstName() + " " + summary.getStudent().getLastName()).trim()
-                            : null);
-            response.put("admissionNumber",
-                    summary.getStudent() != null ? summary.getStudent().getAdmissionNumber() : null);
-            response.put("studentClass",
-                    summary.getStudent() != null ? summary.getStudent().getStudentClass() : null);
-            response.put("classArm",
-                    summary.getStudent() != null ? summary.getStudent().getClassArm() : null);
-
-            response.put("session", summary.getSession());
-            response.put("term", summary.getTerm());
-            response.put("totalSchoolDays", summary.getTotalSchoolDays());
-            response.put("daysPresent", summary.getDaysPresent());
-            response.put("daysAbsent", summary.getDaysAbsent());
-            response.put("daysLate", summary.getDaysLate());
-            response.put("daysExcused", summary.getDaysExcused());
-            response.put("attendancePercentage", summary.getAttendancePercentage());
-
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(summaryToMap(summary));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to fetch attendance summary", e);
         }
     }
-
 
     @GetMapping("/student/{studentId}/session")
     public ResponseEntity<?> getStudentSessionSummary(
@@ -255,9 +279,14 @@ public class AttendanceController {
                 return forbidden("This account is not linked to a student");
             }
 
-            return ResponseEntity.ok(
-                    attendanceService.getStudentTermAttendance(user.getStudent().getId(), session, term)
-            );
+            List<Attendance> attendanceList =
+                    attendanceService.getStudentTermAttendance(user.getStudent().getId(), session, term);
+
+            List<Map<String, Object>> response = attendanceList.stream()
+                    .map(this::attendanceToMap)
+                    .toList();
+
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
             return serverError("Unable to fetch your attendance", e);
         }
@@ -274,9 +303,10 @@ public class AttendanceController {
                 return forbidden("This account is not linked to a student");
             }
 
-            return ResponseEntity.ok(
-                    attendanceService.getStudentTermSummary(user.getStudent().getId(), session, term)
-            );
+            AttendanceSummary summary =
+                    attendanceService.getStudentTermSummary(user.getStudent().getId(), session, term);
+
+            return ResponseEntity.ok(summaryToMap(summary));
         } catch (Exception e) {
             return serverError("Unable to fetch your attendance summary", e);
         }
@@ -293,9 +323,14 @@ public class AttendanceController {
             User user = currentUser();
             accessControlService.requireClassTeacherOrAdmin(user, className, arm);
 
-            return ResponseEntity.ok(
-                    attendanceService.getClassAttendance(className, arm, date, session, term)
-            );
+            List<Attendance> attendanceList =
+                    attendanceService.getClassAttendance(className, arm, date, session, term);
+
+            List<Map<String, Object>> response = attendanceList.stream()
+                    .map(this::attendanceToMap)
+                    .toList();
+
+            return ResponseEntity.ok(response);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {

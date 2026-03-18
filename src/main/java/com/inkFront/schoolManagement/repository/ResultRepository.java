@@ -30,7 +30,7 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
     @Query("""
         SELECT r
         FROM Result r
-        WHERE r.student.studentClass = :className
+        WHERE r.student.schoolClass.className = :className
           AND r.session = :session
           AND r.term = :term
     """)
@@ -43,8 +43,8 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
     @Query("""
         SELECT r
         FROM Result r
-        WHERE r.student.studentClass = :className
-          AND r.student.classArm = :arm
+        WHERE r.student.schoolClass.className = :className
+          AND r.student.schoolClass.arm = :arm
           AND r.session = :session
           AND r.term = :term
     """)
@@ -58,7 +58,8 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
     @Query("""
         SELECT r
         FROM Result r
-        WHERE UPPER(REPLACE(TRIM(r.student.studentClass), ' ', '')) = UPPER(REPLACE(TRIM(:className), ' ', ''))
+        WHERE UPPER(REPLACE(TRIM(r.student.schoolClass.className), ' ', '')) =
+              UPPER(REPLACE(TRIM(:className), ' ', ''))
           AND r.session = :session
           AND r.term = :term
     """)
@@ -71,8 +72,10 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
     @Query("""
         SELECT r
         FROM Result r
-        WHERE UPPER(REPLACE(TRIM(r.student.studentClass), ' ', '')) = UPPER(REPLACE(TRIM(:className), ' ', ''))
-          AND UPPER(REPLACE(TRIM(r.student.classArm), ' ', '')) = UPPER(REPLACE(TRIM(:arm), ' ', ''))
+        WHERE UPPER(REPLACE(TRIM(r.student.schoolClass.className), ' ', '')) =
+              UPPER(REPLACE(TRIM(:className), ' ', ''))
+          AND UPPER(REPLACE(TRIM(r.student.schoolClass.arm), ' ', '')) =
+              UPPER(REPLACE(TRIM(:arm), ' ', ''))
           AND r.session = :session
           AND r.term = :term
     """)
@@ -99,7 +102,7 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
     @Query("""
         SELECT r.student, AVG(r.total)
         FROM Result r
-        WHERE r.student.studentClass = :className
+        WHERE r.student.schoolClass.className = :className
           AND r.session = :session
           AND r.term = :term
         GROUP BY r.student
@@ -114,8 +117,8 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
     @Query("""
         SELECT r.student, AVG(r.total)
         FROM Result r
-        WHERE r.student.studentClass = :className
-          AND r.student.classArm = :arm
+        WHERE r.student.schoolClass.className = :className
+          AND r.student.schoolClass.arm = :arm
           AND r.session = :session
           AND r.term = :term
         GROUP BY r.student
@@ -131,7 +134,8 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
     @Query("""
         SELECT r.student, AVG(r.total)
         FROM Result r
-        WHERE UPPER(REPLACE(TRIM(r.student.studentClass), ' ', '')) = UPPER(REPLACE(TRIM(:className), ' ', ''))
+        WHERE UPPER(REPLACE(TRIM(r.student.schoolClass.className), ' ', '')) =
+              UPPER(REPLACE(TRIM(:className), ' ', ''))
           AND r.session = :session
           AND r.term = :term
         GROUP BY r.student
@@ -146,8 +150,10 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
     @Query("""
         SELECT r.student, AVG(r.total)
         FROM Result r
-        WHERE UPPER(REPLACE(TRIM(r.student.studentClass), ' ', '')) = UPPER(REPLACE(TRIM(:className), ' ', ''))
-          AND UPPER(REPLACE(TRIM(r.student.classArm), ' ', '')) = UPPER(REPLACE(TRIM(:arm), ' ', ''))
+        WHERE UPPER(REPLACE(TRIM(r.student.schoolClass.className), ' ', '')) =
+              UPPER(REPLACE(TRIM(:className), ' ', ''))
+          AND UPPER(REPLACE(TRIM(r.student.schoolClass.arm), ' ', '')) =
+              UPPER(REPLACE(TRIM(:arm), ' ', ''))
           AND r.session = :session
           AND r.term = :term
         GROUP BY r.student

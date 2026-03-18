@@ -12,7 +12,6 @@ import java.util.Optional;
 @Repository
 public interface TermResultRepository extends JpaRepository<TermResult, Long> {
 
-    // REQUIRED by ResultServiceImpl
     Optional<TermResult> findByStudentAndSessionAndTerm(
             Student student,
             String session,
@@ -30,15 +29,15 @@ public interface TermResultRepository extends JpaRepository<TermResult, Long> {
             Result.Term term
     );
 
-    List<TermResult> findByStudent_StudentClassAndSessionAndTermOrderByAverageDesc(
-            String studentClass,
+    List<TermResult> findByStudent_SchoolClass_ClassNameAndSessionAndTermOrderByAverageDesc(
+            String className,
             String session,
             Result.Term term
     );
 
-    List<TermResult> findByStudent_StudentClassAndStudent_ClassArmAndSessionAndTermOrderByAverageDesc(
-            String studentClass,
-            String classArm,
+    List<TermResult> findByStudent_SchoolClass_ClassNameAndStudent_SchoolClass_ArmAndSessionAndTermOrderByAverageDesc(
+            String className,
+            String arm,
             String session,
             Result.Term term
     );

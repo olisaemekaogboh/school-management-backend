@@ -1,11 +1,13 @@
 // src/main/java/com/inkFront/schoolManagement/dto/StudentResponseDTO.java
 package com.inkFront.schoolManagement.dto;
 
+import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.model.Student;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -29,8 +31,10 @@ public class StudentResponseDTO {
 
     // Academic Information
     private String admissionNumber;
+    private Long classId;
     private String studentClass;
     private String classArm;
+    private String classCode;
     private String status;
     private LocalDate admissionDate;
     private String previousSchool;
@@ -66,9 +70,13 @@ public class StudentResponseDTO {
             return null;
         }
 
-        String fullName = student.getFirstName() + " " +
-                (student.getMiddleName() != null ? student.getMiddleName() + " " : "") +
-                student.getLastName();
+        String fullName = (
+                (student.getFirstName() != null ? student.getFirstName() : "") + " " +
+                        (student.getMiddleName() != null ? student.getMiddleName() + " " : "") +
+                        (student.getLastName() != null ? student.getLastName() : "")
+        ).trim().replaceAll("\\s+", " ");
+
+        SchoolClass schoolClass = student.getSchoolClass();
 
         return StudentResponseDTO.builder()
                 .id(student.getId())
@@ -76,14 +84,16 @@ public class StudentResponseDTO {
                 .lastName(student.getLastName())
                 .middleName(student.getMiddleName())
                 .fullName(fullName)
-                .gender(student.getGender() != null ? student.getGender().toString() : null)
+                .gender(student.getGender() != null ? student.getGender().name() : null)
                 .dateOfBirth(student.getDateOfBirth())
                 .religion(student.getReligion())
                 .nationality(student.getNationality())
                 .admissionNumber(student.getAdmissionNumber())
-                .studentClass(student.getStudentClass())
-                .classArm(student.getClassArm())
-                .status(student.getStatus() != null ? student.getStatus().toString() : null)
+                .classId(schoolClass != null ? schoolClass.getId() : null)
+                .studentClass(schoolClass != null ? schoolClass.getClassName() : null)
+                .classArm(schoolClass != null ? schoolClass.getArm() : null)
+                .classCode(schoolClass != null ? schoolClass.getClassCode() : null)
+                .status(student.getStatus() != null ? student.getStatus().name() : null)
                 .admissionDate(student.getAdmissionDate())
                 .previousSchool(student.getPreviousSchool())
                 .parentName(student.getParentName())

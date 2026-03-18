@@ -21,7 +21,7 @@ public interface SessionResultRepository extends JpaRepository<SessionResult, Lo
     @Query("""
         SELECT sr
         FROM SessionResult sr
-        WHERE UPPER(REPLACE(TRIM(sr.student.studentClass), ' ', '')) =
+        WHERE UPPER(REPLACE(TRIM(sr.student.schoolClass.className), ' ', '')) =
               UPPER(REPLACE(TRIM(:className), ' ', ''))
           AND sr.session = :session
         ORDER BY sr.annualAverage DESC
@@ -35,9 +35,9 @@ public interface SessionResultRepository extends JpaRepository<SessionResult, Lo
     @Query("""
         SELECT sr
         FROM SessionResult sr
-        WHERE UPPER(REPLACE(TRIM(sr.student.studentClass), ' ', '')) =
+        WHERE UPPER(REPLACE(TRIM(sr.student.schoolClass.className), ' ', '')) =
               UPPER(REPLACE(TRIM(:className), ' ', ''))
-          AND UPPER(REPLACE(TRIM(sr.student.classArm), ' ', '')) =
+          AND UPPER(REPLACE(TRIM(sr.student.schoolClass.arm), ' ', '')) =
               UPPER(REPLACE(TRIM(:arm), ' ', ''))
           AND sr.session = :session
         ORDER BY sr.annualAverage DESC
@@ -58,10 +58,10 @@ public interface SessionResultRepository extends JpaRepository<SessionResult, Lo
     List<SessionResult> findBySessionOrderByAnnualAverageDesc(@Param("session") String session);
 
     @Query("""
-        SELECT sr.student.studentClass, AVG(sr.annualAverage)
+        SELECT sr.student.schoolClass.className, AVG(sr.annualAverage)
         FROM SessionResult sr
         WHERE sr.session = :session
-        GROUP BY sr.student.studentClass
+        GROUP BY sr.student.schoolClass.className
     """)
     List<Object[]> getClassAverageBySession(@Param("session") String session);
 

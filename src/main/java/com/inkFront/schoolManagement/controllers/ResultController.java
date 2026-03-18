@@ -9,6 +9,7 @@ import com.inkFront.schoolManagement.repository.TermResultRepository;
 import com.inkFront.schoolManagement.security.AccessControlService;
 import com.inkFront.schoolManagement.security.SecurityUtils;
 import com.inkFront.schoolManagement.service.ResultService;
+import com.inkFront.schoolManagement.service.SessionResultService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -31,6 +32,7 @@ public class ResultController {
     private static final Logger log = LoggerFactory.getLogger(ResultController.class);
 
     private final ResultService resultService;
+    private final SessionResultService sessionResultService;
     private final TermResultRepository termResultRepository;
     private final AccessControlService accessControlService;
     private final SecurityUtils securityUtils;
@@ -125,8 +127,8 @@ public class ResultController {
             User user = currentUser();
             accessControlService.requireStudentResultAccess(user, studentId);
 
-            Map<String, Object> result = resultService.generateAnnualResultSheet(studentId, session);
-            return ResponseEntity.ok(result);
+            // Use session result service for consistent annual totals / averages / attendance
+            return ResponseEntity.ok(sessionResultService.calculateSessionResult(studentId, session));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -162,7 +164,9 @@ public class ResultController {
             }
 
             Long studentId = user.getStudent().getId();
-            return ResponseEntity.ok(resultService.generateAnnualResultSheet(studentId, session));
+
+            // Use session result service for consistent annual totals / averages / attendance
+            return ResponseEntity.ok(sessionResultService.calculateSessionResult(studentId, session));
         } catch (Exception e) {
             return serverError("Unable to fetch your annual result", e);
         }
@@ -251,8 +255,7 @@ public class ResultController {
             User user = currentUser();
             accessControlService.requireAdmin(user);
 
-            resultService.calculateAllSessionResults(session);
-            return ResponseEntity.ok(Map.of("message", "All annual results calculated successfully"));
+            return ResponseEntity.ok(sessionResultService.calculateAllSessionResults(session));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -271,7 +274,7 @@ public class ResultController {
             accessControlService.requireClassTeacherOrAdmin(user, className, arm);
 
             List<TermResult> classResults = termResultRepository
-                    .findByStudent_StudentClassAndStudent_ClassArmAndSessionAndTermOrderByAverageDesc(
+                    .findByStudent_SchoolClass_ClassNameAndStudent_SchoolClass_ArmAndSessionAndTermOrderByAverageDesc(
                             className, arm, session, term
                     );
 

@@ -1,8 +1,13 @@
-// src/main/java/com/inkFront/schoolManagement/service/IMPL/FeeServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
-
-import com.inkFront.schoolManagement.dto.*;
+import com.inkFront.schoolManagement.dto.BulkPaymentResult;
+import com.inkFront.schoolManagement.dto.ClassFeeSummaryDTO;
+import com.inkFront.schoolManagement.dto.DefaulterDTO;
+import com.inkFront.schoolManagement.dto.FeeDTO;
+import com.inkFront.schoolManagement.dto.FeeStatisticsDTO;
+import com.inkFront.schoolManagement.dto.MonthlyCollectionDTO;
+import com.inkFront.schoolManagement.dto.PaymentHistoryDTO;
+import com.inkFront.schoolManagement.dto.ReminderResult;
 import com.inkFront.schoolManagement.exception.BusinessException;
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
 import com.inkFront.schoolManagement.model.Fee;
@@ -12,16 +17,24 @@ import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.service.FeeService;
 import com.inkFront.schoolManagement.service.SmsService;
 import com.inkFront.schoolManagement.utils.AppConstants;
-import com.lowagie.text.*;
-import com.lowagie.text.Font;
+import com.lowagie.text.Document;
+import com.lowagie.text.Element;
+import com.lowagie.text.FontFactory;
+import com.lowagie.text.PageSize;
+import com.lowagie.text.Paragraph;
+import com.lowagie.text.Phrase;
 import com.lowagie.text.pdf.PdfPCell;
 import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.IndexedColors;
 import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -34,36 +47,12 @@ import java.io.ByteArrayOutputStream;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
-import java.util.List;
-import java.util.stream.Collectors;
-
-// Rest of your FeeServiceImpl code...
-import com.inkFront.schoolManagement.dto.*;
-import com.inkFront.schoolManagement.exception.BusinessException;
-import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
-import com.inkFront.schoolManagement.model.Fee;
-import com.inkFront.schoolManagement.model.Student;
-import com.inkFront.schoolManagement.repository.FeeRepository;
-import com.inkFront.schoolManagement.repository.StudentRepository;
-import com.inkFront.schoolManagement.service.FeeService;
-import com.inkFront.schoolManagement.utils.AppConstants;
-import com.lowagie.text.pdf.PdfDocument;
-import com.lowagie.text.pdf.PdfWriter;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.poi.ss.usermodel.CellStyle;
-import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.stereotype.Service;
-
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -77,8 +66,6 @@ public class FeeServiceImpl implements FeeService {
     private final StudentRepository studentRepository;
     private final SmsService smsService;
 
-    // ==================== Basic CRUD Operations ====================
-
     @Override
     public Fee createFee(FeeDTO feeDTO) {
         log.info("Creating fee for student: {}, amount: {}", feeDTO.getStudentId(), feeDTO.getAmount());
@@ -88,13 +75,13 @@ public class FeeServiceImpl implements FeeService {
         Student student = studentRepository.findById(feeDTO.getStudentId())
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + feeDTO.getStudentId()));
 
-        // Check if fee already exists for this student, session, term, and fee type
         Optional<Fee> existingFee = feeRepository.findByStudentAndSessionAndTermAndFeeType(
                 student, feeDTO.getSession(), feeDTO.getTerm(), feeDTO.getFeeType());
 
         if (existingFee.isPresent()) {
             throw new BusinessException("Fee already exists for this student, session, term, and fee type");
         }
+
         Fee fee = Fee.builder()
                 .student(student)
                 .session(feeDTO.getSession())
@@ -107,7 +94,7 @@ public class FeeServiceImpl implements FeeService {
                 .dueDate(feeDTO.getDueDate())
                 .status(Fee.PaymentStatus.PENDING)
                 .reminderCount(0)
-                .notes(feeDTO.getNotes() != null ? feeDTO.getNotes() : "")  // Safe way to handle notes
+                .notes(feeDTO.getNotes() != null ? feeDTO.getNotes() : "")
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -123,7 +110,6 @@ public class FeeServiceImpl implements FeeService {
 
         Fee fee = getFee(id);
 
-        // Validate if fee can be updated
         if (fee.getStatus() == Fee.PaymentStatus.PAID) {
             throw new BusinessException("Cannot update a paid fee");
         }
@@ -134,8 +120,6 @@ public class FeeServiceImpl implements FeeService {
         fee.setFeeType(feeDTO.getFeeType());
         fee.setNotes(feeDTO.getNotes());
         fee.setUpdatedAt(LocalDateTime.now());
-
-        // Recalculate balance
         fee.setBalance(fee.getAmount() - fee.getPaidAmount());
 
         Fee updatedFee = feeRepository.save(fee);
@@ -155,7 +139,6 @@ public class FeeServiceImpl implements FeeService {
 
         Fee fee = getFee(id);
 
-        // Check if fee has payments
         if (fee.getPaidAmount() > 0) {
             throw new BusinessException("Cannot delete fee with existing payments");
         }
@@ -188,8 +171,6 @@ public class FeeServiceImpl implements FeeService {
         return createdFees;
     }
 
-    // ==================== Fee Retrieval ====================
-
     @Override
     public List<Fee> getAllFees(String session, Fee.Term term, Fee.PaymentStatus status) {
         List<Fee> fees = feeRepository.findAll();
@@ -206,8 +187,11 @@ public class FeeServiceImpl implements FeeService {
         List<Fee> filteredFees = getAllFees(session, term, status);
 
         int start = (int) pageable.getOffset();
-        int end = Math.min((start + pageable.getPageSize()), filteredFees.size());
+        if (start >= filteredFees.size()) {
+            return new PageImpl<>(Collections.emptyList(), pageable, filteredFees.size());
+        }
 
+        int end = Math.min(start + pageable.getPageSize(), filteredFees.size());
         List<Fee> pageContent = filteredFees.subList(start, end);
 
         return new PageImpl<>(pageContent, pageable, filteredFees.size());
@@ -229,16 +213,13 @@ public class FeeServiceImpl implements FeeService {
         return feeRepository.findByStudent(student);
     }
 
-    // ==================== Payment Operations ====================
-
     @Override
     public Fee recordPayment(Long feeId, Double amount, String paymentMethod, String reference, String notes) {
         log.info("Recording payment of {} for fee id: {}", amount, feeId);
 
         Fee fee = getFee(feeId);
 
-        // Validate payment
-        if (amount <= 0) {
+        if (amount == null || amount <= 0) {
             throw new BusinessException("Payment amount must be positive");
         }
 
@@ -246,15 +227,15 @@ public class FeeServiceImpl implements FeeService {
             throw new BusinessException("Payment amount cannot exceed balance of " + fee.getBalance());
         }
 
-        // Update fee
         fee.setPaidAmount(fee.getPaidAmount() + amount);
+        fee.setBalance(fee.getAmount() - fee.getPaidAmount());
         fee.setPaymentMethod(paymentMethod);
         fee.setPaymentReference(reference);
         fee.setNotes(notes != null ? notes : fee.getNotes());
         fee.setUpdatedAt(LocalDateTime.now());
 
-        // If full payment, set paid date
         if (fee.getBalance() <= 0) {
+            fee.setBalance(0.0);
             fee.setPaidDate(LocalDate.now());
             fee.setStatus(Fee.PaymentStatus.PAID);
         } else {
@@ -282,12 +263,10 @@ public class FeeServiceImpl implements FeeService {
             throw new BusinessException("No payment to reverse");
         }
 
-        // Store original values for logging
         Double reversedAmount = fee.getPaidAmount();
-        LocalDate paidDate = fee.getPaidDate();
 
-        // Reverse payment
         fee.setPaidAmount(0.0);
+        fee.setBalance(fee.getAmount());
         fee.setPaymentMethod(null);
         fee.setPaymentReference(null);
         fee.setPaidDate(null);
@@ -321,16 +300,16 @@ public class FeeServiceImpl implements FeeService {
                 Double paymentAmount = Math.min(remainingAmount, fee.getBalance());
 
                 if (paymentAmount > 0) {
-                    Fee updatedFee = recordPayment(feeId, paymentAmount, paymentMethod,
-                            result.getBulkReference(), "Bulk payment");
-
+                    recordPayment(feeId, paymentAmount, paymentMethod, result.getBulkReference(), "Bulk payment");
                     result.getSuccessfulIds().add(feeId);
                     result.setSuccessful(result.getSuccessful() + 1);
                     result.setTotalAmount(result.getTotalAmount() + paymentAmount);
                     remainingAmount -= paymentAmount;
                 }
 
-                if (remainingAmount <= 0) break;
+                if (remainingAmount <= 0) {
+                    break;
+                }
 
             } catch (Exception e) {
                 log.error("Error processing bulk payment for fee {}: {}", feeId, e.getMessage());
@@ -340,11 +319,8 @@ public class FeeServiceImpl implements FeeService {
             }
         }
 
-        log.info("Bulk payment completed: {} successful, {} failed", result.getSuccessful(), result.getFailed());
         return result;
     }
-
-    // ==================== Status Operations ====================
 
     @Override
     public Fee waiveFee(Long feeId, String reason) {
@@ -360,10 +336,7 @@ public class FeeServiceImpl implements FeeService {
         fee.setNotes("Fee waived: " + reason + (fee.getNotes() != null ? " | " + fee.getNotes() : ""));
         fee.setUpdatedAt(LocalDateTime.now());
 
-        Fee updatedFee = feeRepository.save(fee);
-        log.info("Fee waived successfully with id: {}", feeId);
-
-        return updatedFee;
+        return feeRepository.save(fee);
     }
 
     @Override
@@ -379,10 +352,7 @@ public class FeeServiceImpl implements FeeService {
         fee.setStatus(Fee.PaymentStatus.OVERDUE);
         fee.setUpdatedAt(LocalDateTime.now());
 
-        Fee updatedFee = feeRepository.save(fee);
-        log.info("Fee marked as overdue successfully with id: {}", feeId);
-
-        return updatedFee;
+        return feeRepository.save(fee);
     }
 
     @Override
@@ -398,18 +368,11 @@ public class FeeServiceImpl implements FeeService {
         fee.setStatus(fee.getBalance() > 0 ? Fee.PaymentStatus.PENDING : Fee.PaymentStatus.PAID);
         fee.setUpdatedAt(LocalDateTime.now());
 
-        Fee updatedFee = feeRepository.save(fee);
-        log.info("Fee reopened successfully with id: {}", feeId);
-
-        return updatedFee;
+        return feeRepository.save(fee);
     }
-
-    // ==================== Statistics ====================
 
     @Override
     public FeeStatisticsDTO getFeeStatistics(String session, Fee.Term term) {
-        log.info("Getting fee statistics for session: {}, term: {}", session, term);
-
         Double totalExpected = Optional.ofNullable(
                 feeRepository.getTotalExpectedBySessionAndTerm(session, term)).orElse(0.0);
         Double totalCollected = Optional.ofNullable(
@@ -421,7 +384,6 @@ public class FeeServiceImpl implements FeeService {
         Long totalStudents = Optional.ofNullable(
                 feeRepository.getTotalStudentsWithFeesBySessionAndTerm(session, term)).orElse(0L);
 
-        // Get status breakdown
         List<Object[]> statusCounts = feeRepository.countFeesByStatus(session, term);
         Map<String, Long> statusBreakdown = new HashMap<>();
         long paidCount = 0, partialCount = 0, pendingCount = 0, overdueCount = 0, waivedCount = 0;
@@ -432,17 +394,13 @@ public class FeeServiceImpl implements FeeService {
             statusBreakdown.put(status.name(), count);
 
             switch (status) {
-                case PAID: paidCount = count; break;
-                case PARTIAL: partialCount = count; break;
-                case PENDING: pendingCount = count; break;
-                case OVERDUE: overdueCount = count; break;
-                case WAIVED: waivedCount = count; break;
+                case PAID -> paidCount = count;
+                case PARTIAL -> partialCount = count;
+                case PENDING -> pendingCount = count;
+                case OVERDUE -> overdueCount = count;
+                case WAIVED -> waivedCount = count;
             }
         }
-
-        // Get fee type breakdown (you might need to add this query to repository)
-        Map<String, Double> typeBreakdown = new HashMap<>();
-        // You can implement this based on your needs
 
         return FeeStatisticsDTO.builder()
                 .totalExpected(totalExpected)
@@ -458,50 +416,22 @@ public class FeeServiceImpl implements FeeService {
                 .collectionRate(totalExpected > 0 ? (totalCollected / totalExpected * 100) : 0)
                 .outstandingRate(totalExpected > 0 ? (totalOutstanding / totalExpected * 100) : 0)
                 .statusBreakdown(statusBreakdown)
-                .typeBreakdown(typeBreakdown)
+                .typeBreakdown(new HashMap<>())
                 .build();
     }
 
     @Override
     public Map<String, Object> getDetailedStatistics(String session, Fee.Term term) {
         Map<String, Object> detailedStats = new HashMap<>();
+        detailedStats.put("basic", getFeeStatistics(session, term));
+        detailedStats.put("classWise", getClassWiseSummary(session, term));
+        detailedStats.put("defaulterCount", countDefaulters(session, term));
+        detailedStats.put("monthlyTrends", getMonthlyCollectionReport().stream().limit(6).collect(Collectors.toList()));
+        detailedStats.put("dueToday", countFeesDueToday());
 
-        // Basic stats
-        FeeStatisticsDTO basicStats = getFeeStatistics(session, term);
-        detailedStats.put("basic", basicStats);
-
-        // Class-wise breakdown
-        List<ClassFeeSummaryDTO> classWiseSummary = getClassWiseSummary(session, term);
-        detailedStats.put("classWise", classWiseSummary);
-
-        // Defaulters count
-        long defaulterCount = countDefaulters(session, term);
-        detailedStats.put("defaulterCount", defaulterCount);
-
-        // Payment trends (last 6 months)
-        List<MonthlyCollectionDTO> monthlyTrends = getMonthlyCollectionReport().stream()
-                .limit(6)
-                .collect(Collectors.toList());
-        detailedStats.put("monthlyTrends", monthlyTrends);
-
-        // Fees due today
-        long dueToday = countFeesDueToday();
-        detailedStats.put("dueToday", dueToday);
-
-        // Average fee amount
         List<Fee> fees = feeRepository.findBySessionAndTerm(session, term);
-        double avgFeeAmount = fees.stream()
-                .mapToDouble(Fee::getAmount)
-                .average()
-                .orElse(0.0);
-        detailedStats.put("averageFeeAmount", avgFeeAmount);
-
-        // Highest fee amount
-        double highestFee = fees.stream()
-                .mapToDouble(Fee::getAmount)
-                .max()
-                .orElse(0.0);
-        detailedStats.put("highestFee", highestFee);
+        detailedStats.put("averageFeeAmount", fees.stream().mapToDouble(Fee::getAmount).average().orElse(0.0));
+        detailedStats.put("highestFee", fees.stream().mapToDouble(Fee::getAmount).max().orElse(0.0));
 
         return detailedStats;
     }
@@ -514,29 +444,22 @@ public class FeeServiceImpl implements FeeService {
         for (Object[] row : results) {
             String className = (String) row[0];
             Long totalStudents = (Long) row[1];
-            Double totalExpected = (Double) row[2];
-            Double totalCollected = (Double) row[3];
+            Double totalExpected = row[2] != null ? (Double) row[2] : 0.0;
+            Double totalCollected = row[3] != null ? (Double) row[3] : 0.0;
             Double totalOutstanding = totalExpected - totalCollected;
 
-            // Get additional counts (you might need additional queries for these)
             List<Fee> classFees = feeRepository.findBySessionAndTerm(session, term).stream()
-                    .filter(f -> f.getStudent().getStudentClass().equals(className))
+                    .filter(f -> f.getStudent() != null
+                            && f.getStudent().getStudentClass() != null
+                            && f.getStudent().getStudentClass().equals(className))
                     .collect(Collectors.toList());
 
-            long fullyPaid = classFees.stream()
-                    .filter(f -> f.getStatus() == Fee.PaymentStatus.PAID)
-                    .count();
-            long partiallyPaid = classFees.stream()
-                    .filter(f -> f.getStatus() == Fee.PaymentStatus.PARTIAL)
-                    .count();
-            long notPaid = classFees.stream()
-                    .filter(f -> f.getStatus() == Fee.PaymentStatus.PENDING)
-                    .count();
-            long overdue = classFees.stream()
-                    .filter(f -> f.getStatus() == Fee.PaymentStatus.OVERDUE)
-                    .count();
+            long fullyPaid = classFees.stream().filter(f -> f.getStatus() == Fee.PaymentStatus.PAID).count();
+            long partiallyPaid = classFees.stream().filter(f -> f.getStatus() == Fee.PaymentStatus.PARTIAL).count();
+            long notPaid = classFees.stream().filter(f -> f.getStatus() == Fee.PaymentStatus.PENDING).count();
+            long overdue = classFees.stream().filter(f -> f.getStatus() == Fee.PaymentStatus.OVERDUE).count();
 
-            ClassFeeSummaryDTO summary = ClassFeeSummaryDTO.builder()
+            summaries.add(ClassFeeSummaryDTO.builder()
                     .studentClass(className)
                     .totalStudents(totalStudents.intValue())
                     .studentsWithFees((int) classFees.stream().map(f -> f.getStudent().getId()).distinct().count())
@@ -549,9 +472,7 @@ public class FeeServiceImpl implements FeeService {
                     .totalOutstanding(totalOutstanding)
                     .collectionPercentage(totalExpected > 0 ? (totalCollected / totalExpected * 100) : 0)
                     .averagePerStudent(totalStudents > 0 ? totalExpected / totalStudents : 0)
-                    .build();
-
-            summaries.add(summary);
+                    .build());
         }
 
         return summaries;
@@ -561,31 +482,25 @@ public class FeeServiceImpl implements FeeService {
     public List<MonthlyCollectionDTO> getMonthlyCollectionReport() {
         List<Object[]> results = feeRepository.getMonthlyCollectionReport();
         List<MonthlyCollectionDTO> monthlyData = new ArrayList<>();
-
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMMM");
 
         for (Object[] row : results) {
             Integer year = (Integer) row[0];
             Integer month = (Integer) row[1];
-            Double amount = (Double) row[2];
+            Double amount = row[2] != null ? (Double) row[2] : 0.0;
 
-            // Create a LocalDate for the month to get month name
             LocalDate date = LocalDate.of(year, month, 1);
 
-            MonthlyCollectionDTO dto = MonthlyCollectionDTO.builder()
+            monthlyData.add(MonthlyCollectionDTO.builder()
                     .year(year)
                     .month(month)
                     .monthName(date.format(formatter))
                     .amount(amount)
-                    .build();
-
-            monthlyData.add(dto);
+                    .build());
         }
 
         return monthlyData;
     }
-
-    // ==================== Defaulters ====================
 
     @Override
     public List<DefaulterDTO> getDefaultingStudents(String session, Fee.Term term) {
@@ -596,21 +511,18 @@ public class FeeServiceImpl implements FeeService {
             Student student = (Student) result[0];
             Double outstanding = (Double) result[1];
 
-            // Get all fees for this student
             List<Fee> studentFees = feeRepository.findByStudentAndSessionAndTerm(student, session, term);
 
-            // Get overdue fees
             List<Fee> overdueFees = studentFees.stream()
                     .filter(f -> f.getStatus() == Fee.PaymentStatus.OVERDUE)
                     .collect(Collectors.toList());
 
             if (!overdueFees.isEmpty()) {
-                // Find most urgent fee (earliest due date)
                 Fee mostUrgent = overdueFees.stream()
                         .min(Comparator.comparing(Fee::getDueDate))
                         .orElse(null);
 
-                DefaulterDTO defaulter = DefaulterDTO.builder()
+                defaulters.add(DefaulterDTO.builder()
                         .studentId(student.getId())
                         .studentName(student.getFirstName() + " " + student.getLastName())
                         .admissionNumber(student.getAdmissionNumber())
@@ -624,24 +536,17 @@ public class FeeServiceImpl implements FeeService {
                         .fees(studentFees.stream().map(FeeDTO::fromFee).collect(Collectors.toList()))
                         .mostUrgentFeeType(mostUrgent != null ? mostUrgent.getFeeType().name() : null)
                         .earliestDueDate(mostUrgent != null ? mostUrgent.getDueDate() : null)
-                        .build();
-
-                defaulters.add(defaulter);
+                        .build());
             }
         }
 
-        // Sort by outstanding balance descending
-        defaulters.sort((a, b) ->
-                Double.compare(b.getOutstandingBalance(), a.getOutstandingBalance()));
-
+        defaulters.sort((a, b) -> Double.compare(b.getOutstandingBalance(), a.getOutstandingBalance()));
         return defaulters;
     }
 
     @Override
     public List<DefaulterDTO> getTopDefaulters(String session, Fee.Term term, int limit) {
-        return getDefaultingStudents(session, term).stream()
-                .limit(limit)
-                .collect(Collectors.toList());
+        return getDefaultingStudents(session, term).stream().limit(limit).collect(Collectors.toList());
     }
 
     @Override
@@ -649,12 +554,8 @@ public class FeeServiceImpl implements FeeService {
         return feeRepository.getStudentsWithOutstandingBalance(session, term).size();
     }
 
-    // ==================== Reminders ====================
-
     @Override
     public ReminderResult sendFeeReminders(String session, Fee.Term term, int daysBeforeDue) {
-        log.info("Sending fee reminders for {} term {} - {} days before due", session, term, daysBeforeDue);
-
         ReminderResult result = ReminderResult.builder()
                 .totalSent(0)
                 .successful(0)
@@ -677,7 +578,6 @@ public class FeeServiceImpl implements FeeService {
                     result.setSuccessful(result.getSuccessful() + 1);
                     result.getSuccessfulNumbers().add(fee.getStudent().getParentPhone());
                 } catch (Exception e) {
-                    log.error("Failed to send reminder for fee {}: {}", fee.getId(), e.getMessage());
                     result.setFailed(result.getFailed() + 1);
                     result.getFailedNumbers().add(fee.getStudent().getParentPhone());
                     result.getErrors().add(e.getMessage());
@@ -689,14 +589,11 @@ public class FeeServiceImpl implements FeeService {
         result.setMessage(String.format("Sent %d reminders, %d successful, %d failed",
                 result.getTotalSent(), result.getSuccessful(), result.getFailed()));
 
-        log.info("Fee reminders completed: {}", result.getMessage());
         return result;
     }
 
     @Override
     public ReminderResult sendOverdueReminders() {
-        log.info("Sending overdue fee reminders");
-
         ReminderResult result = ReminderResult.builder()
                 .totalSent(0)
                 .successful(0)
@@ -716,7 +613,6 @@ public class FeeServiceImpl implements FeeService {
                     result.setSuccessful(result.getSuccessful() + 1);
                     result.getSuccessfulNumbers().add(fee.getStudent().getParentPhone());
                 } catch (Exception e) {
-                    log.error("Failed to send overdue reminder for fee {}: {}", fee.getId(), e.getMessage());
                     result.setFailed(result.getFailed() + 1);
                     result.getFailedNumbers().add(fee.getStudent().getParentPhone());
                     result.getErrors().add(e.getMessage());
@@ -728,14 +624,11 @@ public class FeeServiceImpl implements FeeService {
         result.setMessage(String.format("Sent %d overdue reminders, %d successful, %d failed",
                 result.getTotalSent(), result.getSuccessful(), result.getFailed()));
 
-        log.info("Overdue reminders completed: {}", result.getMessage());
         return result;
     }
 
     @Override
     public ReminderResult sendSingleReminder(Long feeId) {
-        log.info("Sending single reminder for fee: {}", feeId);
-
         ReminderResult result = ReminderResult.builder()
                 .totalSent(1)
                 .successful(0)
@@ -744,7 +637,7 @@ public class FeeServiceImpl implements FeeService {
 
         try {
             Fee fee = getFee(feeId);
-            sendFeeReminderSms(fee, 7); // Default 7 days before due
+            sendFeeReminderSms(fee, 7);
 
             fee.setReminderCount(fee.getReminderCount() + 1);
             fee.setLastReminderSent(LocalDate.now());
@@ -753,10 +646,7 @@ public class FeeServiceImpl implements FeeService {
             result.setSuccessful(1);
             result.getSuccessfulNumbers().add(fee.getStudent().getParentPhone());
             result.setMessage("Reminder sent successfully");
-
-            log.info("Single reminder sent successfully for fee: {}", feeId);
         } catch (Exception e) {
-            log.error("Failed to send single reminder for fee {}: {}", feeId, e.getMessage());
             result.setFailed(1);
             result.getErrors().add(e.getMessage());
             result.setMessage("Failed to send reminder: " + e.getMessage());
@@ -767,8 +657,6 @@ public class FeeServiceImpl implements FeeService {
 
     @Override
     public ReminderResult sendBulkReminders(List<Long> feeIds) {
-        log.info("Sending bulk reminders for {} fees", feeIds.size());
-
         ReminderResult result = ReminderResult.builder()
                 .totalSent(feeIds.size())
                 .successful(0)
@@ -792,11 +680,8 @@ public class FeeServiceImpl implements FeeService {
         result.setMessage(String.format("Sent %d reminders, %d successful, %d failed",
                 result.getTotalSent(), result.getSuccessful(), result.getFailed()));
 
-        log.info("Bulk reminders completed: {}", result.getMessage());
         return result;
     }
-
-    // ==================== Due Date Operations ====================
 
     @Override
     public List<Fee> getOverdueFees() {
@@ -827,8 +712,6 @@ public class FeeServiceImpl implements FeeService {
         LocalDate today = LocalDate.now();
         return feeRepository.countDueFeesInRange(today, today);
     }
-
-    // ==================== Payment History ====================
 
     @Override
     public List<PaymentHistoryDTO> getPaymentHistory(Long studentId, String session) {
@@ -863,8 +746,6 @@ public class FeeServiceImpl implements FeeService {
     public List<PaymentHistoryDTO> getFeePaymentHistory(Long feeId) {
         Fee fee = getFee(feeId);
 
-        // Since we don't have a separate payment table, we just return the fee itself
-        // If you had multiple payments per fee, you'd need a Payment entity
         return Collections.singletonList(PaymentHistoryDTO.builder()
                 .id(feeId)
                 .feeId(feeId)
@@ -908,51 +789,34 @@ public class FeeServiceImpl implements FeeService {
                 .collect(Collectors.toList());
     }
 
-    // ==================== Report Generation ====================
-
     @Override
     public Map<String, Object> generateFeeReport(String session, Fee.Term term) {
         Map<String, Object> report = new HashMap<>();
 
         List<Fee> fees = feeRepository.findBySessionAndTerm(session, term);
 
-        double totalExpected = fees.stream()
-                .mapToDouble(Fee::getAmount)
-                .sum();
-
+        double totalExpected = fees.stream().mapToDouble(Fee::getAmount).sum();
         double totalPaid = fees.stream()
                 .filter(f -> f.getStatus() == Fee.PaymentStatus.PAID)
                 .mapToDouble(Fee::getAmount)
                 .sum();
-
-        double totalCollected = fees.stream()
-                .mapToDouble(Fee::getPaidAmount)
-                .sum();
-
+        double totalCollected = fees.stream().mapToDouble(Fee::getPaidAmount).sum();
         double totalOutstanding = fees.stream()
                 .filter(f -> f.getStatus() != Fee.PaymentStatus.PAID)
                 .mapToDouble(Fee::getBalance)
                 .sum();
-
-        long totalStudents = fees.stream()
-                .map(Fee::getStudent)
-                .distinct()
-                .count();
-
+        long totalStudents = fees.stream().map(Fee::getStudent).distinct().count();
         long paidStudents = fees.stream()
                 .filter(f -> f.getStatus() == Fee.PaymentStatus.PAID)
                 .map(Fee::getStudent)
                 .distinct()
                 .count();
 
-        // Status breakdown
         Map<Fee.PaymentStatus, Long> statusCount = fees.stream()
                 .collect(Collectors.groupingBy(Fee::getStatus, Collectors.counting()));
 
-        // Fee type breakdown
         Map<Fee.FeeType, Double> typeTotal = fees.stream()
-                .collect(Collectors.groupingBy(Fee::getFeeType,
-                        Collectors.summingDouble(Fee::getAmount)));
+                .collect(Collectors.groupingBy(Fee::getFeeType, Collectors.summingDouble(Fee::getAmount)));
 
         report.put("session", session);
         report.put("term", term);
@@ -976,13 +840,11 @@ public class FeeServiceImpl implements FeeService {
     @Override
     public byte[] generateFeeReportPdf(String session, Fee.Term term) {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            // Create document and writer
             Document document = new Document(PageSize.A4.rotate());
             PdfWriter.getInstance(document, baos);
             document.open();
 
-            // Add title
-            Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 18);
+            com.lowagie.text.Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 18);
             Paragraph title = new Paragraph("Fee Report", titleFont);
             title.setAlignment(Element.ALIGN_CENTER);
             document.add(title);
@@ -994,19 +856,16 @@ public class FeeServiceImpl implements FeeService {
             Paragraph date = new Paragraph("Generated: " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")));
             date.setAlignment(Element.ALIGN_CENTER);
             document.add(date);
-
             document.add(new Paragraph(" "));
 
-            // Get report data
             Map<String, Object> reportData = generateFeeReport(session, term);
+            @SuppressWarnings("unchecked")
             List<FeeDTO> fees = (List<FeeDTO>) reportData.get("fees");
 
             if (fees != null && !fees.isEmpty()) {
-                // Create table
                 PdfPTable table = new PdfPTable(7);
                 table.setWidthPercentage(100);
 
-                // Add headers
                 String[] headers = {"Student", "Fee Type", "Amount (₦)", "Paid (₦)", "Balance (₦)", "Due Date", "Status"};
                 for (String header : headers) {
                     PdfPCell cell = new PdfPCell(new Phrase(header, FontFactory.getFont(FontFactory.HELVETICA_BOLD)));
@@ -1015,9 +874,7 @@ public class FeeServiceImpl implements FeeService {
                     table.addCell(cell);
                 }
 
-                // Add data - FIXED: Convert enums to strings properly
                 for (FeeDTO fee : fees) {
-                    // Convert enum values to strings
                     String feeType = fee.getFeeType() != null ? fee.getFeeType().toString() : "";
                     String status = fee.getStatus() != null ? fee.getStatus().toString() : "";
                     String studentName = fee.getStudentName() != null ? fee.getStudentName() : "";
@@ -1039,7 +896,6 @@ public class FeeServiceImpl implements FeeService {
 
             document.close();
             return baos.toByteArray();
-
         } catch (Exception e) {
             log.error("Error generating PDF report: {}", e.getMessage(), e);
             throw new BusinessException("Failed to generate PDF report: " + e.getMessage());
@@ -1049,11 +905,9 @@ public class FeeServiceImpl implements FeeService {
     @Override
     public byte[] generateFeeReportExcel(String session, Fee.Term term) {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-
             Sheet sheet = workbook.createSheet("Fee Report");
 
-            // Create header style using Apache POI fonts (correct for Excel)
-            org.apache.poi.ss.usermodel.Font headerFont = workbook.createFont();  // Use fully qualified name to avoid confusion
+            org.apache.poi.ss.usermodel.Font headerFont = workbook.createFont();
             headerFont.setBold(true);
 
             CellStyle headerStyle = workbook.createCellStyle();
@@ -1061,17 +915,18 @@ public class FeeServiceImpl implements FeeService {
             headerStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
             headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
 
-            // Get report data
             Map<String, Object> reportData = generateFeeReport(session, term);
+            @SuppressWarnings("unchecked")
             List<FeeDTO> fees = (List<FeeDTO>) reportData.get("fees");
 
-            // Summary section
             Row titleRow = sheet.createRow(0);
             Cell titleCell = titleRow.createCell(0);
             titleCell.setCellValue("FEE REPORT - " + session + " " + term);
+
             org.apache.poi.ss.usermodel.Font titleFont = workbook.createFont();
             titleFont.setBold(true);
             titleFont.setFontHeightInPoints((short) 14);
+
             CellStyle titleStyle = workbook.createCellStyle();
             titleStyle.setFont(titleFont);
             titleCell.setCellStyle(titleStyle);
@@ -1081,11 +936,7 @@ public class FeeServiceImpl implements FeeService {
 
             Row summaryRow1 = sheet.createRow(3);
             summaryRow1.createCell(0).setCellValue("SUMMARY");
-            org.apache.poi.ss.usermodel.Font summaryFont = workbook.createFont();
-            summaryFont.setBold(true);
-            CellStyle summaryStyle = workbook.createCellStyle();
-            summaryStyle.setFont(summaryFont);
-            summaryRow1.getCell(0).setCellStyle(summaryStyle);
+            summaryRow1.getCell(0).setCellStyle(titleStyle);
 
             Row totalExpectedRow = sheet.createRow(4);
             totalExpectedRow.createCell(0).setCellValue("Total Expected:");
@@ -1103,10 +954,11 @@ public class FeeServiceImpl implements FeeService {
             collectionRateRow.createCell(0).setCellValue("Collection Rate:");
             collectionRateRow.createCell(1).setCellValue((Double) reportData.get("collectionRate") + "%");
 
-            // Create header row for fee details
             Row headerRow = sheet.createRow(9);
-            String[] columns = {"Student Name", "Admission No", "Class", "Fee Type", "Description",
-                    "Amount (₦)", "Paid (₦)", "Balance (₦)", "Due Date", "Status", "Payment Method"};
+            String[] columns = {
+                    "Student Name", "Admission No", "Class", "Fee Type", "Description",
+                    "Amount (₦)", "Paid (₦)", "Balance (₦)", "Due Date", "Status", "Payment Method"
+            };
 
             for (int i = 0; i < columns.length; i++) {
                 Cell cell = headerRow.createCell(i);
@@ -1114,13 +966,11 @@ public class FeeServiceImpl implements FeeService {
                 cell.setCellStyle(headerStyle);
             }
 
-            // Data rows
             int rowNum = 10;
             if (fees != null) {
                 for (FeeDTO fee : fees) {
                     Row row = sheet.createRow(rowNum++);
 
-                    // Convert enum values to strings for Excel
                     String feeType = fee.getFeeType() != null ? fee.getFeeType().toString() : "";
                     String status = fee.getStatus() != null ? fee.getStatus().toString() : "";
                     String studentClass = fee.getStudentClass() != null ? fee.getStudentClass() : "";
@@ -1128,7 +978,7 @@ public class FeeServiceImpl implements FeeService {
 
                     row.createCell(0).setCellValue(fee.getStudentName() != null ? fee.getStudentName() : "");
                     row.createCell(1).setCellValue(fee.getAdmissionNumber() != null ? fee.getAdmissionNumber() : "");
-                    row.createCell(2).setCellValue(studentClass + " " + classArm);
+                    row.createCell(2).setCellValue((studentClass + " " + classArm).trim());
                     row.createCell(3).setCellValue(feeType);
                     row.createCell(4).setCellValue(fee.getDescription() != null ? fee.getDescription() : "");
                     row.createCell(5).setCellValue(fee.getAmount());
@@ -1140,19 +990,18 @@ public class FeeServiceImpl implements FeeService {
                 }
             }
 
-            // Auto-size columns
             for (int i = 0; i < columns.length; i++) {
                 sheet.autoSizeColumn(i);
             }
 
             workbook.write(baos);
             return baos.toByteArray();
-
         } catch (Exception e) {
             log.error("Error generating Excel report: {}", e.getMessage(), e);
             throw new BusinessException("Failed to generate Excel report: " + e.getMessage());
         }
     }
+
     @Override
     public byte[] generateReceipt(Long feeId) {
         Fee fee = getFee(feeId);
@@ -1162,18 +1011,16 @@ public class FeeServiceImpl implements FeeService {
         }
 
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            // Create document and writer - FIXED: getInstance() method
             Document document = new Document(PageSize.A5);
             PdfWriter.getInstance(document, baos);
             document.open();
 
-            // School header
-            Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20);
+            com.lowagie.text.Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20);
             Paragraph schoolName = new Paragraph("SCHOOL NAME", titleFont);
             schoolName.setAlignment(Element.ALIGN_CENTER);
             document.add(schoolName);
 
-            Font subtitleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16);
+            com.lowagie.text.Font subtitleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16);
             Paragraph receiptTitle = new Paragraph("PAYMENT RECEIPT", subtitleFont);
             receiptTitle.setAlignment(Element.ALIGN_CENTER);
             document.add(receiptTitle);
@@ -1181,7 +1028,6 @@ public class FeeServiceImpl implements FeeService {
             document.add(new Paragraph(" "));
             document.add(new Paragraph(" "));
 
-            // Receipt details
             PdfPTable infoTable = new PdfPTable(2);
             infoTable.setWidthPercentage(100);
             infoTable.setSpacingBefore(10f);
@@ -1195,15 +1041,12 @@ public class FeeServiceImpl implements FeeService {
             addTableRow(infoTable, "Session/Term:", fee.getSession() + " - " + fee.getTerm());
 
             document.add(infoTable);
-
             document.add(new Paragraph(" "));
 
-            // Fee details table
             PdfPTable feeTable = new PdfPTable(2);
             feeTable.setWidthPercentage(100);
             feeTable.setWidths(new float[]{70, 30});
 
-            // Headers
             PdfPCell cell1 = new PdfPCell(new Phrase("Description", FontFactory.getFont(FontFactory.HELVETICA_BOLD)));
             cell1.setHorizontalAlignment(Element.ALIGN_CENTER);
             cell1.setBackgroundColor(new Color(240, 240, 240));
@@ -1214,30 +1057,24 @@ public class FeeServiceImpl implements FeeService {
             cell2.setBackgroundColor(new Color(240, 240, 240));
             feeTable.addCell(cell2);
 
-            // Fee details
             feeTable.addCell(fee.getFeeType() + (fee.getDescription() != null ? " - " + fee.getDescription() : ""));
             feeTable.addCell(String.format("%,.2f", fee.getAmount()));
 
-            // Payment
             feeTable.addCell("Payment Received");
             feeTable.addCell(String.format("%,.2f", fee.getPaidAmount()));
 
-            // Balance
             feeTable.addCell("Balance");
             feeTable.addCell(String.format("%,.2f", fee.getBalance()));
 
             document.add(feeTable);
-
             document.add(new Paragraph(" "));
 
-            // Total
             Paragraph total = new Paragraph("Total Paid: ₦" + String.format("%,.2f", fee.getPaidAmount()),
                     FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14));
             total.setAlignment(Element.ALIGN_RIGHT);
             document.add(total);
 
             document.add(new Paragraph("Payment Method: " + (fee.getPaymentMethod() != null ? fee.getPaymentMethod() : "N/A")));
-
             document.add(new Paragraph(" "));
             document.add(new Paragraph(" "));
 
@@ -1252,14 +1089,12 @@ public class FeeServiceImpl implements FeeService {
 
             document.close();
             return baos.toByteArray();
-
         } catch (Exception e) {
             log.error("Error generating receipt: {}", e.getMessage(), e);
             throw new BusinessException("Failed to generate receipt: " + e.getMessage());
         }
     }
 
-    // Helper method for adding rows to table
     private void addTableRow(PdfPTable table, String label, String value) {
         PdfPCell labelCell = new PdfPCell(new Phrase(label, FontFactory.getFont(FontFactory.HELVETICA_BOLD)));
         labelCell.setBorder(PdfPCell.NO_BORDER);
@@ -1271,7 +1106,6 @@ public class FeeServiceImpl implements FeeService {
         valueCell.setPadding(5);
         table.addCell(valueCell);
     }
-    // ==================== Validation ====================
 
     @Override
     public boolean hasOutstandingFees(Long studentId, String session, Fee.Term term) {
@@ -1300,13 +1134,8 @@ public class FeeServiceImpl implements FeeService {
 
         return feeRepository.findByStudentAndSessionAndTerm(student, session, term).stream()
                 .filter(f -> f.getStatus() != Fee.PaymentStatus.PAID)
-                .collect(Collectors.groupingBy(
-                        Fee::getFeeType,
-                        Collectors.summingDouble(Fee::getBalance)
-                ));
+                .collect(Collectors.groupingBy(Fee::getFeeType, Collectors.summingDouble(Fee::getBalance)));
     }
-
-    // ==================== Bulk Operations ====================
 
     @Override
     public int updateFeesDueDate(LocalDate oldDate, LocalDate newDate) {
@@ -1321,37 +1150,16 @@ public class FeeServiceImpl implements FeeService {
         return fees.size();
     }
 
-    // ==================== Dashboard ====================
-
     @Override
     public Map<String, Object> getDashboardData(String session, Fee.Term term) {
         Map<String, Object> dashboard = new HashMap<>();
-
-        // Basic statistics
         dashboard.put("statistics", getFeeStatistics(session, term));
-
-        // Recent payments
         dashboard.put("recentPayments", getRecentPayments(10));
-
-        // Top defaulters
         dashboard.put("topDefaulters", getTopDefaulters(session, term, 5));
-
-        // Class-wise summary
         dashboard.put("classSummary", getClassWiseSummary(session, term));
-
-        // Upcoming fees
-        dashboard.put("upcomingFees", getUpcomingFees(7).stream()
-                .map(FeeDTO::fromFee)
-                .collect(Collectors.toList()));
-
-        // Overdue fees count
+        dashboard.put("upcomingFees", getUpcomingFees(7).stream().map(FeeDTO::fromFee).collect(Collectors.toList()));
         dashboard.put("overdueCount", feeRepository.countOverdueFeesBySessionAndTerm(session, term));
-
-        // Collection trend (last 6 months)
-        dashboard.put("collectionTrend", getMonthlyCollectionReport().stream()
-                .limit(6)
-                .collect(Collectors.toList()));
-
+        dashboard.put("collectionTrend", getMonthlyCollectionReport().stream().limit(6).collect(Collectors.toList()));
         return dashboard;
     }
 
@@ -1369,17 +1177,14 @@ public class FeeServiceImpl implements FeeService {
             Map<String, Object> monthData = new HashMap<>();
             monthData.put("month", monthStart.format(DateTimeFormatter.ofPattern("MMM yyyy")));
 
-            // Get payments in this month
             List<Fee> paymentsInMonth = feeRepository.findPaymentsInDateRange(monthStart, monthEnd);
 
             double totalCollected = paymentsInMonth.stream()
                     .mapToDouble(Fee::getPaidAmount)
                     .sum();
 
-            long transactionCount = paymentsInMonth.size();
-
             monthData.put("amount", totalCollected);
-            monthData.put("count", transactionCount);
+            monthData.put("count", paymentsInMonth.size());
 
             trends.add(monthData);
         }
@@ -1387,14 +1192,16 @@ public class FeeServiceImpl implements FeeService {
         return trends;
     }
 
-    // ==================== Private Helper Methods ====================
-
     private void validateFeeCreation(FeeDTO feeDTO) {
+        if (feeDTO.getDueDate() == null) {
+            throw new BusinessException("Due date is required");
+        }
+
         if (feeDTO.getDueDate().isBefore(LocalDate.now())) {
             throw new BusinessException("Due date cannot be in the past");
         }
 
-        if (feeDTO.getAmount() <= 0) {
+        if (feeDTO.getAmount() == null || feeDTO.getAmount() <= 0) {
             throw new BusinessException("Amount must be positive");
         }
     }
@@ -1405,8 +1212,7 @@ public class FeeServiceImpl implements FeeService {
 
         if (parentPhone != null && !parentPhone.isEmpty()) {
             String message = String.format(
-                    "Dear %s, this is a reminder that your ward %s's %s fee of ₦%.2f is due in %d days on %s. " +
-                            "Current balance: ₦%.2f. Please make payment to avoid penalties.",
+                    "Dear %s, this is a reminder that your ward %s's %s fee of ₦%.2f is due in %d days on %s. Current balance: ₦%.2f. Please make payment to avoid penalties.",
                     student.getParentName(),
                     student.getFirstName() + " " + student.getLastName(),
                     fee.getFeeType().getDisplayName(),
@@ -1429,8 +1235,7 @@ public class FeeServiceImpl implements FeeService {
             long daysOverdue = LocalDate.now().toEpochDay() - fee.getDueDate().toEpochDay();
 
             String message = String.format(
-                    "Dear %s, URGENT: Your ward %s's %s fee of ₦%.2f is %d days overdue. " +
-                            "Please clear the outstanding balance of ₦%.2f immediately to avoid further action.",
+                    "Dear %s, URGENT: Your ward %s's %s fee of ₦%.2f is %d days overdue. Please clear the outstanding balance of ₦%.2f immediately to avoid further action.",
                     student.getParentName(),
                     student.getFirstName() + " " + student.getLastName(),
                     fee.getFeeType().getDisplayName(),
