@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/repository/TeacherRepository.java
 package com.inkFront.schoolManagement.repository;
 
 import com.inkFront.schoolManagement.model.Teacher;
@@ -19,6 +18,8 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
     Optional<Teacher> findByEmail(String email);
 
     Optional<Teacher> findByTeacherId(String teacherId);
+
+    Optional<Teacher> findByEmployeeId(String employeeId);
 
     @Query("""
         SELECT DISTINCT t
@@ -63,6 +64,8 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
 
     boolean existsByTeacherId(String teacherId);
 
+    boolean existsByEmployeeId(String employeeId);
+
     List<Teacher> findByStatus(Teacher.TeacherStatus status);
 
     long countByStatus(Teacher.TeacherStatus status);
@@ -84,6 +87,7 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
            OR LOWER(t.lastName) LIKE LOWER(CONCAT('%', :term, '%'))
            OR LOWER(t.email) LIKE LOWER(CONCAT('%', :term, '%'))
            OR LOWER(t.teacherId) LIKE LOWER(CONCAT('%', :term, '%'))
+           OR LOWER(t.employeeId) LIKE LOWER(CONCAT('%', :term, '%'))
     """)
     List<Teacher> searchTeachers(@Param("term") String term);
 

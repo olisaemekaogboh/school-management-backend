@@ -5,13 +5,20 @@ import lombok.Data;
 
 @Data
 public class BorrowRequestDTO {
+
     @NotNull
     private Long bookId;
 
-    // Exactly one of these should be provided by frontend
+    // Optional legacy support
     private Long studentId;
     private Long teacherId;
 
-    // ISO string dates recommended (or your own format)
+    // Preferred identifiers
+    private String studentAdmissionNumber;
+    private String teacherEmployeeId;
+
+    // ISO date string: yyyy-MM-dd
     private String dueDate;
+
+    private String remarks;
 }

@@ -9,10 +9,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/library")
 @RequiredArgsConstructor
+@CrossOrigin(origins = "http://localhost:3000")
 public class LibraryController {
 
     private final LibraryService libraryService;
@@ -72,6 +74,11 @@ public class LibraryController {
         return libraryService.reportLost(id);
     }
 
+    @GetMapping("/borrowings")
+    public List<BookBorrowingDTO> getAllBorrowings() {
+        return libraryService.getAllBorrowings();
+    }
+
     @GetMapping("/borrowings/student/{studentId}")
     public List<BookBorrowingDTO> borrowingsByStudent(@PathVariable Long studentId) {
         return libraryService.getBorrowingsByStudent(studentId);
@@ -85,5 +92,10 @@ public class LibraryController {
     @GetMapping("/borrowings/overdue")
     public List<BookBorrowingDTO> overdue() {
         return libraryService.getOverdueBorrowings();
+    }
+
+    @GetMapping("/statistics")
+    public Map<String, Object> statistics() {
+        return libraryService.getLibraryStatistics();
     }
 }

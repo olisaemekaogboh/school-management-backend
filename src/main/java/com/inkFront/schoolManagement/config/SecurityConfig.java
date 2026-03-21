@@ -45,6 +45,7 @@ public class SecurityConfig {
 
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
+                        // Public endpoints - anyone can access
                         .requestMatchers(
                                 "/api/auth/login",
                                 "/api/auth/register",
@@ -56,6 +57,29 @@ public class SecurityConfig {
                                 "/uploads/**",
                                 "/webjars/**"
                         ).permitAll()
+
+                        // Events - Public GET endpoints (anyone can view events)
+                        .requestMatchers(HttpMethod.GET, "/api/events/**").permitAll()
+
+                        // Events - Protected endpoints (only ADMIN can modify)
+                        .requestMatchers(HttpMethod.POST, "/api/events/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/events/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/events/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/events/**").hasRole("ADMIN")
+
+                        // Announcements - Public GET endpoints (anyone can view announcements)
+                        .requestMatchers(HttpMethod.GET, "/api/announcements/**").permitAll()
+
+                        // Announcements - Protected endpoints (only ADMIN can modify)
+                        .requestMatchers(HttpMethod.POST, "/api/announcements/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/announcements/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/announcements/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/announcements/**").hasRole("ADMIN")
+
+                        // Sessions - Public GET for active session only
+                        .requestMatchers(HttpMethod.GET, "/api/sessions/active").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/sessions/**").hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
+                        .requestMatchers("/api/sessions/**").hasRole("ADMIN")
 
                         .requestMatchers(
                                 "/api/auth/me",
@@ -108,19 +132,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/fees/**")
                         .hasAnyRole("ADMIN", "PARENT", "STUDENT")
 
-                        .requestMatchers(HttpMethod.GET, "/api/announcements/**")
-                        .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
-
-                        .requestMatchers("/api/announcements/**")
-                        .hasRole("ADMIN")
-
-                        .requestMatchers(HttpMethod.GET, "/api/sessions/**")
-                        .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
-
-                        .requestMatchers("/api/sessions/**")
-                        .hasRole("ADMIN")
-
-                        .requestMatchers("/api/session-results/me/**")
+                        .requestMatchers(HttpMethod.GET, "/api/session-results/me/**")
                         .hasAnyRole("STUDENT", "ADMIN")
 
                         .requestMatchers(HttpMethod.GET, "/api/session-results/student/**")
