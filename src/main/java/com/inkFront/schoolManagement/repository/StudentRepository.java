@@ -31,7 +31,7 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
         WHERE s.schoolClass.className IN :classes
     """)
     List<Student> findByStudentClasses(@Param("classes") List<String> classes);
-
+    List<Student> findBySchoolClassIdOrderByLastNameAscFirstNameAsc(Long schoolClassId);
     List<Student> findByExcludeFromPromotionTrue();
 
     List<Student> findByParentId(Long parentId);

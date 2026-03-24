@@ -62,6 +62,15 @@ public class ResultController {
         try {
             User user = currentUser();
 
+            log.info("POST /api/results/student/{} => userId={}, role={}, requestStudentId={}, subjectId={}, session={}, term={}",
+                    studentId,
+                    user != null ? user.getId() : null,
+                    user != null ? user.getRole() : null,
+                    resultRequest.getStudentId(),
+                    resultRequest.getSubjectId(),
+                    resultRequest.getSession(),
+                    resultRequest.getTerm());
+
             accessControlService.requireStudentResultModification(
                     user,
                     studentId,
@@ -71,10 +80,17 @@ public class ResultController {
             resultRequest.setStudentId(studentId);
 
             Result result = resultService.addOrUpdateResult(resultRequest);
+
+            log.info("Result saved successfully => studentId={}, subjectId={}, resultId={}",
+                    studentId, resultRequest.getSubjectId(), result.getId());
+
             return ResponseEntity.ok(ResultResponseDTO.fromResult(result));
         } catch (AccessDeniedException e) {
+            log.warn("Result save denied => studentId={}, subjectId={}, reason={}",
+                    studentId, resultRequest.getSubjectId(), e.getMessage());
             return forbidden(e.getMessage());
         } catch (Exception e) {
+            log.error("Result save failed => studentId={}, subjectId={}", studentId, resultRequest.getSubjectId(), e);
             return serverError("Unable to add or update result", e);
         }
     }

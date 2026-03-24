@@ -58,7 +58,9 @@ public class AccessControlService {
 
     public void requireStudentResultModification(User user, Long studentId, Long subjectId) {
         if (!canModifyStudentResult(user, studentId, subjectId)) {
-            throw new AccessDeniedException("You are not allowed to modify this student's result");
+            throw new AccessDeniedException(
+                    "You are not allowed to modify this student's result. Only admin, the form teacher, or the assigned subject teacher for this class arm can do this."
+            );
         }
     }
 
@@ -178,15 +180,37 @@ public class AccessControlService {
 
     public boolean canModifyStudentResult(User user, Long studentId, Long subjectId) {
         if (isAdmin(user)) {
+            log.info("Result modification allowed: admin userId={}", user != null ? user.getId() : null);
             return true;
         }
 
         Student student = findStudent(studentId);
         if (student == null) {
+            log.warn("Result modification denied: student not found => studentId={}", studentId);
             return false;
         }
 
-        return isTeacherAssignedToStudentSubject(user, student, subjectId);
+        if (!isTeacher(user) || user.getTeacher() == null) {
+            log.warn("Result modification denied: user is not a teacher => userId={}, role={}",
+                    user != null ? user.getId() : null,
+                    user != null ? user.getRole() : null);
+            return false;
+        }
+
+        boolean formTeacher = isFormTeacherOfStudent(user, student);
+        boolean subjectTeacher = isTeacherAssignedToStudentSubject(user, student, subjectId);
+
+        log.info("Result modification decision => teacherId={}, studentId={}, studentClass={}, studentArm={}, subjectId={}, formTeacher={}, subjectTeacher={}",
+                user.getTeacher().getId(),
+                studentId,
+                student.getStudentClass(),
+                student.getClassArm(),
+                subjectId,
+                formTeacher,
+                subjectTeacher
+        );
+
+        return formTeacher || subjectTeacher;
     }
 
     public boolean canViewStudentAttendance(User user, Long studentId) {
@@ -287,29 +311,46 @@ public class AccessControlService {
             return false;
         }
 
+        if (subjectId == null) {
+            log.warn("Subject assignment check denied: subjectId is null");
+            return false;
+        }
+
         List<TeacherSubject> assignments =
                 teacherSubjectRepository.findByTeacher_IdOrderByClassNameAscClassArmAsc(user.getTeacher().getId());
 
-        return assignments.stream().anyMatch(assignment -> {
+        log.info("Checking teacher subject assignments => teacherId={}, subjectId={}, studentClass={}, studentArm={}, assignmentsCount={}",
+                user.getTeacher().getId(),
+                subjectId,
+                student.getStudentClass(),
+                student.getClassArm(),
+                assignments.size()
+        );
+
+        for (TeacherSubject assignment : assignments) {
+            Long assignedSubjectId = assignment.getSubject() != null ? assignment.getSubject().getId() : null;
             boolean sameScope = sameClassScope(
                     student.getStudentClass(),
                     student.getClassArm(),
                     assignment.getClassName(),
                     assignment.getClassArm()
             );
+            boolean subjectMatch = assignedSubjectId != null && assignedSubjectId.equals(subjectId);
 
-            if (!sameScope) {
-                return false;
-            }
+            log.info("Assignment candidate => className={}, classArm={}, assignedSubjectId={}, sameScope={}, subjectMatch={}",
+                    assignment.getClassName(),
+                    assignment.getClassArm(),
+                    assignedSubjectId,
+                    sameScope,
+                    subjectMatch
+            );
 
-            if (subjectId == null) {
+            if (sameScope && subjectMatch) {
                 return true;
             }
+        }
 
-            return assignment.getSubject() != null
-                    && assignment.getSubject().getId() != null
-                    && assignment.getSubject().getId().equals(subjectId);
-        });
+        return false;
     }
 
     private boolean isFormTeacherOfClass(User user, String className, String arm) {
