@@ -97,19 +97,21 @@ public class EmailServiceImpl implements EmailService {
     private void sendEmail(String to, String subject, String text) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(fromEmail); // Use the configured email
+            message.setFrom(fromEmail);
             message.setTo(to);
             message.setSubject(subject);
             message.setText(text);
 
             mailSender.send(message);
             log.info("Email sent successfully to: {}", to);
+
         } catch (Exception e) {
-            log.error("Failed to send email to {}: {}", to, e.getMessage());
-            log.error("Email error details: ", e);
+            log.error("Failed to send email to {}: {}", to, e.getMessage(), e);
+
+            // 🔥 CRITICAL: DO NOT SWALLOW
+            throw new RuntimeException("Email sending failed for " + to, e);
         }
     }
-
     @Override
     public void sendTeacherInvitation(String to, String registrationLink, String firstName) {
         String subject = "Complete Your Teacher Registration - Faith Foundation School";

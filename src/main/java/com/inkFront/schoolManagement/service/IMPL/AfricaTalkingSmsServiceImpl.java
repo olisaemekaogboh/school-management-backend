@@ -1,6 +1,8 @@
 // src/main/java/com/inkFront/schoolManagement/service/IMPL/AfricaTalkingSmsServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
+import com.africastalking.AfricasTalking;
+import com.africastalking.sms.Recipient;
 import com.inkFront.schoolManagement.config.SmsConfig;
 import com.inkFront.schoolManagement.model.Announcement;
 import com.inkFront.schoolManagement.model.SmsLog;
@@ -11,8 +13,6 @@ import com.inkFront.schoolManagement.service.SmsResult;
 import com.inkFront.schoolManagement.service.SmsService;
 import com.inkFront.schoolManagement.service.SmsTemplateService;
 import com.inkFront.schoolManagement.utils.PhoneNumberUtils;
-import com.africastalking.AfricasTalking;
-import com.africastalking.sms.Recipient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -35,10 +35,11 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
     private final SmsTemplateService templateService;
     private final SmsLogRepository smsLogRepository;
     private final StudentRepository studentRepository;
+
     private com.africastalking.SmsService smsService;
     private boolean initialized = false;
 
-    // Field to store the current announcement for SMS logging
+    // Stores current announcement context for logs
     private Announcement currentAnnouncement;
 
     private void initialize() {
@@ -49,7 +50,7 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
                 initialized = true;
                 log.info("Africa's Talking SMS service initialized successfully");
             } catch (Exception e) {
-                log.error("Failed to initialize Africa's Talking SMS service: {}", e.getMessage());
+                log.error("Failed to initialize Africa's Talking SMS service: {}", e.getMessage(), e);
                 throw new RuntimeException("SMS service initialization failed", e);
             }
         }
@@ -61,25 +62,21 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
 
     @Override
     public SmsResult sendSms(String phoneNumber, String message) {
-        SmsLog smsLog = null;
         try {
             initialize();
 
-            // Format for database storage (local format)
             String dbFormattedNumber = formatPhoneNumberForDatabase(phoneNumber);
-
-            // Format for SMS sending (international format with +)
             String smsFormattedNumber = formatPhoneNumberForSMS(phoneNumber);
 
-            if (smsFormattedNumber == null || dbFormattedNumber == null) {
+            if (dbFormattedNumber == null || smsFormattedNumber == null) {
                 logSmsFailure(phoneNumber, message, "Invalid phone number");
                 return createFailedResult(phoneNumber, "Invalid phone number");
             }
 
             log.info("Sending SMS to {} (SMS format: {})", dbFormattedNumber, smsFormattedNumber);
 
-            // Create log entry with database format
-            smsLog = createSmsLog(dbFormattedNumber, message, "PENDING", currentAnnouncement);
+            SmsLog smsLog = buildSmsLog(dbFormattedNumber, message, "PENDING", currentAnnouncement);
+            smsLog = saveSmsLogSafely(smsLog);
 
             String[] recipients = new String[]{smsFormattedNumber};
             List<Recipient> response = smsService.send(message, recipients, true);
@@ -101,12 +98,8 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
             return createFailedResult(dbFormattedNumber, "No response from SMS gateway");
 
         } catch (Exception e) {
-            log.error("Error sending SMS to {}: {}", phoneNumber, e.getMessage());
-            if (smsLog != null) {
-                updateSmsLog(smsLog, null, "FAILED", e.getMessage());
-            } else {
-                logSmsFailure(phoneNumber, message, e.getMessage());
-            }
+            log.error("Error sending SMS to {}: {}", phoneNumber, e.getMessage(), e);
+            logSmsFailure(phoneNumber, message, e.getMessage());
             return createFailedResult(phoneNumber, e.getMessage());
         }
     }
@@ -123,9 +116,8 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
 
             log.info("========== SMS DEBUG ==========");
             log.info("Attempting to send bulk SMS to {} recipients", phoneNumbers.size());
-            log.info("Message length: {}", message.length());
+            log.info("Message length: {}", message != null ? message.length() : 0);
 
-            // Format numbers for both purposes
             for (String phone : phoneNumbers) {
                 String dbFormat = formatPhoneNumberForDatabase(phone);
                 String smsFormat = formatPhoneNumberForSMS(phone);
@@ -136,6 +128,7 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
                     log.info("Formatted {} -> DB: {}, SMS: {}", phone, dbFormat, smsFormat);
                 } else {
                     log.warn("Failed to format phone number: {}", phone);
+                    results.add(createFailedResult(phone, "Invalid phone number"));
                 }
             }
 
@@ -144,76 +137,92 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
 
             if (smsFormattedNumbers.isEmpty()) {
                 log.warn("No valid phone numbers to send SMS");
+                SmsResult summary = SmsResult.builder()
+                        .successCount(0)
+                        .failedCount((int) results.stream().filter(r -> "FAILED".equals(r.getStatus())).count())
+                        .failedNumbers(results.stream()
+                                .filter(r -> "FAILED".equals(r.getStatus()))
+                                .map(SmsResult::getPhoneNumber)
+                                .collect(Collectors.toList()))
+                        .successNumbers(new ArrayList<>())
+                        .logs(new ArrayList<>())
+                        .build();
+                results.add(0, summary);
                 return results;
             }
 
-            // Create logs for all recipients using database format
+            // Build logs only; do not save one-by-one
             for (String dbNumber : dbFormattedNumbers) {
-                log.info("Creating SMS log for number (db format): {}", dbNumber);
-                SmsLog smsLog = createSmsLog(dbNumber, message, "PENDING", currentAnnouncement);
-                if (smsLog != null) {
-                    smsLogs.add(smsLog);
-                    log.info("Created log with ID: {} for announcement: {}",
-                            smsLog.getId(),
-                            currentAnnouncement != null ? currentAnnouncement.getId() : "null");
-                } else {
-                    log.error("Failed to create SMS log for {}", dbNumber);
-                }
+                SmsLog smsLog = buildSmsLog(dbNumber, message, "PENDING", currentAnnouncement);
+                smsLogs.add(smsLog);
             }
 
-            log.info("Created {} SMS logs", smsLogs.size());
-
-            // Save logs immediately
+            // Save once
             if (!smsLogs.isEmpty()) {
-                List<SmsLog> savedLogs = smsLogRepository.saveAll(smsLogs);
-                log.info("Saved {} logs to database", savedLogs.size());
-                smsLogs = savedLogs; // Use the saved versions with IDs
+                smsLogs = smsLogRepository.saveAll(smsLogs);
+                log.info("Saved {} SMS logs to database", smsLogs.size());
             }
 
-            // Send SMS using the SMS-formatted numbers (with +)
             int batchSize = 100;
+
             for (int i = 0; i < smsFormattedNumbers.size(); i += batchSize) {
                 int end = Math.min(i + batchSize, smsFormattedNumbers.size());
-                List<String> batchList = smsFormattedNumbers.subList(i, end);
-                String[] batch = batchList.toArray(new String[0]);
+                List<String> batchSmsNumbers = smsFormattedNumbers.subList(i, end);
+                String[] batch = batchSmsNumbers.toArray(new String[0]);
 
                 log.info("Sending batch of {} messages", batch.length);
+
                 List<Recipient> response = smsService.send(message, batch, true);
 
-                if (response != null) {
-                    log.info("Received response for {} recipients", response.size());
-                    for (int j = 0; j < response.size(); j++) {
-                        Recipient recipient = response.get(j);
-                        if (i + j < smsLogs.size()) {
-                            SmsLog smsLog = smsLogs.get(i + j);
-                            boolean success = "Success".equalsIgnoreCase(recipient.status);
+                if (response == null || response.isEmpty()) {
+                    log.warn("No response returned for SMS batch starting at index {}", i);
 
-                            log.info("Updating log for {}: status={}, messageId={}",
-                                    recipient.number, recipient.status, recipient.messageId);
+                    for (int j = i; j < end; j++) {
+                        SmsLog smsLog = smsLogs.get(j);
+                        updateSmsLogInMemory(smsLog, null, "FAILED", "No response from gateway");
+                        results.add(createFailedResult(dbFormattedNumbers.get(j), "No response from SMS gateway"));
+                    }
+                    continue;
+                }
 
-                            if (success) {
-                                updateSmsLog(smsLog, recipient.messageId, "SENT", null);
-                                results.add(createSuccessResult(recipient, dbFormattedNumbers.get(i + j)));
-                            } else {
-                                updateSmsLog(smsLog, recipient.messageId, "FAILED", recipient.status);
-                                results.add(createFailedResult(dbFormattedNumbers.get(i + j), recipient.status));
-                            }
-                        }
+                log.info("Received response for {} recipients", response.size());
+
+                for (int j = 0; j < batch.length; j++) {
+                    int globalIndex = i + j;
+
+                    SmsLog smsLog = smsLogs.get(globalIndex);
+                    String dbNumber = dbFormattedNumbers.get(globalIndex);
+
+                    if (j >= response.size()) {
+                        updateSmsLogInMemory(smsLog, null, "FAILED", "Missing recipient response");
+                        results.add(createFailedResult(dbNumber, "Missing recipient response"));
+                        continue;
+                    }
+
+                    Recipient recipient = response.get(j);
+                    boolean success = "Success".equalsIgnoreCase(recipient.status);
+
+                    log.info("Updating log for {}: status={}, messageId={}",
+                            recipient.number, recipient.status, recipient.messageId);
+
+                    if (success) {
+                        updateSmsLogInMemory(smsLog, recipient.messageId, "SENT", null);
+                        results.add(createSuccessResult(recipient, dbNumber));
+                    } else {
+                        updateSmsLogInMemory(smsLog, recipient.messageId, "FAILED", recipient.status);
+                        results.add(createFailedResult(dbNumber, recipient.status));
                     }
                 }
             }
 
-            // Final save of updated logs
             if (!smsLogs.isEmpty()) {
-                List<SmsLog> finalSavedLogs = smsLogRepository.saveAll(smsLogs);
-                log.info("Final save: updated {} logs in database", finalSavedLogs.size());
+                smsLogRepository.saveAll(smsLogs);
+                log.info("Updated {} SMS logs after provider response", smsLogs.size());
             }
-
-            // Force flush to ensure all changes are committed
-            smsLogRepository.flush();
 
         } catch (Exception e) {
             log.error("Error sending bulk SMS: {}", e.getMessage(), e);
+
             for (String phone : phoneNumbers) {
                 results.add(createFailedResult(phone, e.getMessage()));
             }
@@ -221,7 +230,6 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
 
         log.info("========== SMS DEBUG END ==========");
 
-        // Add statistics
         long successCount = results.stream().filter(r -> "SUCCESS".equals(r.getStatus())).count();
         long failedCount = results.stream().filter(r -> "FAILED".equals(r.getStatus())).count();
 
@@ -260,8 +268,6 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
 
     @Override
     public String formatPhoneNumber(String phoneNumber) {
-        // Keep the original method for backward compatibility
-        // This now calls the database formatter
         return formatPhoneNumberForDatabase(phoneNumber);
     }
 
@@ -285,7 +291,6 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
             return null;
         }
 
-        // Remove all non-digit characters
         String cleaned = phoneNumber.replaceAll("[^0-9]", "");
         log.info("Formatting for SMS: {} -> cleaned: {}", phoneNumber, cleaned);
 
@@ -294,24 +299,18 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
             return null;
         }
 
-        // Handle Nigerian phone numbers for Africa's Talking
         if (cleaned.length() == 11 && cleaned.startsWith("0")) {
-            // Format: 09090909090 -> 2349090909090
             cleaned = "234" + cleaned.substring(1);
             log.info("Converted 11-digit local format to: {}", cleaned);
         } else if (cleaned.length() == 10 && !cleaned.startsWith("0")) {
-            // Format: 8090909090 -> 2348090909090
             cleaned = "234" + cleaned;
             log.info("Converted 10-digit format to: {}", cleaned);
         } else if (cleaned.length() == 13 && cleaned.startsWith("234")) {
-            // Already has country code without +
             log.info("Already in country code format: {}", cleaned);
         } else if (cleaned.length() == 14 && cleaned.startsWith("234")) {
-            // Handle case with extra digit
             cleaned = cleaned.substring(0, 13);
             log.info("Trimmed to 13 digits: {}", cleaned);
         } else if (cleaned.length() > 13) {
-            // Too many digits, extract last 13
             cleaned = cleaned.substring(cleaned.length() - 13);
             log.info("Extracted last 13 digits: {}", cleaned);
         } else {
@@ -319,17 +318,14 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
             return null;
         }
 
-        // Ensure we have exactly 13 digits for Nigerian numbers
         if (cleaned.length() != 13) {
             log.warn("Phone number should be 13 digits with country code, got {} digits: {}",
                     cleaned.length(), cleaned);
             return null;
         }
 
-        // Add the plus sign for Africa's Talking
         String formatted = "+" + cleaned;
         log.info("Final formatted for SMS: {}", formatted);
-
         return formatted;
     }
 
@@ -341,58 +337,56 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
         try {
             String dbFormattedNumber = formatPhoneNumberForDatabase(phoneNumber);
 
-            SmsLog smsLog = SmsLog.builder()
-                    .parentPhone(dbFormattedNumber)
-                    .messageContent(message.length() > 500 ? message.substring(0, 500) : message)
-                    .messageType(detectMessageType(message))
-                    .status("FAILED")
-                    .deliveryStatus(3)
-                    .errorMessage(error)
-                    .requiresFollowUp(true)
-                    .retryCount(0)
-                    .sentAt(LocalDateTime.now())
-                    .announcement(currentAnnouncement)
-                    .build();
+            SmsLog smsLog = buildFailureLog(dbFormattedNumber, message, error, currentAnnouncement);
+            saveSmsLogSafely(smsLog);
 
-            // Try to find student by phone number using database format
-            Optional<Student> studentOpt = findStudentByPhone(dbFormattedNumber);
-            if (studentOpt.isPresent()) {
-                Student student = studentOpt.get();
-                smsLog.setStudentId(student.getId());
-                smsLog.setStudentName(student.getFirstName() + " " + student.getLastName());
-                smsLog.setStudentClass(student.getStudentClass());
-                smsLog.setParentName(student.getParentName());
-            } else {
-                smsLog.setStudentName("Unknown Student");
-                smsLog.setParentName("Unknown Parent");
-            }
-
-            smsLogRepository.save(smsLog);
             log.info("Saved failure log for {}", dbFormattedNumber);
-
         } catch (Exception e) {
-            log.error("Error saving failure log: {}", e.getMessage());
+            log.error("Error saving failure log: {}", e.getMessage(), e);
         }
     }
 
-    private SmsLog createSmsLog(String phoneNumber, String message, String status, Announcement announcement) {
+    private SmsLog buildSmsLog(String phoneNumber, String message, String status, Announcement announcement) {
+        log.info("Creating SMS log object for phone: {}", phoneNumber);
+
+        SmsLog smsLog = SmsLog.builder()
+                .parentPhone(phoneNumber)
+                .messageContent(message)
+                .messageType(detectMessageType(message))
+                .status(status)
+                .deliveryStatus(resolveDeliveryStatus(status))
+                .sentAt(LocalDateTime.now())
+                .retryCount(0)
+                .requiresFollowUp(false)
+                .announcement(announcement)
+                .build();
+
+        enrichLogWithStudentDetails(smsLog, phoneNumber);
+        return smsLog;
+    }
+
+    private SmsLog buildFailureLog(String phoneNumber, String message, String error, Announcement announcement) {
+        SmsLog smsLog = SmsLog.builder()
+                .parentPhone(phoneNumber)
+                .messageContent(message)
+                .messageType(detectMessageType(message))
+                .status("FAILED")
+                .deliveryStatus(3)
+                .errorMessage(error)
+                .requiresFollowUp(true)
+                .retryCount(0)
+                .sentAt(LocalDateTime.now())
+                .announcement(announcement)
+                .build();
+
+        enrichLogWithStudentDetails(smsLog, phoneNumber);
+        return smsLog;
+    }
+
+    private void enrichLogWithStudentDetails(SmsLog smsLog, String phoneNumber) {
         try {
-            log.info("Creating SMS log for phone: {}", phoneNumber);
-
-            SmsLog smsLog = SmsLog.builder()
-                    .parentPhone(phoneNumber)
-                    .messageContent(message.length() > 500 ? message.substring(0, 500) : message)
-                    .messageType(detectMessageType(message))
-                    .status(status)
-                    .deliveryStatus(status.equals("PENDING") ? 0 : status.equals("SENT") ? 1 : 3)
-                    .sentAt(LocalDateTime.now())
-                    .retryCount(0)
-                    .requiresFollowUp(false)
-                    .announcement(announcement)
-                    .build();
-
-            // Try to find student by phone number
             Optional<Student> studentOpt = findStudentByPhone(phoneNumber);
+
             if (studentOpt.isPresent()) {
                 Student student = studentOpt.get();
                 smsLog.setStudentId(student.getId());
@@ -401,66 +395,94 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
                 smsLog.setParentName(student.getParentName());
                 log.info("Found student: {} for phone {}", student.getFirstName(), phoneNumber);
             } else {
-                log.info("No student found for phone: {}, using placeholder", phoneNumber);
                 smsLog.setStudentName("Unknown Student");
                 smsLog.setParentName("Unknown Parent");
+                log.info("No student found for phone: {}, using placeholder", phoneNumber);
             }
-
-            SmsLog savedLog = smsLogRepository.save(smsLog);
-            log.info("Saved SMS log with ID: {} for announcement: {} with student: {}",
-                    savedLog.getId(),
-                    announcement != null ? announcement.getId() : "null",
-                    savedLog.getStudentName());
-            return savedLog;
-
         } catch (Exception e) {
-            log.error("Error creating SMS log: {}", e.getMessage(), e);
-            return null;
+            log.error("Error enriching SMS log with student details for {}: {}", phoneNumber, e.getMessage(), e);
+            smsLog.setStudentName("Unknown Student");
+            smsLog.setParentName("Unknown Parent");
+        }
+    }
+
+    private SmsLog saveSmsLogSafely(SmsLog smsLog) {
+        try {
+            SmsLog savedLog = smsLogRepository.save(smsLog);
+            log.info("Saved SMS log with ID: {}", savedLog.getId());
+            return savedLog;
+        } catch (Exception e) {
+            log.error("Error saving SMS log: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to save SMS log", e);
         }
     }
 
     private void updateSmsLog(SmsLog smsLog, String messageId, String status, String error) {
-        if (smsLog == null) return;
+        if (smsLog == null) {
+            return;
+        }
 
         try {
-            smsLog.setMessageId(messageId);
-            smsLog.setStatus(status);
-
-            if ("SENT".equals(status)) {
-                smsLog.setDeliveryStatus(1);
-                smsLog.setSentAt(LocalDateTime.now());
-            } else if ("DELIVERED".equals(status)) {
-                smsLog.setDeliveryStatus(2);
-                smsLog.setDeliveredAt(LocalDateTime.now());
-            } else if ("FAILED".equals(status)) {
-                smsLog.setDeliveryStatus(3);
-                smsLog.setErrorMessage(error);
-                smsLog.setRequiresFollowUp(true);
-            }
-
+            updateSmsLogInMemory(smsLog, messageId, status, error);
             smsLogRepository.save(smsLog);
             log.info("Updated SMS log ID: {} with status: {}", smsLog.getId(), status);
-
         } catch (Exception e) {
             log.error("Error updating SMS log: {}", e.getMessage(), e);
         }
     }
 
+    private void updateSmsLogInMemory(SmsLog smsLog, String messageId, String status, String error) {
+        if (smsLog == null) {
+            return;
+        }
+
+        smsLog.setMessageId(messageId);
+        smsLog.setStatus(status);
+
+        if ("SENT".equals(status)) {
+            smsLog.setDeliveryStatus(1);
+            smsLog.setSentAt(LocalDateTime.now());
+            smsLog.setErrorMessage(null);
+            smsLog.setRequiresFollowUp(false);
+        } else if ("DELIVERED".equals(status)) {
+            smsLog.setDeliveryStatus(2);
+            smsLog.setDeliveredAt(LocalDateTime.now());
+            smsLog.setErrorMessage(null);
+            smsLog.setRequiresFollowUp(false);
+        } else if ("FAILED".equals(status)) {
+            smsLog.setDeliveryStatus(3);
+            smsLog.setErrorMessage(error);
+            smsLog.setRequiresFollowUp(true);
+        } else if ("PENDING".equals(status)) {
+            smsLog.setDeliveryStatus(0);
+        }
+    }
+
+    private int resolveDeliveryStatus(String status) {
+        if ("PENDING".equals(status)) {
+            return 0;
+        }
+        if ("SENT".equals(status)) {
+            return 1;
+        }
+        if ("DELIVERED".equals(status)) {
+            return 2;
+        }
+        return 3;
+    }
+
     private Optional<Student> findStudentByPhone(String phoneNumber) {
         log.info("Searching for student with phone: {}", phoneNumber);
 
-        // Format to local for database comparison
         String localNumber = PhoneNumberUtils.formatToLocal(phoneNumber);
         log.info("Local format: {}", localNumber);
 
-        // Try exact match with parent phone
         List<Student> students = studentRepository.findByParentPhone(localNumber);
         if (!students.isEmpty()) {
             log.info("Found {} student(s) by exact parent phone match", students.size());
             return Optional.of(students.get(0));
         }
 
-        // Try emergency contact
         Optional<Student> emergencyMatch = studentRepository.findAll().stream()
                 .filter(s -> localNumber.equals(s.getEmergencyContactPhone()))
                 .findFirst();
@@ -494,7 +516,8 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
     }
 
     private String detectMessageType(String message) {
-        String lowerMsg = message.toLowerCase();
+        String lowerMsg = message == null ? "" : message.toLowerCase();
+
         if (lowerMsg.contains("fee") || lowerMsg.contains("payment") || lowerMsg.contains("₦")) {
             return "FEE_REMINDER";
         }

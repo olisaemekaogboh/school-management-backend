@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/model/SmsLog.java
 package com.inkFront.schoolManagement.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -7,14 +6,15 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "sms_logs", indexes = {
-        @Index(name = "idx_student_id", columnList = "studentId"),
-        @Index(name = "idx_parent_phone", columnList = "parentPhone"),
-        @Index(name = "idx_status", columnList = "status"),
-        @Index(name = "idx_sent_at", columnList = "sentAt")
+        @Index(name = "idx_sms_logs_student_id", columnList = "student_id"),
+        @Index(name = "idx_sms_logs_parent_phone", columnList = "parent_phone"),
+        @Index(name = "idx_sms_logs_status", columnList = "status"),
+        @Index(name = "idx_sms_logs_sent_at", columnList = "sent_at")
 })
 @Data
 @Builder
@@ -37,19 +37,22 @@ public class SmsLog {
     private String parentName;
     private String parentPhone;
 
+
+    @Column(columnDefinition = "TEXT")
     private String messageContent;
-    private String messageType; // FEE_REMINDER, RESUMPTION, RESULT, etc.
+
+    private String messageType;
 
     @Column(length = 50)
-    private String messageId; // Provider's message ID
+    private String messageId;
 
     @Column(length = 20)
-    private String status; // SENT, DELIVERED, FAILED, PENDING
+    private String status;
 
-    private Integer deliveryStatus; // 0=Pending, 1=Sent, 2=Delivered, 3=Failed
+    private Integer deliveryStatus;
     private LocalDateTime sentAt;
     private LocalDateTime deliveredAt;
-    private Integer cost; // in kobo/cents
+    private Integer cost;
 
     @Column(length = 500)
     private String errorMessage;

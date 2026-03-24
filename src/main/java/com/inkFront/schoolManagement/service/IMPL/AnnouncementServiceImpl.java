@@ -4,14 +4,13 @@ package com.inkFront.schoolManagement.service.IMPL;
 import com.inkFront.schoolManagement.dto.AnnouncementDTO;
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
 import com.inkFront.schoolManagement.model.Announcement;
+import com.inkFront.schoolManagement.model.EmailLog;
 import com.inkFront.schoolManagement.model.SmsLog;
 import com.inkFront.schoolManagement.repository.AnnouncementRepository;
+import com.inkFront.schoolManagement.repository.EmailLogRepository;
 import com.inkFront.schoolManagement.repository.SmsLogRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
-import com.inkFront.schoolManagement.service.AnnouncementService;
-import com.inkFront.schoolManagement.service.EmailNotificationService;
-import com.inkFront.schoolManagement.service.SmsResult;
-import com.inkFront.schoolManagement.service.SmsService;
+import com.inkFront.schoolManagement.service.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -32,15 +31,9 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     private final StudentRepository studentRepository;
     private final SmsService smsService;
     private final SmsLogRepository smsLogRepository;
-
-    // ✅ keep these ONLY if you actually created these classes
-    // If you haven't created them yet, comment them out until you do.
     private final EmailNotificationService emailNotificationService;
-    private final com.inkFront.schoolManagement.repository.EmailLogRepository emailLogRepository;
-
-    // =========================
-    // CRUD
-    // =========================
+    private final EmailLogRepository emailLogRepository;
+    private final EmailQueueService emailQueueService;
 
     @Override
     public Announcement createAnnouncement(AnnouncementDTO dto) {
@@ -64,7 +57,6 @@ public class AnnouncementServiceImpl implements AnnouncementService {
     public void deleteAnnouncement(Long id) {
         log.info("Deleting announcement: {}", id);
 
-        // delete logs first
         try {
             List<SmsLog> smsLogs = smsLogRepository.findByAnnouncementId(id);
             if (!smsLogs.isEmpty()) {
@@ -72,7 +64,17 @@ public class AnnouncementServiceImpl implements AnnouncementService {
                 log.info("Deleted {} SMS logs for announcement {}", smsLogs.size(), id);
             }
         } catch (Exception e) {
-            log.error("Error deleting SMS logs: {}", e.getMessage());
+            log.error("Error deleting SMS logs for announcement {}: {}", id, e.getMessage(), e);
+        }
+
+        try {
+            List<EmailLog> emailLogs = emailLogRepository.findByAnnouncementId(id);
+            if (!emailLogs.isEmpty()) {
+                emailLogRepository.deleteAll(emailLogs);
+                log.info("Deleted {} email logs for announcement {}", emailLogs.size(), id);
+            }
+        } catch (Exception e) {
+            log.error("Error deleting email logs for announcement {}: {}", id, e.getMessage(), e);
         }
 
         announcementRepository.deleteById(id);
@@ -80,14 +82,9 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
     @Override
     public Announcement getAnnouncement(Long id) {
-        // ✅ FIX: you were calling findAllActiveWithAudience() which returns List, not Optional
         return announcementRepository.findByIdWithAudience(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Announcement not found"));
     }
-
-    // =========================
-    // LIST / FILTER
-    // =========================
 
     @Override
     public List<Announcement> getAllActiveAnnouncements() {
@@ -114,16 +111,11 @@ public class AnnouncementServiceImpl implements AnnouncementService {
         return announcementRepository.findByFeeDueDateAfterWithAudience(LocalDate.now());
     }
 
-    // =========================
-    // CALENDAR
-    // =========================
-
     @Override
     public Map<String, Object> getSchoolCalendar(String session) {
         Map<String, Object> calendar = new HashMap<>();
         List<Map<String, Object>> events = new ArrayList<>();
 
-        // First Term
         events.add(createCalendarEvent("First Term Resumption",
                 LocalDate.of(Integer.parseInt(session.split("/")[0]), 9, 8)));
         events.add(createCalendarEvent("First Term Midterm Break",
@@ -137,7 +129,6 @@ public class AnnouncementServiceImpl implements AnnouncementService {
         events.add(createCalendarEvent("First Term Results Release",
                 LocalDate.of(Integer.parseInt(session.split("/")[0]), 12, 20)));
 
-        // Second Term
         events.add(createCalendarEvent("Second Term Resumption",
                 LocalDate.of(Integer.parseInt(session.split("/")[0]) + 1, 1, 6)));
         events.add(createCalendarEvent("Second Term Midterm Break",
@@ -151,7 +142,6 @@ public class AnnouncementServiceImpl implements AnnouncementService {
         events.add(createCalendarEvent("Second Term Results Release",
                 LocalDate.of(Integer.parseInt(session.split("/")[0]) + 1, 4, 15)));
 
-        // Third Term
         events.add(createCalendarEvent("Third Term Resumption",
                 LocalDate.of(Integer.parseInt(session.split("/")[0]) + 1, 4, 22)));
         events.add(createCalendarEvent("Third Term Midterm Break",
@@ -171,10 +161,6 @@ public class AnnouncementServiceImpl implements AnnouncementService {
         calendar.put("events", events);
         return calendar;
     }
-
-    // =========================
-    // QUICK CREATE HELPERS
-    // =========================
 
     @Override
     public Announcement createResumptionAnnouncement(String session, LocalDate date, String term) {
@@ -250,46 +236,95 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
         return createAnnouncement(dto);
     }
-
-    // =========================
-    // ✅ REQUIRED BY INTERFACE
-    // =========================
-
     @Override
     public SmsResult sendAnnouncementNotifications(Long announcementId) {
         Announcement announcement = getAnnouncement(announcementId);
         log.info("Sending notifications for announcement: {}", announcement.getTitle());
 
-        // 1) Try SMS first
+        SmsResult smsSummary;
+        SmsResult emailSummary;
+
+        try {
+            smsSummary = sendAnnouncementSms(announcement);
+        } catch (Exception e) {
+            log.error("SMS notification flow failed for announcement {}: {}", announcementId, e.getMessage(), e);
+            smsSummary = SmsResult.builder()
+                    .successCount(0)
+                    .failedCount(0)
+                    .message("SMS failed: " + e.getMessage())
+                    .build();
+        }
+
+        try {
+            emailSummary = sendAnnouncementEmails(announcement);
+        } catch (Exception e) {
+            log.error("Email notification flow failed for announcement {}: {}", announcementId, e.getMessage(), e);
+            emailSummary = SmsResult.builder()
+                    .successCount(0)
+                    .failedCount(0)
+                    .message("Email failed: " + e.getMessage())
+                    .build();
+        }
+
+        int smsSuccess = smsSummary != null ? smsSummary.getSuccessCount() : 0;
+        int smsFailed = smsSummary != null ? smsSummary.getFailedCount() : 0;
+
+        int emailSuccess = emailSummary != null ? emailSummary.getSuccessCount() : 0;
+        int emailFailed = emailSummary != null ? emailSummary.getFailedCount() : 0;
+
+        return SmsResult.builder()
+                .successCount(smsSuccess + emailSuccess)
+                .failedCount(smsFailed + emailFailed)
+                .message(String.format(
+                        "Notifications processed. SMS: %d success, %d failed. Email: %d queued/sent, %d failed.",
+                        smsSuccess, smsFailed, emailSuccess, emailFailed
+                ))
+                .build();
+    }
+
+    private SmsResult sendAnnouncementSms(Announcement announcement) {
         List<String> phoneNumbers = getRecipientPhoneNumbers(announcement.getAudience());
 
-        if (!phoneNumbers.isEmpty()) {
-            String smsMessage = formatSmsMessage(announcement);
+        if (phoneNumbers.isEmpty()) {
+            return SmsResult.builder()
+                    .successCount(0)
+                    .failedCount(0)
+                    .message("No recipient phone numbers found")
+                    .build();
+        }
 
-            // attach announcement to SMS logs if your SmsService supports it
+        String smsMessage = formatSmsMessage(announcement);
+
+        try {
             if (smsService instanceof AfricaTalkingSmsServiceImpl impl) {
                 impl.setCurrentAnnouncement(announcement);
             }
 
             List<SmsResult> results = smsService.sendBulkSms(phoneNumbers, smsMessage);
 
+            if (results == null || results.isEmpty()) {
+                return SmsResult.builder()
+                        .successCount(0)
+                        .failedCount(phoneNumbers.size())
+                        .message("SMS sending returned no results")
+                        .build();
+            }
+
+            return results.get(0);
+
+        } catch (Exception e) {
+            log.error("SMS sending failed for announcement {}: {}", announcement.getId(), e.getMessage(), e);
+            return SmsResult.builder()
+                    .successCount(0)
+                    .failedCount(phoneNumbers.size())
+                    .message("SMS sending failed: " + e.getMessage())
+                    .build();
+        } finally {
             if (smsService instanceof AfricaTalkingSmsServiceImpl impl) {
                 impl.setCurrentAnnouncement(null);
             }
-
-            SmsResult summary = results.isEmpty() ? null : results.get(0);
-            if (summary != null && summary.getSuccessCount() > 0) {
-                return summary;
-            }
         }
-
-        // 2) Fallback to Email
-        return sendAnnouncementEmails(announcement);
     }
-
-    // =========================
-    // EMAIL HELPERS
-    // =========================
 
     private List<String> getRecipientEmails(List<Announcement.Audience> audiences) {
         List<String> emails = new ArrayList<>();
@@ -301,6 +336,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
                     emails.addAll(studentRepository.findAll().stream()
                             .map(s -> s.getParentEmail())
                             .filter(e -> e != null && !e.trim().isEmpty())
+                            .map(String::trim)
                             .toList());
                     break;
                 case STUDENTS:
@@ -309,6 +345,7 @@ public class AnnouncementServiceImpl implements AnnouncementService {
                     break;
             }
         }
+
         return emails.stream().distinct().toList();
     }
 
@@ -326,31 +363,21 @@ public class AnnouncementServiceImpl implements AnnouncementService {
         String subject = "School Announcement: " + announcement.getTitle();
         String body = formatEmailMessage(announcement);
 
-        int success = 0;
-        int failed = 0;
+        int queued = 0;
 
-        for (String to : emails) {
-            // If you haven't created EmailLog entity yet, remove this block and just send emails.
+        for (String email : emails) {
             try {
-                // Optional logging (requires EmailLog entity + repo)
-                // EmailLog logRow = EmailLog.builder()...build();
-                // logRow = emailLogRepository.save(logRow);
-
-                emailNotificationService.sendEmail(to, subject, body);
-
-                // logRow.setStatus("SENT"); logRow.setSentAt(LocalDateTime.now()); emailLogRepository.save(logRow);
-                success++;
+                emailQueueService.queueEmail(announcement.getId(), email, subject, body);
+                queued++;
             } catch (Exception e) {
-                // logRow.setStatus("FAILED"); logRow.setErrorMessage(e.getMessage()); emailLogRepository.save(logRow);
-                failed++;
-                log.error("Email send failed to {}: {}", to, e.getMessage());
+                log.error("Failed to queue email for {}: {}", email, e.getMessage(), e);
             }
         }
 
         return SmsResult.builder()
-                .successCount(success)
-                .failedCount(failed)
-                .message(String.format("📧 Email sent: %d success, %d failed", success, failed))
+                .successCount(queued)
+                .failedCount(emails.size() - queued)
+                .message(String.format("Email queued: %d success, %d failed", queued, emails.size() - queued))
                 .build();
     }
 
@@ -365,14 +392,20 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
         if (announcement.getEventDate() != null) {
             message.append("Date: ").append(announcement.getEventDate()).append("\n");
-            if (announcement.getEventTime() != null) message.append("Time: ").append(announcement.getEventTime()).append("\n");
-            if (announcement.getEventLocation() != null) message.append("Location: ").append(announcement.getEventLocation()).append("\n");
+            if (announcement.getEventTime() != null) {
+                message.append("Time: ").append(announcement.getEventTime()).append("\n");
+            }
+            if (announcement.getEventLocation() != null) {
+                message.append("Location: ").append(announcement.getEventLocation()).append("\n");
+            }
             message.append("\n");
         }
 
         if (announcement.getFeeAmount() != null) {
             message.append("Amount: ₦").append(String.format("%,.0f", announcement.getFeeAmount())).append("\n");
-            if (announcement.getFeeDueDate() != null) message.append("Due date: ").append(announcement.getFeeDueDate()).append("\n");
+            if (announcement.getFeeDueDate() != null) {
+                message.append("Due date: ").append(announcement.getFeeDueDate()).append("\n");
+            }
             message.append("\n");
         }
 
@@ -382,12 +415,9 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
         message.append("Portal: http://localhost:3000\n");
         message.append("--\nSchool Admin");
+
         return message.toString();
     }
-
-    // =========================
-    // SMS HELPERS
-    // =========================
 
     private List<String> getRecipientPhoneNumbers(List<Announcement.Audience> audiences) {
         List<String> phoneNumbers = new ArrayList<>();
@@ -438,13 +468,19 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
         if (announcement.getEventDate() != null) {
             message.append("\n\n📅 Date: ").append(announcement.getEventDate());
-            if (announcement.getEventTime() != null) message.append(" at ").append(announcement.getEventTime());
-            if (announcement.getEventLocation() != null) message.append("\n📍 Location: ").append(announcement.getEventLocation());
+            if (announcement.getEventTime() != null) {
+                message.append(" at ").append(announcement.getEventTime());
+            }
+            if (announcement.getEventLocation() != null) {
+                message.append("\n📍 Location: ").append(announcement.getEventLocation());
+            }
         }
 
         if (announcement.getFeeAmount() != null) {
             message.append("\n\n💰 Amount: ₦").append(String.format("%,.0f", announcement.getFeeAmount()));
-            if (announcement.getFeeDueDate() != null) message.append("\n⏰ Due Date: ").append(announcement.getFeeDueDate());
+            if (announcement.getFeeDueDate() != null) {
+                message.append("\n⏰ Due Date: ").append(announcement.getFeeDueDate());
+            }
         }
 
         if (announcement.getResultReleaseDate() != null) {
@@ -453,12 +489,9 @@ public class AnnouncementServiceImpl implements AnnouncementService {
 
         message.append("\n\n---\nFaith Foundation International School");
         message.append("\nVisit portal for more details");
+
         return message.toString();
     }
-
-    // =========================
-    // ENTITY MAPPING
-    // =========================
 
     private Map<String, Object> createCalendarEvent(String title, LocalDate date) {
         Map<String, Object> event = new HashMap<>();

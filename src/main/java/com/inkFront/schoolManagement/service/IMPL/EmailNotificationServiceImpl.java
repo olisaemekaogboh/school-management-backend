@@ -19,11 +19,15 @@ public class EmailNotificationServiceImpl implements EmailNotificationService {
 
     @Override
     public void sendEmail(String to, String subject, String body) {
-        SimpleMailMessage msg = new SimpleMailMessage();
-        msg.setFrom(from);
-        msg.setTo(to);
-        msg.setSubject(subject);
-        msg.setText(body);
-        mailSender.send(msg);
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setFrom(from);
+            msg.setTo(to);
+            msg.setSubject(subject);
+            msg.setText(body);
+            mailSender.send(msg);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to send email to " + to, e);
+        }
     }
 }
