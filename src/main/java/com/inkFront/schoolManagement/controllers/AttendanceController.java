@@ -24,7 +24,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/attendance")
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(origins = "https://localhost:3000")
 @RequiredArgsConstructor
 public class AttendanceController {
 

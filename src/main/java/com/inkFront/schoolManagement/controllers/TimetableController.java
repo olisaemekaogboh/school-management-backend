@@ -18,7 +18,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/timetable")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(origins = "https://localhost:3000")
 public class TimetableController {
 
     private final TimetableService timetableService;

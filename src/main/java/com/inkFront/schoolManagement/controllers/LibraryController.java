@@ -14,7 +14,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/library")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(origins = "https://localhost:3000")
 public class LibraryController {
 
     private final LibraryService libraryService;

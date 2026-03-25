@@ -1,7 +1,11 @@
 // src/main/java/com/inkFront/schoolManagement/service/IMPL/AuthServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
-import com.inkFront.schoolManagement.dto.auth.*;
+import com.inkFront.schoolManagement.dto.auth.ChangePasswordRequest;
+import com.inkFront.schoolManagement.dto.auth.LoginRequest;
+import com.inkFront.schoolManagement.dto.auth.LoginResponse;
+import com.inkFront.schoolManagement.dto.auth.RefreshTokenRequest;
+import com.inkFront.schoolManagement.dto.auth.RegisterRequest;
 import com.inkFront.schoolManagement.exception.BusinessException;
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
 import com.inkFront.schoolManagement.model.Parent;
@@ -54,7 +58,6 @@ public class AuthServiceImpl implements AuthService {
     public LoginResponse login(LoginRequest request) {
         log.info("Login attempt for user: {}", request.getUsernameOrEmail());
 
-        // Authenticate user
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(
                         request.getUsernameOrEmail(),
@@ -62,40 +65,32 @@ public class AuthServiceImpl implements AuthService {
                 )
         );
 
-        // Get user details
         User user = userRepository.findByUsernameOrEmail(request.getUsernameOrEmail())
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
-        // Update last login
         user.setLastLogin(LocalDateTime.now());
         userRepository.save(user);
 
-        // Generate tokens
         String accessToken = jwtService.generateToken(user);
         String refreshToken = jwtService.generateRefreshToken(user);
 
-        // Store refresh token
         refreshTokens.put(refreshToken, user.getUsername());
 
         return buildLoginResponse(user, accessToken, refreshToken);
     }
 
-    // In AuthServiceImpl.java - update the register method
     @Override
     public LoginResponse register(RegisterRequest request) {
         log.info("Registering new user: {}", request.getUsername());
 
-        // Check if username exists
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new BusinessException("Username already exists");
         }
 
-        // Check if email exists
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new BusinessException("Email already exists");
         }
 
-        // Create user
         User user = User.builder()
                 .firstName(request.getFirstName())
                 .lastName(request.getLastName())
@@ -110,7 +105,6 @@ public class AuthServiceImpl implements AuthService {
                 .updatedAt(LocalDateTime.now())
                 .build();
 
-        // Link to teacher/student/parent if IDs provided
         if (request.getTeacherId() != null) {
             Teacher teacher = teacherRepository.findById(request.getTeacherId())
                     .orElseThrow(() -> new ResourceNotFoundException("Teacher not found"));
@@ -131,7 +125,6 @@ public class AuthServiceImpl implements AuthService {
 
         User savedUser = userRepository.save(user);
 
-        // Generate tokens
         String accessToken = jwtService.generateToken(savedUser);
         String refreshToken = jwtService.generateRefreshToken(savedUser);
 
@@ -170,7 +163,6 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public void logout(String token) {
         blacklistedTokens.put(token, true);
-        // In a real app, you'd want to clean up expired tokens periodically
     }
 
     @Override
@@ -240,7 +232,7 @@ public class AuthServiceImpl implements AuthService {
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
                 .tokenType("Bearer")
-                .expiresIn(86400000L) // 24 hours in milliseconds
+                .expiresIn(86400000L)
                 .user(LoginResponse.UserResponse.fromUser(user))
                 .build();
     }

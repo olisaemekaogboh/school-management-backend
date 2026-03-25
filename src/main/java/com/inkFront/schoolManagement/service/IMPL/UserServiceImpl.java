@@ -35,14 +35,16 @@ public class UserServiceImpl implements UserService {
     public UserDTO createUser(UserDTO userDTO) {
         log.info("Creating new user via admin: {}", userDTO.getUsername());
 
-        // Check if username exists
         if (userRepository.existsByUsername(userDTO.getUsername())) {
             throw new BusinessException("Username already exists");
         }
 
-        // Check if email exists
         if (userRepository.existsByEmail(userDTO.getEmail())) {
             throw new BusinessException("Email already exists");
+        }
+
+        if (userDTO.getPassword() == null || userDTO.getPassword().trim().isEmpty()) {
+            throw new BusinessException("Password is required");
         }
 
         User user = User.builder()
@@ -54,8 +56,9 @@ public class UserServiceImpl implements UserService {
                 .phoneNumber(userDTO.getPhoneNumber())
                 .role(userDTO.getRole() != null ? userDTO.getRole() : User.Role.PARENT)
                 .profilePictureUrl(userDTO.getProfilePictureUrl())
-                .isActive(true)
-                .isEmailVerified(false)
+                .isActive(userDTO.isActive())
+                .isEmailVerified(userDTO.isEmailVerified())
+                .lastLogin(userDTO.getLastLogin())
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -69,45 +72,71 @@ public class UserServiceImpl implements UserService {
     public UserDTO updateUser(Long id, UserDTO userDTO) {
         log.info("Updating user with id: {}", id);
 
-        User user = getUserEntityById(id);
+        User existingUser = getUserEntityById(id);
 
-        // Check username uniqueness if changed
-        if (!user.getUsername().equals(userDTO.getUsername()) &&
-                userRepository.existsByUsername(userDTO.getUsername())) {
-            throw new BusinessException("Username already exists");
+        if (userDTO.getUsername() != null && !userDTO.getUsername().equals(existingUser.getUsername())) {
+            userRepository.findByUsername(userDTO.getUsername()).ifPresent(found -> {
+                if (!found.getId().equals(id)) {
+                    throw new BusinessException("Username already exists");
+                }
+            });
         }
 
-        // Check email uniqueness if changed
-        if (!user.getEmail().equals(userDTO.getEmail()) &&
-                userRepository.existsByEmail(userDTO.getEmail())) {
-            throw new BusinessException("Email already exists");
+        if (userDTO.getEmail() != null && !userDTO.getEmail().equals(existingUser.getEmail())) {
+            userRepository.findByEmail(userDTO.getEmail()).ifPresent(found -> {
+                if (!found.getId().equals(id)) {
+                    throw new BusinessException("Email already exists");
+                }
+            });
         }
 
-        user.setFirstName(userDTO.getFirstName());
-        user.setLastName(userDTO.getLastName());
-        user.setUsername(userDTO.getUsername());
-        user.setEmail(userDTO.getEmail());
-        user.setPhoneNumber(userDTO.getPhoneNumber());
-        user.setRole(userDTO.getRole());
-        user.setProfilePictureUrl(userDTO.getProfilePictureUrl());
-        user.setUpdatedAt(LocalDateTime.now());
-
-        // Update password if provided
-        if (userDTO.getPassword() != null && !userDTO.getPassword().isEmpty()) {
-            user.setPassword(passwordEncoder.encode(userDTO.getPassword()));
+        // Update only editable fields
+        if (userDTO.getFirstName() != null) {
+            existingUser.setFirstName(userDTO.getFirstName().trim());
         }
 
-        User updatedUser = userRepository.save(user);
-        log.info("User updated successfully with id: {}", id);
+        if (userDTO.getLastName() != null) {
+            existingUser.setLastName(userDTO.getLastName().trim());
+        }
+
+        if (userDTO.getUsername() != null) {
+            existingUser.setUsername(userDTO.getUsername().trim());
+        }
+
+        if (userDTO.getEmail() != null) {
+            existingUser.setEmail(userDTO.getEmail().trim());
+        }
+
+        existingUser.setPhoneNumber(userDTO.getPhoneNumber());
+        existingUser.setProfilePictureUrl(userDTO.getProfilePictureUrl());
+
+        // Preserve protected fields unless explicitly handled in admin workflows
+        if (userDTO.getPassword() != null && !userDTO.getPassword().trim().isEmpty()) {
+            existingUser.setPassword(passwordEncoder.encode(userDTO.getPassword()));
+        }
+
+        if (userDTO.getRole() != null) {
+            existingUser.setRole(userDTO.getRole());
+        }
+
+        existingUser.setActive(userDTO.isActive());
+        existingUser.setEmailVerified(userDTO.isEmailVerified());
+        existingUser.setUpdatedAt(LocalDateTime.now());
+
+        User updatedUser = userRepository.save(existingUser);
+        log.info("User updated successfully with id: {}", updatedUser.getId());
+
         return UserDTO.fromUser(updatedUser);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public UserDTO getUserById(Long id) {
         return UserDTO.fromUser(getUserEntityById(id));
     }
 
     @Override
+    @Transactional(readOnly = true)
     public UserDTO getUserByUsername(String username) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with username: " + username));
@@ -115,6 +144,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public UserDTO getUserByEmail(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + email));
@@ -130,6 +160,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<UserDTO> getAllUsers() {
         return userRepository.findAll().stream()
                 .map(UserDTO::fromUser)
@@ -137,6 +168,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<UserDTO> getAllUsersPaginated(Pageable pageable) {
         Page<User> userPage = userRepository.findAll(pageable);
         List<UserDTO> dtos = userPage.getContent().stream()
@@ -146,17 +178,23 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<UserDTO> searchUsers(String term) {
+        String search = term == null ? "" : term.toLowerCase();
+
         return userRepository.findAll().stream()
-                .filter(u -> u.getFirstName().toLowerCase().contains(term.toLowerCase()) ||
-                        u.getLastName().toLowerCase().contains(term.toLowerCase()) ||
-                        u.getUsername().toLowerCase().contains(term.toLowerCase()) ||
-                        u.getEmail().toLowerCase().contains(term.toLowerCase()))
+                .filter(u ->
+                        (u.getFirstName() != null && u.getFirstName().toLowerCase().contains(search)) ||
+                                (u.getLastName() != null && u.getLastName().toLowerCase().contains(search)) ||
+                                (u.getUsername() != null && u.getUsername().toLowerCase().contains(search)) ||
+                                (u.getEmail() != null && u.getEmail().toLowerCase().contains(search))
+                )
                 .map(UserDTO::fromUser)
                 .collect(Collectors.toList());
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<UserDTO> getUsersByRole(User.Role role) {
         return userRepository.findAll().stream()
                 .filter(u -> u.getRole() == role)
@@ -175,18 +213,19 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Map<String, Object> getUserStatistics() {
         Map<String, Object> stats = new HashMap<>();
 
-        long totalUsers = userRepository.count();
-        long activeUsers = userRepository.findAll().stream().filter(User::isActive).count();
+        List<User> users = userRepository.findAll();
+        long totalUsers = users.size();
+        long activeUsers = users.stream().filter(User::isActive).count();
 
         stats.put("totalUsers", totalUsers);
         stats.put("activeUsers", activeUsers);
         stats.put("inactiveUsers", totalUsers - activeUsers);
 
-        // Count by role
-        Map<User.Role, Long> roleCount = userRepository.findAll().stream()
+        Map<User.Role, Long> roleCount = users.stream()
                 .collect(Collectors.groupingBy(User::getRole, Collectors.counting()));
         stats.put("roleCount", roleCount);
 
