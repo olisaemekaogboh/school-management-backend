@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.util.*;
@@ -54,9 +55,17 @@ public class TeacherServiceImpl implements TeacherService {
 
     @Override
     @Transactional(readOnly = true)
+    public TeacherDTO getTeacherByTeacherId(String id) {
+        Teacher teacher = teacherRepository.findByTeacherIdWithDetails(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
+        return toTeacherDTO(teacher);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<TeacherDTO> getAllTeachers() {
-        log.info("Fetching all teachers");
-        return teacherRepository.findAllWithDetails().stream()
+        return teacherRepository.findAll()
+                .stream()
                 .map(this::toTeacherDTO)
                 .collect(Collectors.toList());
     }
@@ -86,151 +95,66 @@ public class TeacherServiceImpl implements TeacherService {
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public TeacherDTO getTeacherByTeacherId(String teacherId) {
-        log.info("Fetching teacher with teacherId: {}", teacherId);
-        Teacher teacher = teacherRepository.findByTeacherIdWithDetails(teacherId)
-                .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with teacherId: " + teacherId));
-        return toTeacherDTO(teacher);
-    }
-
-    @Override
-    @Transactional
     public TeacherDTO createTeacher(TeacherDTO teacherDTO, MultipartFile profilePicture) {
-        log.info("Creating new teacher with email: {}", teacherDTO.getEmail());
+        log.info("Creating teacher with email: {}", teacherDTO.getEmail());
 
-        if (teacherRepository.existsByEmail(teacherDTO.getEmail())) {
+        if (teacherDTO.getEmail() != null && teacherRepository.existsByEmail(teacherDTO.getEmail())) {
             throw new BusinessException("Email already exists");
         }
 
-        if (teacherDTO.getTeacherId() == null || teacherDTO.getTeacherId().isEmpty()) {
-            teacherDTO.setTeacherId(generateTeacherId());
-        } else if (teacherRepository.existsByTeacherId(teacherDTO.getTeacherId())) {
+        if (teacherDTO.getTeacherId() != null
+                && !teacherDTO.getTeacherId().trim().isEmpty()
+                && teacherRepository.existsByTeacherId(teacherDTO.getTeacherId())) {
             throw new BusinessException("Teacher ID already exists");
         }
 
-        Teacher teacher = TeacherDTO.toEntity(teacherDTO);
+        Teacher teacher = new Teacher();
+        mapTeacherFields(teacher, teacherDTO, true);
+
+        if (teacher.getTeacherId() == null || teacher.getTeacherId().trim().isEmpty()) {
+            teacher.setTeacherId(generateTeacherId());
+        }
 
         if (profilePicture != null && !profilePicture.isEmpty()) {
             String pictureUrl = fileStorageService.storeFile(profilePicture);
             teacher.setProfilePictureUrl(pictureUrl);
         }
 
-        if (teacher.getStatus() == null) {
-            teacher.setStatus(Teacher.TeacherStatus.ACTIVE);
-        }
-
-        if (teacher.getEmploymentStatus() == null) {
-            teacher.setEmploymentStatus(Teacher.EmploymentStatus.ACTIVE);
-        }
-
-        if (teacher.getEmploymentType() == null) {
-            teacher.setEmploymentType(Teacher.EmploymentType.FULL_TIME);
-        }
-
-        if (teacher.getGender() == null) {
-            teacher.setGender(Teacher.Gender.MALE);
-        }
-
-        if (teacher.getMaritalStatus() == null) {
-            teacher.setMaritalStatus(Teacher.MaritalStatus.SINGLE);
-        }
-
         Teacher savedTeacher = teacherRepository.save(teacher);
         log.info("Teacher created successfully with id: {}", savedTeacher.getId());
 
-        Teacher teacherWithDetails = teacherRepository.findByIdWithDetails(savedTeacher.getId())
-                .orElse(savedTeacher);
-
-        return toTeacherDTO(teacherWithDetails);
+        return toTeacherDTO(savedTeacher);
     }
 
     @Override
-    @Transactional
     public TeacherDTO updateTeacher(Long id, TeacherDTO teacherDTO, MultipartFile profilePicture) {
         log.info("Updating teacher with id: {}", id);
 
         Teacher existingTeacher = teacherRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
 
-        if (!existingTeacher.getEmail().equals(teacherDTO.getEmail()) &&
-                teacherRepository.existsByEmail(teacherDTO.getEmail())) {
+        if (teacherDTO.getEmail() != null
+                && !teacherDTO.getEmail().equalsIgnoreCase(existingTeacher.getEmail())
+                && teacherRepository.existsByEmail(teacherDTO.getEmail())) {
             throw new BusinessException("Email already exists");
         }
 
-        if (!existingTeacher.getTeacherId().equals(teacherDTO.getTeacherId()) &&
-                teacherRepository.existsByTeacherId(teacherDTO.getTeacherId())) {
+        if (teacherDTO.getTeacherId() != null
+                && !teacherDTO.getTeacherId().trim().isEmpty()
+                && !teacherDTO.getTeacherId().equals(existingTeacher.getTeacherId())
+                && teacherRepository.existsByTeacherId(teacherDTO.getTeacherId())) {
             throw new BusinessException("Teacher ID already exists");
         }
 
-        existingTeacher.setFirstName(teacherDTO.getFirstName());
-        existingTeacher.setLastName(teacherDTO.getLastName());
-        existingTeacher.setMiddleName(teacherDTO.getMiddleName());
-        existingTeacher.setEmail(teacherDTO.getEmail());
-        existingTeacher.setPhoneNumber(teacherDTO.getPhoneNumber());
-        existingTeacher.setAlternatePhone(teacherDTO.getAlternatePhone());
-        existingTeacher.setDateOfBirth(teacherDTO.getDateOfBirth());
+        // Preserve teacherId unless a real nonblank replacement is supplied
+        String preservedTeacherId = existingTeacher.getTeacherId();
 
-        if (teacherDTO.getGender() != null && !teacherDTO.getGender().isEmpty()) {
-            try {
-                existingTeacher.setGender(Teacher.Gender.valueOf(teacherDTO.getGender()));
-            } catch (IllegalArgumentException e) {
-                existingTeacher.setGender(Teacher.Gender.MALE);
-            }
-        }
+        mapTeacherFields(existingTeacher, teacherDTO, false);
 
-        existingTeacher.setAddress(teacherDTO.getAddress());
-        existingTeacher.setQualification(teacherDTO.getQualification());
-        existingTeacher.setSpecialization(teacherDTO.getSpecialization());
-        existingTeacher.setYearsOfExperience(teacherDTO.getYearsOfExperience());
-        existingTeacher.setEmployeeId(teacherDTO.getEmployeeId());
-        existingTeacher.setTeacherId(teacherDTO.getTeacherId());
-        existingTeacher.setDepartment(teacherDTO.getDepartment());
-        existingTeacher.setDesignation(teacherDTO.getDesignation());
-        existingTeacher.setDateOfJoining(teacherDTO.getDateOfJoining());
-
-        if (teacherDTO.getEmploymentType() != null && !teacherDTO.getEmploymentType().isEmpty()) {
-            try {
-                existingTeacher.setEmploymentType(Teacher.EmploymentType.valueOf(teacherDTO.getEmploymentType()));
-            } catch (IllegalArgumentException e) {
-                existingTeacher.setEmploymentType(Teacher.EmploymentType.FULL_TIME);
-            }
-        }
-
-        if (teacherDTO.getEmploymentStatus() != null && !teacherDTO.getEmploymentStatus().isEmpty()) {
-            try {
-                existingTeacher.setEmploymentStatus(Teacher.EmploymentStatus.valueOf(teacherDTO.getEmploymentStatus()));
-            } catch (IllegalArgumentException e) {
-                existingTeacher.setEmploymentStatus(Teacher.EmploymentStatus.ACTIVE);
-            }
-        }
-
-        if (teacherDTO.getMaritalStatus() != null && !teacherDTO.getMaritalStatus().isEmpty()) {
-            try {
-                existingTeacher.setMaritalStatus(Teacher.MaritalStatus.valueOf(teacherDTO.getMaritalStatus()));
-            } catch (IllegalArgumentException e) {
-                existingTeacher.setMaritalStatus(Teacher.MaritalStatus.SINGLE);
-            }
-        }
-
-        if (teacherDTO.getSubjects() != null) {
-            existingTeacher.setSubjects(new HashSet<>(teacherDTO.getSubjects()));
-        }
-
-        if (teacherDTO.getQualifications() != null) {
-            existingTeacher.setQualifications(new HashSet<>(teacherDTO.getQualifications()));
-        }
-
-        existingTeacher.setEmergencyContactName(teacherDTO.getEmergencyContactName());
-        existingTeacher.setEmergencyContactPhone(teacherDTO.getEmergencyContactPhone());
-        existingTeacher.setEmergencyContactRelationship(teacherDTO.getEmergencyContactRelationship());
-
-        if (teacherDTO.getStatus() != null && !teacherDTO.getStatus().isEmpty()) {
-            try {
-                existingTeacher.setStatus(Teacher.TeacherStatus.valueOf(teacherDTO.getStatus()));
-            } catch (IllegalArgumentException e) {
-                existingTeacher.setStatus(Teacher.TeacherStatus.ACTIVE);
-            }
+        if (teacherDTO.getTeacherId() != null && !teacherDTO.getTeacherId().trim().isEmpty()) {
+            existingTeacher.setTeacherId(teacherDTO.getTeacherId().trim());
+        } else {
+            existingTeacher.setTeacherId(preservedTeacherId);
         }
 
         if (profilePicture != null && !profilePicture.isEmpty()) {
@@ -249,17 +173,9 @@ public class TeacherServiceImpl implements TeacherService {
 
     @Override
     public void deleteTeacher(Long id) {
-        log.info("Deleting teacher with id: {}", id);
-
         Teacher teacher = teacherRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
-
-        if (teacher.getUser() != null) {
-            throw new BusinessException("Cannot delete teacher with associated user account. Deactivate the user instead.");
-        }
-
         teacherRepository.delete(teacher);
-        log.info("Teacher deleted successfully with id: {}", id);
     }
 
     // ========== SEARCH AND FILTER OPERATIONS ==========
@@ -593,6 +509,10 @@ public class TeacherServiceImpl implements TeacherService {
         if (existingTeacher.isPresent()) {
             teacher = existingTeacher.get();
             teacher.setUser(user);
+
+            if (teacher.getTeacherId() == null || teacher.getTeacherId().trim().isEmpty()) {
+                teacher.setTeacherId(generateTeacherId());
+            }
         } else {
             teacher = new Teacher();
             teacher.setFirstName(invitation.getFirstName());
@@ -681,5 +601,103 @@ public class TeacherServiceImpl implements TeacherService {
     @Override
     public long getPendingInvitationCount() {
         return teacherInvitationRepository.countByUsedFalseAndExpiryDateAfter(LocalDateTime.now());
+    }
+
+    private void mapTeacherFields(Teacher teacher, TeacherDTO dto, boolean isCreate) {
+        if (dto.getFirstName() != null) teacher.setFirstName(dto.getFirstName());
+        if (dto.getLastName() != null) teacher.setLastName(dto.getLastName());
+        teacher.setMiddleName(dto.getMiddleName());
+        if (dto.getEmail() != null) teacher.setEmail(dto.getEmail());
+        teacher.setPhoneNumber(dto.getPhoneNumber());
+        teacher.setAlternatePhone(dto.getAlternatePhone());
+        teacher.setAddress(dto.getAddress());
+        teacher.setQualification(dto.getQualification());
+        teacher.setSpecialization(dto.getSpecialization());
+        teacher.setDepartment(dto.getDepartment());
+        teacher.setDesignation(dto.getDesignation());
+        teacher.setEmployeeId(dto.getEmployeeId());
+        teacher.setEmergencyContactName(dto.getEmergencyContactName());
+        teacher.setEmergencyContactPhone(dto.getEmergencyContactPhone());
+        teacher.setEmergencyContactRelationship(dto.getEmergencyContactRelationship());
+        teacher.setYearsOfExperience(dto.getYearsOfExperience());
+        teacher.setProfilePictureUrl(dto.getProfilePictureUrl());
+
+        if (dto.getDateOfBirth() != null) {
+            teacher.setDateOfBirth(dto.getDateOfBirth());
+        }
+
+        if (dto.getDateOfJoining() != null) {
+            teacher.setDateOfJoining(dto.getDateOfJoining());
+        } else if (isCreate && teacher.getDateOfJoining() == null) {
+            teacher.setDateOfJoining(LocalDate.now());
+        }
+
+        if (dto.getGender() != null && !dto.getGender().isBlank()) {
+            teacher.setGender(parseGender(dto.getGender()));
+        }
+
+        if (dto.getMaritalStatus() != null && !dto.getMaritalStatus().isBlank()) {
+            teacher.setMaritalStatus(parseMaritalStatus(dto.getMaritalStatus()));
+        }
+
+        if (dto.getEmploymentType() != null && !dto.getEmploymentType().isBlank()) {
+            teacher.setEmploymentType(parseEmploymentType(dto.getEmploymentType()));
+        }
+
+        if (dto.getEmploymentStatus() != null && !dto.getEmploymentStatus().isBlank()) {
+            teacher.setEmploymentStatus(parseEmploymentStatus(dto.getEmploymentStatus()));
+        }
+
+        if (dto.getStatus() != null && !dto.getStatus().isBlank()) {
+            teacher.setStatus(parseTeacherStatus(dto.getStatus()));
+        }
+
+        if (dto.getSubjects() != null) {
+            teacher.setSubjects(new HashSet<>(dto.getSubjects()));
+        }
+
+        if (dto.getQualifications() != null) {
+            teacher.setQualifications(new HashSet<>(dto.getQualifications()));
+        }
+    }
+
+    private Teacher.Gender parseGender(String value) {
+        try {
+            return Teacher.Gender.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException("Invalid gender: " + value);
+        }
+    }
+
+    private Teacher.MaritalStatus parseMaritalStatus(String value) {
+        try {
+            return Teacher.MaritalStatus.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException("Invalid marital status: " + value);
+        }
+    }
+
+    private Teacher.EmploymentType parseEmploymentType(String value) {
+        try {
+            return Teacher.EmploymentType.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException("Invalid employment type: " + value);
+        }
+    }
+
+    private Teacher.EmploymentStatus parseEmploymentStatus(String value) {
+        try {
+            return Teacher.EmploymentStatus.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException("Invalid employment status: " + value);
+        }
+    }
+
+    private Teacher.TeacherStatus parseTeacherStatus(String value) {
+        try {
+            return Teacher.TeacherStatus.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException("Invalid teacher status: " + value);
+        }
     }
 }
