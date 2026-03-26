@@ -50,6 +50,41 @@ public class TeacherServiceImpl implements TeacherService {
         }
         return TeacherDTO.fromEntity(teacher);
     }
+    private String normalizeIdValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String generateEmployeeId() {
+        String yearSuffix = String.valueOf(Year.now().getValue()).substring(2);
+        long sequence = teacherRepository.count() + 1;
+
+        String candidate = "EMP" + yearSuffix + String.format("%04d", sequence);
+
+        while (teacherRepository.existsByEmployeeId(candidate)) {
+            sequence++;
+            candidate = "EMP" + yearSuffix + String.format("%04d", sequence);
+        }
+
+        return candidate;
+    }
+
+    private void assignGeneratedIdsIfMissing(Teacher teacher) {
+        if (normalizeIdValue(teacher.getTeacherId()) == null) {
+            teacher.setTeacherId(generateTeacherId());
+        } else {
+            teacher.setTeacherId(teacher.getTeacherId().trim());
+        }
+
+        if (normalizeIdValue(teacher.getEmployeeId()) == null) {
+            teacher.setEmployeeId(generateEmployeeId());
+        } else {
+            teacher.setEmployeeId(teacher.getEmployeeId().trim());
+        }
+    }
 
     // ========== BASIC CRUD OPERATIONS ==========
 
@@ -98,22 +133,40 @@ public class TeacherServiceImpl implements TeacherService {
     public TeacherDTO createTeacher(TeacherDTO teacherDTO, MultipartFile profilePicture) {
         log.info("Creating teacher with email: {}", teacherDTO.getEmail());
 
-        if (teacherDTO.getEmail() != null && teacherRepository.existsByEmail(teacherDTO.getEmail())) {
+        String normalizedEmail = teacherDTO.getEmail() != null
+                ? teacherDTO.getEmail().trim().toLowerCase()
+                : null;
+
+        if (normalizedEmail != null && teacherRepository.existsByEmail(normalizedEmail)) {
             throw new BusinessException("Email already exists");
         }
 
-        if (teacherDTO.getTeacherId() != null
-                && !teacherDTO.getTeacherId().trim().isEmpty()
-                && teacherRepository.existsByTeacherId(teacherDTO.getTeacherId())) {
+        String requestedTeacherId = normalizeIdValue(teacherDTO.getTeacherId());
+        if (requestedTeacherId != null && teacherRepository.existsByTeacherId(requestedTeacherId)) {
             throw new BusinessException("Teacher ID already exists");
+        }
+
+        String requestedEmployeeId = normalizeIdValue(teacherDTO.getEmployeeId());
+        if (requestedEmployeeId != null && teacherRepository.existsByEmployeeId(requestedEmployeeId)) {
+            throw new BusinessException("Employee ID already exists");
         }
 
         Teacher teacher = new Teacher();
         mapTeacherFields(teacher, teacherDTO, true);
 
-        if (teacher.getTeacherId() == null || teacher.getTeacherId().trim().isEmpty()) {
-            teacher.setTeacherId(generateTeacherId());
+        if (normalizedEmail != null) {
+            teacher.setEmail(normalizedEmail);
         }
+
+        if (requestedTeacherId != null) {
+            teacher.setTeacherId(requestedTeacherId);
+        }
+
+        if (requestedEmployeeId != null) {
+            teacher.setEmployeeId(requestedEmployeeId);
+        }
+
+        assignGeneratedIdsIfMissing(teacher);
 
         if (profilePicture != null && !profilePicture.isEmpty()) {
             String pictureUrl = fileStorageService.storeFile(profilePicture);
@@ -121,8 +174,8 @@ public class TeacherServiceImpl implements TeacherService {
         }
 
         Teacher savedTeacher = teacherRepository.save(teacher);
-        log.info("Teacher created successfully with id: {}", savedTeacher.getId());
 
+        log.info("Teacher created successfully with id: {}", savedTeacher.getId());
         return toTeacherDTO(savedTeacher);
     }
 
@@ -133,28 +186,51 @@ public class TeacherServiceImpl implements TeacherService {
         Teacher existingTeacher = teacherRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
 
-        if (teacherDTO.getEmail() != null
-                && !teacherDTO.getEmail().equalsIgnoreCase(existingTeacher.getEmail())
-                && teacherRepository.existsByEmail(teacherDTO.getEmail())) {
+        String requestedEmail = teacherDTO.getEmail() != null
+                ? teacherDTO.getEmail().trim().toLowerCase()
+                : null;
+
+        if (requestedEmail != null
+                && !requestedEmail.equalsIgnoreCase(existingTeacher.getEmail())
+                && teacherRepository.existsByEmail(requestedEmail)) {
             throw new BusinessException("Email already exists");
         }
 
-        if (teacherDTO.getTeacherId() != null
-                && !teacherDTO.getTeacherId().trim().isEmpty()
-                && !teacherDTO.getTeacherId().equals(existingTeacher.getTeacherId())
-                && teacherRepository.existsByTeacherId(teacherDTO.getTeacherId())) {
+        String requestedTeacherId = normalizeIdValue(teacherDTO.getTeacherId());
+        if (requestedTeacherId != null
+                && !requestedTeacherId.equals(existingTeacher.getTeacherId())
+                && teacherRepository.existsByTeacherId(requestedTeacherId)) {
             throw new BusinessException("Teacher ID already exists");
         }
 
-        // Preserve teacherId unless a real nonblank replacement is supplied
+        String requestedEmployeeId = normalizeIdValue(teacherDTO.getEmployeeId());
+        if (requestedEmployeeId != null
+                && !requestedEmployeeId.equals(existingTeacher.getEmployeeId())
+                && teacherRepository.existsByEmployeeId(requestedEmployeeId)) {
+            throw new BusinessException("Employee ID already exists");
+        }
+
         String preservedTeacherId = existingTeacher.getTeacherId();
+        String preservedEmployeeId = existingTeacher.getEmployeeId();
 
         mapTeacherFields(existingTeacher, teacherDTO, false);
 
-        if (teacherDTO.getTeacherId() != null && !teacherDTO.getTeacherId().trim().isEmpty()) {
-            existingTeacher.setTeacherId(teacherDTO.getTeacherId().trim());
+        if (requestedEmail != null) {
+            existingTeacher.setEmail(requestedEmail);
+        }
+
+        if (requestedTeacherId != null) {
+            existingTeacher.setTeacherId(requestedTeacherId);
         } else {
             existingTeacher.setTeacherId(preservedTeacherId);
+        }
+
+        if (requestedEmployeeId != null) {
+            existingTeacher.setEmployeeId(requestedEmployeeId);
+        } else if (normalizeIdValue(preservedEmployeeId) != null) {
+            existingTeacher.setEmployeeId(preservedEmployeeId);
+        } else {
+            existingTeacher.setEmployeeId(generateEmployeeId());
         }
 
         if (profilePicture != null && !profilePicture.isEmpty()) {
@@ -163,14 +239,10 @@ public class TeacherServiceImpl implements TeacherService {
         }
 
         Teacher updatedTeacher = teacherRepository.save(existingTeacher);
+
         log.info("Teacher updated successfully with id: {}", updatedTeacher.getId());
-
-        Teacher teacherWithDetails = teacherRepository.findByIdWithDetails(updatedTeacher.getId())
-                .orElse(updatedTeacher);
-
-        return toTeacherDTO(teacherWithDetails);
+        return toTeacherDTO(updatedTeacher);
     }
-
     @Override
     public void deleteTeacher(Long id) {
         Teacher teacher = teacherRepository.findById(id)
@@ -506,13 +578,19 @@ public class TeacherServiceImpl implements TeacherService {
         Optional<Teacher> existingTeacher = teacherRepository.findByEmail(invitation.getEmail());
         Teacher teacher;
 
+
         if (existingTeacher.isPresent()) {
             teacher = existingTeacher.get();
             teacher.setUser(user);
 
-            if (teacher.getTeacherId() == null || teacher.getTeacherId().trim().isEmpty()) {
+            if (normalizeIdValue(teacher.getTeacherId()) == null) {
                 teacher.setTeacherId(generateTeacherId());
             }
+
+            if (normalizeIdValue(teacher.getEmployeeId()) == null) {
+                teacher.setEmployeeId(generateEmployeeId());
+            }
+
         } else {
             teacher = new Teacher();
             teacher.setFirstName(invitation.getFirstName());
@@ -521,15 +599,12 @@ public class TeacherServiceImpl implements TeacherService {
             teacher.setPhoneNumber(invitation.getPhoneNumber());
             teacher.setUser(user);
             teacher.setTeacherId(generateTeacherId());
+            teacher.setEmployeeId(generateEmployeeId());
             teacher.setSubjects(new HashSet<>());
             teacher.setQualifications(new HashSet<>());
             teacher.setEmploymentType(Teacher.EmploymentType.FULL_TIME);
             teacher.setEmploymentStatus(Teacher.EmploymentStatus.ACTIVE);
-            teacher.setStatus(Teacher.TeacherStatus.ACTIVE);
-            teacher.setGender(Teacher.Gender.MALE);
-            teacher.setMaritalStatus(Teacher.MaritalStatus.SINGLE);
         }
-
         user.setTeacher(teacher);
         invitation.setUsed(true);
 
@@ -604,60 +679,97 @@ public class TeacherServiceImpl implements TeacherService {
     }
 
     private void mapTeacherFields(Teacher teacher, TeacherDTO dto, boolean isCreate) {
-        if (dto.getFirstName() != null) teacher.setFirstName(dto.getFirstName());
-        if (dto.getLastName() != null) teacher.setLastName(dto.getLastName());
-        teacher.setMiddleName(dto.getMiddleName());
-        if (dto.getEmail() != null) teacher.setEmail(dto.getEmail());
-        teacher.setPhoneNumber(dto.getPhoneNumber());
-        teacher.setAlternatePhone(dto.getAlternatePhone());
-        teacher.setAddress(dto.getAddress());
-        teacher.setQualification(dto.getQualification());
-        teacher.setSpecialization(dto.getSpecialization());
-        teacher.setDepartment(dto.getDepartment());
-        teacher.setDesignation(dto.getDesignation());
-        teacher.setEmployeeId(dto.getEmployeeId());
-        teacher.setEmergencyContactName(dto.getEmergencyContactName());
-        teacher.setEmergencyContactPhone(dto.getEmergencyContactPhone());
-        teacher.setEmergencyContactRelationship(dto.getEmergencyContactRelationship());
+        if (dto.getFirstName() != null) teacher.setFirstName(dto.getFirstName().trim());
+        if (dto.getLastName() != null) teacher.setLastName(dto.getLastName().trim());
+
+        teacher.setMiddleName(dto.getMiddleName() != null ? dto.getMiddleName().trim() : null);
+
+        if (dto.getEmail() != null) teacher.setEmail(dto.getEmail().trim().toLowerCase());
+
+        teacher.setPhoneNumber(dto.getPhoneNumber() != null ? dto.getPhoneNumber().trim() : null);
+        teacher.setAlternatePhone(dto.getAlternatePhone() != null ? dto.getAlternatePhone().trim() : null);
+        teacher.setAddress(dto.getAddress() != null ? dto.getAddress().trim() : null);
+        teacher.setQualification(dto.getQualification() != null ? dto.getQualification().trim() : null);
+        teacher.setSpecialization(dto.getSpecialization() != null ? dto.getSpecialization().trim() : null);
+        teacher.setDepartment(dto.getDepartment() != null ? dto.getDepartment().trim() : null);
+        teacher.setDesignation(dto.getDesignation() != null ? dto.getDesignation().trim() : null);
+
+        String normalizedEmployeeId = normalizeIdValue(dto.getEmployeeId());
+        if (normalizedEmployeeId != null) {
+            teacher.setEmployeeId(normalizedEmployeeId);
+        } else if (isCreate && normalizeIdValue(teacher.getEmployeeId()) == null) {
+            teacher.setEmployeeId(null);
+        }
+
+        String normalizedTeacherId = normalizeIdValue(dto.getTeacherId());
+        if (normalizedTeacherId != null) {
+            teacher.setTeacherId(normalizedTeacherId);
+        } else if (isCreate && normalizeIdValue(teacher.getTeacherId()) == null) {
+            teacher.setTeacherId(null);
+        }
+
+        teacher.setEmergencyContactName(
+                dto.getEmergencyContactName() != null ? dto.getEmergencyContactName().trim() : null
+        );
+        teacher.setEmergencyContactPhone(
+                dto.getEmergencyContactPhone() != null ? dto.getEmergencyContactPhone().trim() : null
+        );
+        teacher.setEmergencyContactRelationship(
+                dto.getEmergencyContactRelationship() != null
+                        ? dto.getEmergencyContactRelationship().trim()
+                        : null
+        );
+
+        teacher.setDateOfBirth(dto.getDateOfBirth());
+        teacher.setDateOfJoining(dto.getDateOfJoining());
         teacher.setYearsOfExperience(dto.getYearsOfExperience());
-        teacher.setProfilePictureUrl(dto.getProfilePictureUrl());
 
-        if (dto.getDateOfBirth() != null) {
-            teacher.setDateOfBirth(dto.getDateOfBirth());
+        if (dto.getGender() != null && !dto.getGender().trim().isEmpty()) {
+            teacher.setGender(Teacher.Gender.valueOf(dto.getGender().trim().toUpperCase()));
         }
 
-        if (dto.getDateOfJoining() != null) {
-            teacher.setDateOfJoining(dto.getDateOfJoining());
-        } else if (isCreate && teacher.getDateOfJoining() == null) {
-            teacher.setDateOfJoining(LocalDate.now());
+        if (dto.getEmploymentType() != null && !dto.getEmploymentType().trim().isEmpty()) {
+            teacher.setEmploymentType(
+                    Teacher.EmploymentType.valueOf(dto.getEmploymentType().trim().toUpperCase())
+            );
         }
 
-        if (dto.getGender() != null && !dto.getGender().isBlank()) {
-            teacher.setGender(parseGender(dto.getGender()));
+        if (dto.getEmploymentStatus() != null && !dto.getEmploymentStatus().trim().isEmpty()) {
+            teacher.setEmploymentStatus(
+                    Teacher.EmploymentStatus.valueOf(dto.getEmploymentStatus().trim().toUpperCase())
+            );
         }
 
-        if (dto.getMaritalStatus() != null && !dto.getMaritalStatus().isBlank()) {
-            teacher.setMaritalStatus(parseMaritalStatus(dto.getMaritalStatus()));
+        if (dto.getStatus() != null && !dto.getStatus().trim().isEmpty()) {
+            teacher.setStatus(
+                    Teacher.TeacherStatus.valueOf(dto.getStatus().trim().toUpperCase())
+            );
         }
 
-        if (dto.getEmploymentType() != null && !dto.getEmploymentType().isBlank()) {
-            teacher.setEmploymentType(parseEmploymentType(dto.getEmploymentType()));
+        if (dto.getMaritalStatus() != null && !dto.getMaritalStatus().trim().isEmpty()) {
+            teacher.setMaritalStatus(
+                    Teacher.MaritalStatus.valueOf(dto.getMaritalStatus().trim().toUpperCase())
+            );
         }
 
-        if (dto.getEmploymentStatus() != null && !dto.getEmploymentStatus().isBlank()) {
-            teacher.setEmploymentStatus(parseEmploymentStatus(dto.getEmploymentStatus()));
-        }
-
-        if (dto.getStatus() != null && !dto.getStatus().isBlank()) {
-            teacher.setStatus(parseTeacherStatus(dto.getStatus()));
-        }
-
+        teacher.getSubjects().clear();
         if (dto.getSubjects() != null) {
-            teacher.setSubjects(new HashSet<>(dto.getSubjects()));
+            teacher.getSubjects().addAll(
+                    dto.getSubjects().stream()
+                            .filter(s -> s != null && !s.trim().isEmpty())
+                            .map(String::trim)
+                            .toList()
+            );
         }
 
+        teacher.getQualifications().clear();
         if (dto.getQualifications() != null) {
-            teacher.setQualifications(new HashSet<>(dto.getQualifications()));
+            teacher.getQualifications().addAll(
+                    dto.getQualifications().stream()
+                            .filter(q -> q != null && !q.trim().isEmpty())
+                            .map(String::trim)
+                            .toList()
+            );
         }
     }
 

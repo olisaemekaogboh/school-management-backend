@@ -3,6 +3,7 @@ package com.inkFront.schoolManagement.repository;
 import com.inkFront.schoolManagement.model.Teacher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -28,7 +29,7 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
         LEFT JOIN FETCH t.qualifications
         LEFT JOIN FETCH t.user
         WHERE t.id = :id
-    """)
+        """)
     Optional<Teacher> findByIdWithDetails(@Param("id") Long id);
 
     @Query("""
@@ -38,7 +39,7 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
         LEFT JOIN FETCH t.qualifications
         LEFT JOIN FETCH t.user
         WHERE t.user.id = :userId
-    """)
+        """)
     Optional<Teacher> findByUserIdWithDetails(@Param("userId") Long userId);
 
     @Query("""
@@ -48,7 +49,7 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
         LEFT JOIN FETCH t.qualifications
         LEFT JOIN FETCH t.user
         WHERE t.teacherId = :teacherId
-    """)
+        """)
     Optional<Teacher> findByTeacherIdWithDetails(@Param("teacherId") String teacherId);
 
     @Query("""
@@ -57,7 +58,7 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
         LEFT JOIN FETCH t.subjects
         LEFT JOIN FETCH t.qualifications
         LEFT JOIN FETCH t.user
-    """)
+        """)
     List<Teacher> findAllWithDetails();
 
     boolean existsByEmail(String email);
@@ -88,7 +89,7 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
            OR LOWER(t.email) LIKE LOWER(CONCAT('%', :term, '%'))
            OR LOWER(t.teacherId) LIKE LOWER(CONCAT('%', :term, '%'))
            OR LOWER(t.employeeId) LIKE LOWER(CONCAT('%', :term, '%'))
-    """)
+        """)
     List<Teacher> searchTeachers(@Param("term") String term);
 
     Page<Teacher> findAll(Pageable pageable);
