@@ -20,6 +20,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -35,31 +36,29 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/students")
-@CrossOrigin(origins = "https://localhost:3000")
+@CrossOrigin(origins = "http://localhost:3000")
 @RequiredArgsConstructor
 public class StudentController {
 
     private static final Logger log = LoggerFactory.getLogger(StudentController.class);
+    private static final String UPLOAD_DIR = "uploads/profile-pictures/";
 
     private final StudentService studentService;
     private final SecurityUtils securityUtils;
 
-    private static final String UPLOAD_DIR = "uploads/profile-pictures/";
-
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<StudentResponseDTO> registerStudentWithFile(
-            @RequestParam("student") String studentJson,
-            @RequestPart(value = "profilePicture", required = false) MultipartFile profilePicture) {
+            @RequestPart(value = "student", required = false) String studentJson,
+            @RequestPart(value = "studentJson", required = false) String legacyStudentJson,
+            @RequestPart(value = "profilePicture", required = false) MultipartFile profilePicture,
+            @RequestPart(value = "file", required = false) MultipartFile file) {
 
         try {
-            ObjectMapper mapper = new ObjectMapper();
-            mapper.registerModule(new JavaTimeModule());
-            mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+            StudentRequestDTO studentRequest = parseStudentRequest(studentJson, legacyStudentJson);
+            MultipartFile imageFile = resolveMultipartFile(profilePicture, file);
 
-            StudentRequestDTO studentRequest = mapper.readValue(studentJson, StudentRequestDTO.class);
-
-            if (profilePicture != null && !profilePicture.isEmpty()) {
-                String fileUrl = saveProfilePicture(profilePicture);
+            if (imageFile != null && !imageFile.isEmpty()) {
+                String fileUrl = saveProfilePicture(imageFile);
                 studentRequest.setProfilePictureUrl(fileUrl);
             }
 
@@ -70,18 +69,25 @@ public class StudentController {
 
         } catch (Exception e) {
             log.error("Error registering student with file", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
         }
     }
 
     @PostMapping(value = "/with-file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<StudentResponseDTO> registerStudentWithFilePart(
-            @RequestPart("student") @Valid StudentRequestDTO studentRequest,
-            @RequestPart(value = "profilePicture", required = false) MultipartFile profilePicture) {
+            @RequestPart(value = "student", required = false) StudentRequestDTO studentRequest,
+            @RequestPart(value = "profilePicture", required = false) MultipartFile profilePicture,
+            @RequestPart(value = "file", required = false) MultipartFile file) {
 
         try {
-            if (profilePicture != null && !profilePicture.isEmpty()) {
-                String fileUrl = saveProfilePicture(profilePicture);
+            if (studentRequest == null) {
+                return ResponseEntity.badRequest().build();
+            }
+
+            MultipartFile imageFile = resolveMultipartFile(profilePicture, file);
+
+            if (imageFile != null && !imageFile.isEmpty()) {
+                String fileUrl = saveProfilePicture(imageFile);
                 studentRequest.setProfilePictureUrl(fileUrl);
             }
 
@@ -92,7 +98,7 @@ public class StudentController {
 
         } catch (Exception e) {
             log.error("Error registering student with @RequestPart", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
         }
     }
 
@@ -109,18 +115,17 @@ public class StudentController {
     @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<StudentResponseDTO> updateStudentWithFile(
             @PathVariable Long id,
-            @RequestParam("student") String studentJson,
-            @RequestPart(value = "profilePicture", required = false) MultipartFile profilePicture) {
+            @RequestPart(value = "student", required = false) String studentJson,
+            @RequestPart(value = "studentJson", required = false) String legacyStudentJson,
+            @RequestPart(value = "profilePicture", required = false) MultipartFile profilePicture,
+            @RequestPart(value = "file", required = false) MultipartFile file) {
 
         try {
-            ObjectMapper mapper = new ObjectMapper();
-            mapper.registerModule(new JavaTimeModule());
-            mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+            StudentRequestDTO studentRequest = parseStudentRequest(studentJson, legacyStudentJson);
+            MultipartFile imageFile = resolveMultipartFile(profilePicture, file);
 
-            StudentRequestDTO studentRequest = mapper.readValue(studentJson, StudentRequestDTO.class);
-
-            if (profilePicture != null && !profilePicture.isEmpty()) {
-                String fileUrl = saveProfilePicture(profilePicture);
+            if (imageFile != null && !imageFile.isEmpty()) {
+                String fileUrl = saveProfilePicture(imageFile);
                 studentRequest.setProfilePictureUrl(fileUrl);
             }
 
@@ -131,7 +136,7 @@ public class StudentController {
 
         } catch (Exception e) {
             log.error("Error updating student with file", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
         }
     }
 
@@ -407,6 +412,30 @@ public class StudentController {
         }
 
         return ResponseEntity.ok(StudentResponseDTO.fromStudent(currentUser.getStudent()));
+    }
+
+    private StudentRequestDTO parseStudentRequest(String studentJson, String legacyStudentJson) throws IOException {
+        String payload = StringUtils.hasText(studentJson) ? studentJson : legacyStudentJson;
+
+        if (!StringUtils.hasText(payload)) {
+            throw new IllegalArgumentException("Student payload is required");
+        }
+
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
+        return mapper.readValue(payload, StudentRequestDTO.class);
+    }
+
+    private MultipartFile resolveMultipartFile(MultipartFile profilePicture, MultipartFile file) {
+        if (profilePicture != null && !profilePicture.isEmpty()) {
+            return profilePicture;
+        }
+        if (file != null && !file.isEmpty()) {
+            return file;
+        }
+        return null;
     }
 
     private String saveProfilePicture(MultipartFile file) throws IOException {

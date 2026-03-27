@@ -142,8 +142,6 @@ public class ResultController {
         try {
             User user = currentUser();
             accessControlService.requireStudentResultAccess(user, studentId);
-
-            // Use session result service for consistent annual totals / averages / attendance
             return ResponseEntity.ok(sessionResultService.calculateSessionResult(studentId, session));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
@@ -180,8 +178,6 @@ public class ResultController {
             }
 
             Long studentId = user.getStudent().getId();
-
-            // Use session result service for consistent annual totals / averages / attendance
             return ResponseEntity.ok(sessionResultService.calculateSessionResult(studentId, session));
         } catch (Exception e) {
             return serverError("Unable to fetch your annual result", e);

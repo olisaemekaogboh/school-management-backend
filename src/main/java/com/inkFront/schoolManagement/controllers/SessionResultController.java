@@ -180,8 +180,14 @@ public class SessionResultController {
     @GetMapping("/class/{className}")
     public ResponseEntity<?> getClassSessionResults(
             @PathVariable String className,
-            @RequestParam String session) {
+            @RequestParam String session,
+            @RequestParam(required = false) String arm) {
         try {
+            if (arm != null && !arm.isBlank()) {
+                accessControlService.requireResultClassAccess(currentUser(), className, arm);
+                return ResponseEntity.ok(sessionResultService.getArmSessionResults(className, arm, session));
+            }
+
             accessControlService.requireAdmin(currentUser());
             return ResponseEntity.ok(sessionResultService.getClassSessionResults(className, session));
         } catch (AccessDeniedException e) {
@@ -209,8 +215,14 @@ public class SessionResultController {
     @GetMapping("/rankings/class/{className}")
     public ResponseEntity<?> getClassRankings(
             @PathVariable String className,
-            @RequestParam String session) {
+            @RequestParam String session,
+            @RequestParam(required = false) String arm) {
         try {
+            if (arm != null && !arm.isBlank()) {
+                accessControlService.requireResultClassAccess(currentUser(), className, arm);
+                return ResponseEntity.ok(sessionResultService.getArmRankings(className, arm, session));
+            }
+
             accessControlService.requireAdmin(currentUser());
             return ResponseEntity.ok(sessionResultService.getClassRankings(className, session));
         } catch (AccessDeniedException e) {

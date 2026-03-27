@@ -1,5 +1,8 @@
 package com.inkFront.schoolManagement.controllers;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.inkFront.schoolManagement.dto.ApiResponse;
 import com.inkFront.schoolManagement.dto.CompleteRegistrationDTO;
 import com.inkFront.schoolManagement.dto.StudentResponseDTO;
@@ -33,11 +36,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -208,25 +214,35 @@ public class TeacherController {
     }
 
     @PreAuthorize("hasRole('ADMIN')")
-    @PostMapping(consumes = {"multipart/form-data"})
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<TeacherDTO> createTeacher(
-            @RequestPart("teacher") TeacherDTO teacherDTO,
-            @RequestPart(value = "profilePicture", required = false) MultipartFile profilePicture) {
+            @RequestPart(value = "teacher", required = false) TeacherDTO teacherDTO,
+            @RequestPart(value = "teacherJson", required = false) String teacherJson,
+            @RequestPart(value = "profilePicture", required = false) MultipartFile profilePicture,
+            @RequestPart(value = "file", required = false) MultipartFile file) {
 
-        log.info("POST /api/teachers - Creating new teacher: {}", teacherDTO.getEmail());
-        TeacherDTO createdTeacher = teacherService.createTeacher(teacherDTO, profilePicture);
+        TeacherDTO payload = resolveTeacherPayload(teacherDTO, teacherJson);
+        MultipartFile imageFile = resolveMultipartFile(profilePicture, file);
+
+        log.info("POST /api/teachers - Creating new teacher: {}", payload != null ? payload.getEmail() : null);
+        TeacherDTO createdTeacher = teacherService.createTeacher(payload, imageFile);
         return new ResponseEntity<>(createdTeacher, HttpStatus.CREATED);
     }
 
     @PreAuthorize("hasRole('ADMIN')")
-    @PutMapping(value = "/{id}", consumes = {"multipart/form-data"})
+    @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<TeacherDTO> updateTeacher(
             @PathVariable Long id,
-            @RequestPart("teacher") TeacherDTO teacherDTO,
-            @RequestPart(value = "profilePicture", required = false) MultipartFile profilePicture) {
+            @RequestPart(value = "teacher", required = false) TeacherDTO teacherDTO,
+            @RequestPart(value = "teacherJson", required = false) String teacherJson,
+            @RequestPart(value = "profilePicture", required = false) MultipartFile profilePicture,
+            @RequestPart(value = "file", required = false) MultipartFile file) {
+
+        TeacherDTO payload = resolveTeacherPayload(teacherDTO, teacherJson);
+        MultipartFile imageFile = resolveMultipartFile(profilePicture, file);
 
         log.info("PUT /api/teachers/{} - Updating teacher", id);
-        TeacherDTO updatedTeacher = teacherService.updateTeacher(id, teacherDTO, profilePicture);
+        TeacherDTO updatedTeacher = teacherService.updateTeacher(id, payload, imageFile);
         return ResponseEntity.ok(updatedTeacher);
     }
 
@@ -648,5 +664,34 @@ public class TeacherController {
                         request.getStatus()
                 )
         );
+    }
+
+    private TeacherDTO resolveTeacherPayload(TeacherDTO teacherDTO, String teacherJson) {
+        if (teacherDTO != null) {
+            return teacherDTO;
+        }
+
+        if (!StringUtils.hasText(teacherJson)) {
+            throw new IllegalArgumentException("Teacher payload is required");
+        }
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.registerModule(new JavaTimeModule());
+            mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+            return mapper.readValue(teacherJson, TeacherDTO.class);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Invalid teacher payload", e);
+        }
+    }
+
+    private MultipartFile resolveMultipartFile(MultipartFile profilePicture, MultipartFile file) {
+        if (profilePicture != null && !profilePicture.isEmpty()) {
+            return profilePicture;
+        }
+        if (file != null && !file.isEmpty()) {
+            return file;
+        }
+        return null;
     }
 }
