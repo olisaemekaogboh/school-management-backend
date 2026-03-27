@@ -1,10 +1,15 @@
-// src/main/java/com/inkFront/schoolManagement/service/IMPL/UserServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
 import com.inkFront.schoolManagement.dto.UserDTO;
 import com.inkFront.schoolManagement.exception.BusinessException;
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
+import com.inkFront.schoolManagement.model.Parent;
+import com.inkFront.schoolManagement.model.Student;
+import com.inkFront.schoolManagement.model.SupportTicket;
+import com.inkFront.schoolManagement.model.Teacher;
 import com.inkFront.schoolManagement.model.User;
+import com.inkFront.schoolManagement.repository.SupportMessageRepository;
+import com.inkFront.schoolManagement.repository.SupportTicketRepository;
 import com.inkFront.schoolManagement.repository.UserRepository;
 import com.inkFront.schoolManagement.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +35,8 @@ public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final SupportTicketRepository supportTicketRepository;
+    private final SupportMessageRepository supportMessageRepository;
 
     @Override
     public UserDTO createUser(UserDTO userDTO) {
@@ -90,7 +97,6 @@ public class UserServiceImpl implements UserService {
             });
         }
 
-        // Update only editable fields
         if (userDTO.getFirstName() != null) {
             existingUser.setFirstName(userDTO.getFirstName().trim());
         }
@@ -110,7 +116,6 @@ public class UserServiceImpl implements UserService {
         existingUser.setPhoneNumber(userDTO.getPhoneNumber());
         existingUser.setProfilePictureUrl(userDTO.getProfilePictureUrl());
 
-        // Preserve protected fields unless explicitly handled in admin workflows
         if (userDTO.getPassword() != null && !userDTO.getPassword().trim().isEmpty()) {
             existingUser.setPassword(passwordEncoder.encode(userDTO.getPassword()));
         }
@@ -154,11 +159,28 @@ public class UserServiceImpl implements UserService {
     @Override
     public void deleteUser(Long id) {
         log.info("Deleting user with id: {}", id);
+
         User user = getUserEntityById(id);
+
+        // 🔥 Clear support relationships first
+        int clearedAssignedAdmin = supportTicketRepository.clearAssignedAdmin(id);
+
+        List<SupportTicket> createdTickets = supportTicketRepository.findByCreatedBy_Id(id);
+        if (!createdTickets.isEmpty()) {
+            supportTicketRepository.deleteAll(createdTickets);
+        }
+
+        supportMessageRepository.deleteBySender_Id(id);
+
+        // 🔥 BREAK ONLY FROM USER SIDE (VERY IMPORTANT)
+        user.setTeacher(null);
+        user.setStudent(null);
+        user.setParent(null);
+
         userRepository.delete(user);
+
         log.info("User deleted successfully with id: {}", id);
     }
-
     @Override
     @Transactional(readOnly = true)
     public List<UserDTO> getAllUsers() {

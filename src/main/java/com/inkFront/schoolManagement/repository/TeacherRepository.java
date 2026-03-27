@@ -122,4 +122,9 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
 
     @Query("SELECT t FROM Teacher t WHERE t.user IS NULL")
     List<Teacher> findTeachersWithoutUserAccount();
+    @Query("SELECT t.teacherId FROM Teacher t WHERE t.teacherId IS NOT NULL")
+    List<String> findAllTeacherIds();
+
+    @Query("SELECT t.employeeId FROM Teacher t WHERE t.employeeId IS NOT NULL")
+    List<String> findAllEmployeeIds();
 }

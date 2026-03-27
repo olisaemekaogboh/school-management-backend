@@ -2,12 +2,16 @@ package com.inkFront.schoolManagement.repository;
 
 import com.inkFront.schoolManagement.model.SchoolClass;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
 
+@Repository
 public interface ClassRepository extends JpaRepository<SchoolClass, Long> {
 
     Optional<SchoolClass> findByClassName(String className);
@@ -68,4 +72,25 @@ public interface ClassRepository extends JpaRepository<SchoolClass, Long> {
             @Param("className") String className,
             @Param("arm") String arm
     );
+
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        UPDATE SchoolClass c
+        SET c.classTeacher = null
+        WHERE c.classTeacher IS NOT NULL
+          AND c.classTeacher.id = :teacherId
+    """)
+    int clearTeacherFromClasses(@Param("teacherId") Long teacherId);
+
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        UPDATE SchoolClass c
+        SET c.classTeacher = :newTeacher
+        WHERE c.classTeacher IS NOT NULL
+          AND c.classTeacher.id = :oldTeacherId
+    """)
+    int reassignTeacherInClasses(@Param("oldTeacherId") Long oldTeacherId,
+                                 @Param("newTeacher") com.inkFront.schoolManagement.model.Teacher newTeacher);
 }

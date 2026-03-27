@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/service/IMPL/FileStorageServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
 import com.inkFront.schoolManagement.exception.FileStorageException;
@@ -9,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,27 +23,39 @@ public class FileStorageServiceImpl implements FileStorageService {
     @Value("${file.upload-dir:uploads}")
     private String uploadDir;
 
-    @Value("${app.base-url:http://localhost:8080}")
+    @Value("${app.base-url:https://localhost:8443}")
     private String baseUrl;
 
     private Path fileStorageLocation;
 
+    @PostConstruct
+    public void init() {
+        try {
+            fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
+            Files.createDirectories(fileStorageLocation);
+            log.info("File storage initialized at {}", fileStorageLocation);
+        } catch (IOException ex) {
+            throw new FileStorageException("Could not create upload directory", ex);
+        }
+    }
+
     @Override
     public String storeFile(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new FileStorageException("Cannot store empty file");
+        }
+
         log.info("Storing file: {}", file.getOriginalFilename());
 
         try {
-            if (fileStorageLocation == null) {
-                fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
-                Files.createDirectories(fileStorageLocation);
-            }
-
             String originalFileName = StringUtils.cleanPath(file.getOriginalFilename());
             String fileExtension = "";
+
             if (originalFileName.contains(".")) {
                 fileExtension = originalFileName.substring(originalFileName.lastIndexOf("."));
             }
-            String fileName = UUID.randomUUID().toString() + fileExtension;
+
+            String fileName = UUID.randomUUID() + fileExtension;
 
             if (fileName.contains("..")) {
                 throw new FileStorageException("Filename contains invalid path sequence: " + fileName);
@@ -53,7 +65,8 @@ public class FileStorageServiceImpl implements FileStorageService {
             Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
 
             log.info("File stored successfully: {}", fileName);
-            return fileName;
+
+            return getFileUrl(fileName);
         } catch (IOException ex) {
             log.error("Could not store file: {}", ex.getMessage());
             throw new FileStorageException("Could not store file: " + ex.getMessage(), ex);
@@ -62,14 +75,11 @@ public class FileStorageServiceImpl implements FileStorageService {
 
     @Override
     public byte[] loadFile(String fileName) {
-        log.info("Loading file: {}", fileName);
+        String cleanFileName = extractFileName(fileName);
+        log.info("Loading file: {}", cleanFileName);
 
         try {
-            if (fileStorageLocation == null) {
-                fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
-            }
-
-            Path filePath = fileStorageLocation.resolve(fileName).normalize();
+            Path filePath = fileStorageLocation.resolve(cleanFileName).normalize();
             return Files.readAllBytes(filePath);
         } catch (IOException ex) {
             log.error("Could not load file: {}", ex.getMessage());
@@ -79,14 +89,11 @@ public class FileStorageServiceImpl implements FileStorageService {
 
     @Override
     public boolean deleteFile(String fileName) {
-        log.info("Deleting file: {}", fileName);
+        String cleanFileName = extractFileName(fileName);
+        log.info("Deleting file: {}", cleanFileName);
 
         try {
-            if (fileStorageLocation == null) {
-                fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
-            }
-
-            Path filePath = fileStorageLocation.resolve(fileName).normalize();
+            Path filePath = fileStorageLocation.resolve(cleanFileName).normalize();
             return Files.deleteIfExists(filePath);
         } catch (IOException ex) {
             log.error("Could not delete file: {}", ex.getMessage());
@@ -96,6 +103,21 @@ public class FileStorageServiceImpl implements FileStorageService {
 
     @Override
     public String getFileUrl(String fileName) {
-        return baseUrl + "/uploads/" + fileName;
+        String normalizedBaseUrl = baseUrl.endsWith("/")
+                ? baseUrl.substring(0, baseUrl.length() - 1)
+                : baseUrl;
+
+        return normalizedBaseUrl + "/uploads/" + fileName;
+    }
+
+    private String extractFileName(String value) {
+        if (value == null || value.isBlank()) {
+            throw new FileStorageException("File name cannot be null or blank");
+        }
+
+        String normalized = value.replace("\\", "/");
+        int lastSlash = normalized.lastIndexOf("/");
+
+        return lastSlash >= 0 ? normalized.substring(lastSlash + 1) : normalized;
     }
 }

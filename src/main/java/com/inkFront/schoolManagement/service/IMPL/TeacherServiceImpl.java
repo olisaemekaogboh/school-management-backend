@@ -1,18 +1,23 @@
 package com.inkFront.schoolManagement.service.IMPL;
 
-import com.inkFront.schoolManagement.dto.*;
+import com.inkFront.schoolManagement.dto.CompleteRegistrationDTO;
+import com.inkFront.schoolManagement.dto.TeacherDTO;
+import com.inkFront.schoolManagement.dto.TeacherInvitationDTO;
+import com.inkFront.schoolManagement.dto.TeacherInviteDTO;
 import com.inkFront.schoolManagement.exception.BusinessException;
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
 import com.inkFront.schoolManagement.model.Teacher;
 import com.inkFront.schoolManagement.model.TeacherInvitation;
 import com.inkFront.schoolManagement.model.User;
+import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.TeacherInvitationRepository;
 import com.inkFront.schoolManagement.repository.TeacherRepository;
 import com.inkFront.schoolManagement.repository.UserRepository;
 import com.inkFront.schoolManagement.service.FileStorageService;
 import com.inkFront.schoolManagement.service.TeacherService;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -20,23 +25,29 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Year;
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 @Transactional
 public class TeacherServiceImpl implements TeacherService {
+
+    private static final Logger log = LoggerFactory.getLogger(TeacherServiceImpl.class);
 
     private final TeacherRepository teacherRepository;
     private final TeacherInvitationRepository teacherInvitationRepository;
     private final UserRepository userRepository;
     private final FileStorageService fileStorageService;
     private final PasswordEncoder passwordEncoder;
+    private final ClassRepository classRepository;
 
     private TeacherDTO toTeacherDTO(Teacher teacher) {
         if (teacher.getSubjects() != null) {
@@ -50,6 +61,7 @@ public class TeacherServiceImpl implements TeacherService {
         }
         return TeacherDTO.fromEntity(teacher);
     }
+
     private String normalizeIdValue(String value) {
         if (value == null) {
             return null;
@@ -58,9 +70,25 @@ public class TeacherServiceImpl implements TeacherService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    private String generateNextTeacherId() {
+        String yearSuffix = String.valueOf(Year.now().getValue()).substring(2);
+        long maxSequence = getMaxTeacherIdSequence();
+        long sequence = maxSequence + 1;
+
+        String candidate = "TCH" + yearSuffix + String.format("%04d", sequence);
+
+        while (teacherRepository.existsByTeacherId(candidate)) {
+            sequence++;
+            candidate = "TCH" + yearSuffix + String.format("%04d", sequence);
+        }
+
+        return candidate;
+    }
+
     private String generateEmployeeId() {
         String yearSuffix = String.valueOf(Year.now().getValue()).substring(2);
-        long sequence = teacherRepository.count() + 1;
+        long maxSequence = getMaxEmployeeIdSequence();
+        long sequence = maxSequence + 1;
 
         String candidate = "EMP" + yearSuffix + String.format("%04d", sequence);
 
@@ -72,21 +100,80 @@ public class TeacherServiceImpl implements TeacherService {
         return candidate;
     }
 
+    private long getMaxTeacherIdSequence() {
+        List<String> allTeacherIds = teacherRepository.findAllTeacherIds();
+        long maxSeq = 0;
+
+        for (String id : allTeacherIds) {
+            if (id != null && id.matches(".*\\d+$")) {
+                try {
+                    String numericPart = id.replaceAll(".*?(\\d+)$", "$1");
+                    long seq = Long.parseLong(numericPart);
+                    if (seq > maxSeq) {
+                        maxSeq = seq;
+                    }
+                } catch (NumberFormatException e) {
+                    log.warn("Could not parse numeric part from teacher ID: {}", id);
+                }
+            }
+        }
+
+        return maxSeq;
+    }
+
+    private long getMaxEmployeeIdSequence() {
+        List<String> allEmployeeIds = teacherRepository.findAllEmployeeIds();
+        long maxSeq = 0;
+
+        for (String id : allEmployeeIds) {
+            if (id != null && id.matches(".*\\d+$")) {
+                try {
+                    String numericPart = id.replaceAll(".*?(\\d+)$", "$1");
+                    long seq = Long.parseLong(numericPart);
+                    if (seq > maxSeq) {
+                        maxSeq = seq;
+                    }
+                } catch (NumberFormatException e) {
+                    log.warn("Could not parse numeric part from employee ID: {}", id);
+                }
+            }
+        }
+
+        return maxSeq;
+    }
+
     private void assignGeneratedIdsIfMissing(Teacher teacher) {
         if (normalizeIdValue(teacher.getTeacherId()) == null) {
-            teacher.setTeacherId(generateTeacherId());
+            teacher.setTeacherId(generateNextTeacherId());
         } else {
-            teacher.setTeacherId(teacher.getTeacherId().trim());
+            String existingId = teacher.getTeacherId().trim();
+            if (!existingId.matches("^TCH\\d{2}\\d{4}$")) {
+                log.warn("Teacher ID {} does not follow standard format, but keeping as is", existingId);
+            }
+            teacher.setTeacherId(existingId);
         }
 
         if (normalizeIdValue(teacher.getEmployeeId()) == null) {
             teacher.setEmployeeId(generateEmployeeId());
         } else {
-            teacher.setEmployeeId(teacher.getEmployeeId().trim());
+            String existingId = teacher.getEmployeeId().trim();
+            if (!existingId.matches("^EMP\\d{2}\\d{4}$") && !existingId.matches("^\\d{4}$")) {
+                log.warn("Employee ID {} does not follow standard format, but keeping as is", existingId);
+            }
+            teacher.setEmployeeId(existingId);
+        }
+
+        String employeeId = teacher.getEmployeeId();
+        if (employeeId != null && employeeId.matches("^\\d{4}$")) {
+            String yearSuffix = String.valueOf(Year.now().getValue()).substring(2);
+            String newEmployeeId = "EMP" + yearSuffix + employeeId;
+
+            if (!teacherRepository.existsByEmployeeId(newEmployeeId)) {
+                teacher.setEmployeeId(newEmployeeId);
+                log.info("Converted legacy employee ID {} to {}", employeeId, newEmployeeId);
+            }
         }
     }
-
-    // ========== BASIC CRUD OPERATIONS ==========
 
     @Override
     @Transactional(readOnly = true)
@@ -152,6 +239,9 @@ public class TeacherServiceImpl implements TeacherService {
         }
 
         Teacher teacher = new Teacher();
+        teacher.setSubjects(new HashSet<>());
+        teacher.setQualifications(new HashSet<>());
+
         mapTeacherFields(teacher, teacherDTO, true);
 
         if (normalizedEmail != null) {
@@ -175,7 +265,8 @@ public class TeacherServiceImpl implements TeacherService {
 
         Teacher savedTeacher = teacherRepository.save(teacher);
 
-        log.info("Teacher created successfully with id: {}", savedTeacher.getId());
+        log.info("Teacher created successfully with id: {} and employeeId: {}",
+                savedTeacher.getId(), savedTeacher.getEmployeeId());
         return toTeacherDTO(savedTeacher);
     }
 
@@ -191,6 +282,7 @@ public class TeacherServiceImpl implements TeacherService {
                 : null;
 
         if (requestedEmail != null
+                && existingTeacher.getEmail() != null
                 && !requestedEmail.equalsIgnoreCase(existingTeacher.getEmail())
                 && teacherRepository.existsByEmail(requestedEmail)) {
             throw new BusinessException("Email already exists");
@@ -213,6 +305,13 @@ public class TeacherServiceImpl implements TeacherService {
         String preservedTeacherId = existingTeacher.getTeacherId();
         String preservedEmployeeId = existingTeacher.getEmployeeId();
 
+        if (existingTeacher.getSubjects() == null) {
+            existingTeacher.setSubjects(new HashSet<>());
+        }
+        if (existingTeacher.getQualifications() == null) {
+            existingTeacher.setQualifications(new HashSet<>());
+        }
+
         mapTeacherFields(existingTeacher, teacherDTO, false);
 
         if (requestedEmail != null) {
@@ -233,6 +332,16 @@ public class TeacherServiceImpl implements TeacherService {
             existingTeacher.setEmployeeId(generateEmployeeId());
         }
 
+        if (existingTeacher.getEmployeeId() != null &&
+                existingTeacher.getEmployeeId().matches("^\\d{4}$")) {
+            String yearSuffix = String.valueOf(Year.now().getValue()).substring(2);
+            String newEmployeeId = "EMP" + yearSuffix + existingTeacher.getEmployeeId();
+            if (!teacherRepository.existsByEmployeeId(newEmployeeId)) {
+                existingTeacher.setEmployeeId(newEmployeeId);
+                log.info("Converted legacy employee ID to standard format: {}", newEmployeeId);
+            }
+        }
+
         if (profilePicture != null && !profilePicture.isEmpty()) {
             String pictureUrl = fileStorageService.storeFile(profilePicture);
             existingTeacher.setProfilePictureUrl(pictureUrl);
@@ -240,17 +349,28 @@ public class TeacherServiceImpl implements TeacherService {
 
         Teacher updatedTeacher = teacherRepository.save(existingTeacher);
 
-        log.info("Teacher updated successfully with id: {}", updatedTeacher.getId());
+        log.info("Teacher updated successfully with id: {} and employeeId: {}",
+                updatedTeacher.getId(), updatedTeacher.getEmployeeId());
         return toTeacherDTO(updatedTeacher);
     }
+
     @Override
     public void deleteTeacher(Long id) {
         Teacher teacher = teacherRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
-        teacherRepository.delete(teacher);
-    }
 
-    // ========== SEARCH AND FILTER OPERATIONS ==========
+        int affectedClasses = classRepository.clearTeacherFromClasses(id);
+        log.info("Cleared teacher {} from {} class(es) before delete", id, affectedClasses);
+
+        if (teacher.getUser() != null) {
+            User linkedUser = teacher.getUser();
+            linkedUser.setTeacher(null);
+            teacher.setUser(null);
+        }
+
+        teacherRepository.delete(teacher);
+        log.info("Teacher {} deleted successfully", id);
+    }
 
     @Override
     @Transactional(readOnly = true)
@@ -317,8 +437,6 @@ public class TeacherServiceImpl implements TeacherService {
                 .collect(Collectors.toList());
     }
 
-    // ========== SUBJECT AND QUALIFICATION MANAGEMENT ==========
-
     @Override
     @Transactional
     public TeacherDTO addSubject(Long id, String subject) {
@@ -326,6 +444,10 @@ public class TeacherServiceImpl implements TeacherService {
 
         Teacher teacher = teacherRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
+
+        if (teacher.getSubjects() == null) {
+            teacher.setSubjects(new HashSet<>());
+        }
 
         if (!teacher.getSubjects().contains(subject)) {
             teacher.getSubjects().add(subject);
@@ -344,9 +466,11 @@ public class TeacherServiceImpl implements TeacherService {
         Teacher teacher = teacherRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
 
-        teacher.getSubjects().remove(subject);
-        Teacher updatedTeacher = teacherRepository.save(teacher);
+        if (teacher.getSubjects() != null) {
+            teacher.getSubjects().remove(subject);
+        }
 
+        Teacher updatedTeacher = teacherRepository.save(teacher);
         return toTeacherDTO(updatedTeacher);
     }
 
@@ -357,6 +481,10 @@ public class TeacherServiceImpl implements TeacherService {
 
         Teacher teacher = teacherRepository.findByIdWithDetails(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher not found with id: " + id));
+
+        if (teacher.getQualifications() == null) {
+            teacher.setQualifications(new HashSet<>());
+        }
 
         if (!teacher.getQualifications().contains(qualification)) {
             teacher.getQualifications().add(qualification);
@@ -377,7 +505,7 @@ public class TeacherServiceImpl implements TeacherService {
 
         if (status != null && !status.isEmpty()) {
             try {
-                teacher.setEmploymentStatus(Teacher.EmploymentStatus.valueOf(status));
+                teacher.setEmploymentStatus(Teacher.EmploymentStatus.valueOf(status.toUpperCase()));
             } catch (IllegalArgumentException e) {
                 throw new BusinessException("Invalid employment status: " + status);
             }
@@ -386,8 +514,6 @@ public class TeacherServiceImpl implements TeacherService {
         Teacher updatedTeacher = teacherRepository.save(teacher);
         return toTeacherDTO(updatedTeacher);
     }
-
-    // ========== STATISTICS AND UTILITIES ==========
 
     @Override
     public Map<String, Object> getTeacherStatistics() {
@@ -426,10 +552,7 @@ public class TeacherServiceImpl implements TeacherService {
 
     @Override
     public String generateTeacherId() {
-        log.info("Generating teacher ID");
-        String year = String.valueOf(Year.now().getValue()).substring(2);
-        long count = teacherRepository.count() + 1;
-        return "TCH" + year + String.format("%04d", count);
+        return generateNextTeacherId();
     }
 
     @Override
@@ -477,8 +600,6 @@ public class TeacherServiceImpl implements TeacherService {
         return counts;
     }
 
-    // ========== EXPORT OPERATIONS ==========
-
     @Override
     public byte[] exportToPDF() {
         log.info("Exporting teachers to PDF");
@@ -502,8 +623,6 @@ public class TeacherServiceImpl implements TeacherService {
         log.info("Exporting teachers by status: {} to PDF", status);
         throw new UnsupportedOperationException("Status export not implemented yet");
     }
-
-    // ========== INVITATION METHODS ==========
 
     @Override
     @Transactional
@@ -578,17 +697,26 @@ public class TeacherServiceImpl implements TeacherService {
         Optional<Teacher> existingTeacher = teacherRepository.findByEmail(invitation.getEmail());
         Teacher teacher;
 
-
         if (existingTeacher.isPresent()) {
             teacher = existingTeacher.get();
             teacher.setUser(user);
 
             if (normalizeIdValue(teacher.getTeacherId()) == null) {
-                teacher.setTeacherId(generateTeacherId());
+                teacher.setTeacherId(generateNextTeacherId());
             }
 
             if (normalizeIdValue(teacher.getEmployeeId()) == null) {
                 teacher.setEmployeeId(generateEmployeeId());
+            } else {
+                String employeeId = teacher.getEmployeeId();
+                if (employeeId != null && employeeId.matches("^\\d{4}$")) {
+                    String yearSuffix = String.valueOf(Year.now().getValue()).substring(2);
+                    String newEmployeeId = "EMP" + yearSuffix + employeeId;
+                    if (!teacherRepository.existsByEmployeeId(newEmployeeId)) {
+                        teacher.setEmployeeId(newEmployeeId);
+                        log.info("Converted legacy employee ID to standard format: {}", newEmployeeId);
+                    }
+                }
             }
 
         } else {
@@ -598,13 +726,14 @@ public class TeacherServiceImpl implements TeacherService {
             teacher.setEmail(invitation.getEmail());
             teacher.setPhoneNumber(invitation.getPhoneNumber());
             teacher.setUser(user);
-            teacher.setTeacherId(generateTeacherId());
+            teacher.setTeacherId(generateNextTeacherId());
             teacher.setEmployeeId(generateEmployeeId());
             teacher.setSubjects(new HashSet<>());
             teacher.setQualifications(new HashSet<>());
             teacher.setEmploymentType(Teacher.EmploymentType.FULL_TIME);
             teacher.setEmploymentStatus(Teacher.EmploymentStatus.ACTIVE);
         }
+
         user.setTeacher(teacher);
         invitation.setUsed(true);
 
@@ -612,8 +741,8 @@ public class TeacherServiceImpl implements TeacherService {
         User savedUser = userRepository.save(user);
         teacherInvitationRepository.save(invitation);
 
-        log.info("Teacher registration completed for: {} with teacher ID: {}",
-                savedUser.getUsername(), teacher.getTeacherId());
+        log.info("Teacher registration completed for: {} with teacher ID: {} and employee ID: {}",
+                savedUser.getUsername(), teacher.getTeacherId(), teacher.getEmployeeId());
 
         return savedUser;
     }
@@ -679,12 +808,18 @@ public class TeacherServiceImpl implements TeacherService {
     }
 
     private void mapTeacherFields(Teacher teacher, TeacherDTO dto, boolean isCreate) {
-        if (dto.getFirstName() != null) teacher.setFirstName(dto.getFirstName().trim());
-        if (dto.getLastName() != null) teacher.setLastName(dto.getLastName().trim());
+        if (dto.getFirstName() != null) {
+            teacher.setFirstName(dto.getFirstName().trim());
+        }
+        if (dto.getLastName() != null) {
+            teacher.setLastName(dto.getLastName().trim());
+        }
 
         teacher.setMiddleName(dto.getMiddleName() != null ? dto.getMiddleName().trim() : null);
 
-        if (dto.getEmail() != null) teacher.setEmail(dto.getEmail().trim().toLowerCase());
+        if (dto.getEmail() != null) {
+            teacher.setEmail(dto.getEmail().trim().toLowerCase());
+        }
 
         teacher.setPhoneNumber(dto.getPhoneNumber() != null ? dto.getPhoneNumber().trim() : null);
         teacher.setAlternatePhone(dto.getAlternatePhone() != null ? dto.getAlternatePhone().trim() : null);
@@ -725,50 +860,50 @@ public class TeacherServiceImpl implements TeacherService {
         teacher.setYearsOfExperience(dto.getYearsOfExperience());
 
         if (dto.getGender() != null && !dto.getGender().trim().isEmpty()) {
-            teacher.setGender(Teacher.Gender.valueOf(dto.getGender().trim().toUpperCase()));
+            teacher.setGender(parseGender(dto.getGender()));
         }
 
         if (dto.getEmploymentType() != null && !dto.getEmploymentType().trim().isEmpty()) {
-            teacher.setEmploymentType(
-                    Teacher.EmploymentType.valueOf(dto.getEmploymentType().trim().toUpperCase())
-            );
+            teacher.setEmploymentType(parseEmploymentType(dto.getEmploymentType()));
         }
 
         if (dto.getEmploymentStatus() != null && !dto.getEmploymentStatus().trim().isEmpty()) {
-            teacher.setEmploymentStatus(
-                    Teacher.EmploymentStatus.valueOf(dto.getEmploymentStatus().trim().toUpperCase())
-            );
+            teacher.setEmploymentStatus(parseEmploymentStatus(dto.getEmploymentStatus()));
         }
 
         if (dto.getStatus() != null && !dto.getStatus().trim().isEmpty()) {
-            teacher.setStatus(
-                    Teacher.TeacherStatus.valueOf(dto.getStatus().trim().toUpperCase())
-            );
+            teacher.setStatus(parseTeacherStatus(dto.getStatus()));
         }
 
         if (dto.getMaritalStatus() != null && !dto.getMaritalStatus().trim().isEmpty()) {
-            teacher.setMaritalStatus(
-                    Teacher.MaritalStatus.valueOf(dto.getMaritalStatus().trim().toUpperCase())
-            );
+            teacher.setMaritalStatus(parseMaritalStatus(dto.getMaritalStatus()));
         }
 
-        teacher.getSubjects().clear();
+        if (teacher.getSubjects() == null) {
+            teacher.setSubjects(new HashSet<>());
+        } else {
+            teacher.getSubjects().clear();
+        }
         if (dto.getSubjects() != null) {
             teacher.getSubjects().addAll(
                     dto.getSubjects().stream()
                             .filter(s -> s != null && !s.trim().isEmpty())
                             .map(String::trim)
-                            .toList()
+                            .collect(Collectors.toSet())
             );
         }
 
-        teacher.getQualifications().clear();
+        if (teacher.getQualifications() == null) {
+            teacher.setQualifications(new HashSet<>());
+        } else {
+            teacher.getQualifications().clear();
+        }
         if (dto.getQualifications() != null) {
             teacher.getQualifications().addAll(
                     dto.getQualifications().stream()
                             .filter(q -> q != null && !q.trim().isEmpty())
                             .map(String::trim)
-                            .toList()
+                            .collect(Collectors.toSet())
             );
         }
     }
