@@ -46,6 +46,14 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
     );
 
     @EntityGraph(attributePaths = {"student", "student.schoolClass"})
+    List<Attendance> findByStudent_SchoolClass_IdAndDateAndSessionAndTerm(
+            Long classId,
+            LocalDate date,
+            String session,
+            Result.Term term
+    );
+
+    @EntityGraph(attributePaths = {"student", "student.schoolClass"})
     List<Attendance> findByStudent_SchoolClass_IdAndDateAndSessionAndTermOrderByStudent_LastNameAscStudent_FirstNameAsc(
             Long classId,
             LocalDate date,
@@ -86,4 +94,5 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
             @Param("term") Result.Term term,
             @Param("status") Attendance.AttendanceStatus status
     );
+
 }

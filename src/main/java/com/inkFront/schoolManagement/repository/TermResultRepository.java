@@ -29,6 +29,13 @@ public interface TermResultRepository extends JpaRepository<TermResult, Long> {
             Result.Term term
     );
 
+    List<TermResult> findByStudent_SchoolClass_IdAndSessionAndTermOrderByAverageDesc(
+            Long classId,
+            String session,
+            Result.Term term
+    );
+
+    // keep old compatibility methods for any old code still referencing them
     List<TermResult> findByStudent_SchoolClass_ClassNameAndSessionAndTermOrderByAverageDesc(
             String className,
             String session,

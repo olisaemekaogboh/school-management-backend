@@ -52,6 +52,8 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findBySchoolClassIdOrderByLastNameAscFirstNameAsc(Long schoolClassId);
 
+    List<Student> findBySchoolClassId(Long classId);
+
     List<Student> findByExcludeFromPromotionTrueOrderByLastNameAscFirstNameAsc();
 
     List<Student> findByParentIdOrderByLastNameAscFirstNameAsc(Long parentId);
@@ -124,10 +126,6 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
         ORDER BY s.lastName ASC, s.firstName ASC
     """)
     List<Student> findTransportStudentsByRouteId(@Param("routeId") Long routeId);
-
-    // =========================
-    // Compatibility methods
-    // =========================
 
     @Query("""
         SELECT s

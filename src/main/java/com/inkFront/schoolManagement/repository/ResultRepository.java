@@ -57,15 +57,17 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
             @Param("term") Result.Term term
     );
 
+
+
     @Query("""
-        SELECT r.student, AVG(r.total)
-        FROM Result r
-        WHERE r.student.schoolClass.id = :classId
-          AND r.session = :session
-          AND r.term = :term
-        GROUP BY r.student
-        ORDER BY AVG(r.total) DESC
-    """)
+    SELECT r.student, AVG(r.total)
+    FROM Result r
+    WHERE r.student.schoolClass.id = :classId
+    AND r.session = :session
+    AND r.term = :term
+    GROUP BY r.student
+    ORDER BY AVG(r.total) DESC
+""")
     List<Object[]> getClassRankingByClassId(
             @Param("classId") Long classId,
             @Param("session") String session,

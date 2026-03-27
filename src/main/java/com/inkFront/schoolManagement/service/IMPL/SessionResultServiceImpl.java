@@ -329,11 +329,19 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         Map<String, Object> studentInfo = new HashMap<>();
         studentInfo.put("id", student.getId());
-        studentInfo.put("name", student.getFirstName() + " " + student.getLastName());
+        studentInfo.put("name", (student.getFirstName() + " " + student.getLastName()).trim());
+        studentInfo.put("fullName", (student.getFirstName() + " " + student.getLastName()).trim());
+        studentInfo.put("firstName", student.getFirstName());
+        studentInfo.put("lastName", student.getLastName());
         studentInfo.put("admissionNumber", student.getAdmissionNumber());
         studentInfo.put("class", student.getStudentClass());
         studentInfo.put("arm", student.getClassArm());
         studentInfo.put("session", session);
+        studentInfo.put("profilePictureUrl", student.getProfilePictureUrl());
+        studentInfo.put("dateOfBirth", student.getDateOfBirth());
+        studentInfo.put("parentName", student.getParentName());
+        studentInfo.put("parentPhone", student.getParentPhone());
+        studentInfo.put("address", student.getAddress());
         report.put("studentInfo", studentInfo);
 
         Map<String, Object> termSummaries = new HashMap<>();
@@ -628,15 +636,52 @@ public class SessionResultServiceImpl implements SessionResultService {
         int totalPresentEquivalent = 0;
         int totalAbsent = 0;
 
-        for (Attendance att : allAttendance) {
-            uniqueSchoolDays.add(att.getTerm() + "_" + att.getDate());
+        for (Attendance attendance : allAttendance) {
+            if (attendance.getDate() == null || attendance.getTerm() == null) {
+                continue;
+            }
 
-            if (att.getStatus() == Attendance.AttendanceStatus.PRESENT
-                    || att.getStatus() == Attendance.AttendanceStatus.LATE
-                    || att.getStatus() == Attendance.AttendanceStatus.EXCUSED) {
+            uniqueSchoolDays.add(attendance.getTerm().name() + "_" + attendance.getDate());
+
+            if (attendance.getStatus() == Attendance.AttendanceStatus.PRESENT
+                    || attendance.getStatus() == Attendance.AttendanceStatus.LATE
+                    || attendance.getStatus() == Attendance.AttendanceStatus.EXCUSED) {
                 totalPresentEquivalent++;
-            } else if (att.getStatus() == Attendance.AttendanceStatus.ABSENT) {
+            } else if (attendance.getStatus() == Attendance.AttendanceStatus.ABSENT) {
                 totalAbsent++;
+            }
+        }
+
+        if (uniqueSchoolDays.isEmpty()) {
+            if (firstTerm != null) {
+                totalPresentEquivalent += firstTerm.getDaysPresent();
+                totalAbsent += firstTerm.getDaysAbsent();
+                uniqueSchoolDays.addAll(
+                        attendanceRepository.findDistinctDatesBySessionAndTerm(session, Result.Term.FIRST)
+                                .stream()
+                                .map(date -> "FIRST_" + date)
+                                .toList()
+                );
+            }
+            if (secondTerm != null) {
+                totalPresentEquivalent += secondTerm.getDaysPresent();
+                totalAbsent += secondTerm.getDaysAbsent();
+                uniqueSchoolDays.addAll(
+                        attendanceRepository.findDistinctDatesBySessionAndTerm(session, Result.Term.SECOND)
+                                .stream()
+                                .map(date -> "SECOND_" + date)
+                                .toList()
+                );
+            }
+            if (thirdTerm != null) {
+                totalPresentEquivalent += thirdTerm.getDaysPresent();
+                totalAbsent += thirdTerm.getDaysAbsent();
+                uniqueSchoolDays.addAll(
+                        attendanceRepository.findDistinctDatesBySessionAndTerm(session, Result.Term.THIRD)
+                                .stream()
+                                .map(date -> "THIRD_" + date)
+                                .toList()
+                );
             }
         }
 

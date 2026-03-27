@@ -18,6 +18,12 @@ public interface SessionResultRepository extends JpaRepository<SessionResult, Lo
     Optional<SessionResult> findByStudentAndSession(Student student, String session);
 
     @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
+    List<SessionResult> findByStudent_SchoolClass_IdAndSessionOrderByAnnualAverageDesc(
+            Long classId,
+            String session
+    );
+
+    @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
     @Query("""
         SELECT sr
         FROM SessionResult sr
