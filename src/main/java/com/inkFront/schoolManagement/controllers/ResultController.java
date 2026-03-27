@@ -3,8 +3,10 @@ package com.inkFront.schoolManagement.controllers;
 import com.inkFront.schoolManagement.dto.ResultRequestDTO;
 import com.inkFront.schoolManagement.dto.ResultResponseDTO;
 import com.inkFront.schoolManagement.model.Result;
+import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.model.TermResult;
 import com.inkFront.schoolManagement.model.User;
+import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.TermResultRepository;
 import com.inkFront.schoolManagement.security.AccessControlService;
 import com.inkFront.schoolManagement.security.SecurityUtils;
@@ -34,6 +36,7 @@ public class ResultController {
     private final ResultService resultService;
     private final SessionResultService sessionResultService;
     private final TermResultRepository termResultRepository;
+    private final ClassRepository classRepository;
     private final AccessControlService accessControlService;
     private final SecurityUtils securityUtils;
 
@@ -53,6 +56,11 @@ public class ResultController {
                         "message", message,
                         "error", e.getMessage()
                 ));
+    }
+
+    private SchoolClass resolveClass(Long classId) {
+        return classRepository.findById(classId)
+                .orElseThrow(() -> new RuntimeException("Class not found"));
     }
 
     @PostMapping("/student/{studentId}")
@@ -184,41 +192,34 @@ public class ResultController {
         }
     }
 
-    @GetMapping("/rankings/class/{className}/arm/{arm}")
-    public ResponseEntity<?> getArmRankings(
-            @PathVariable String className,
-            @PathVariable String arm,
-            @RequestParam String session,
-            @RequestParam Result.Term term) {
-        try {
-            User user = currentUser();
-            accessControlService.requireClassTeacherOrAdmin(user, className, arm);
-
-            Map<String, Object> rankings = resultService.getArmRankings(className, arm, session, term);
-            return ResponseEntity.ok(rankings);
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        } catch (Exception e) {
-            return serverError("Unable to fetch arm rankings", e);
-        }
-    }
-
-    @GetMapping("/rankings/class/{className}")
+    @GetMapping("/rankings/class/{classId}")
     public ResponseEntity<?> getClassRankings(
-            @PathVariable String className,
-            @RequestParam(required = false) String arm,
+            @PathVariable Long classId,
             @RequestParam String session,
             @RequestParam Result.Term term) {
         try {
             User user = currentUser();
+            SchoolClass schoolClass = resolveClass(classId);
 
-            if (arm == null || arm.isBlank()) {
-                accessControlService.requireAdmin(user);
-            } else {
-                accessControlService.requireClassTeacherOrAdmin(user, className, arm);
+            accessControlService.requireClassTeacherOrAdmin(user, classId);
+
+            Map<String, Object> rankings =
+                    resultService.getClassRankings(
+                            classId,
+                            session,
+                            term
+                    );
+
+            if (rankings instanceof Map<?, ?> map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> mutable = (Map<String, Object>) map;
+                mutable.put("classId", schoolClass.getId());
+                mutable.put("className", schoolClass.getClassName());
+                mutable.put("arm", schoolClass.getArm());
+                mutable.put("classCode", schoolClass.getClassCode());
+                return ResponseEntity.ok(mutable);
             }
 
-            Map<String, Object> rankings = resultService.getClassRankings(className, arm, session, term);
             return ResponseEntity.ok(rankings);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
@@ -275,23 +276,30 @@ public class ResultController {
         }
     }
 
-    @GetMapping("/statistics/class/{className}/arm/{arm}")
+    @GetMapping("/statistics/class/{classId}")
     public ResponseEntity<?> getClassStatistics(
-            @PathVariable String className,
-            @PathVariable String arm,
+            @PathVariable Long classId,
             @RequestParam String session,
             @RequestParam Result.Term term) {
         try {
             User user = currentUser();
-            accessControlService.requireClassTeacherOrAdmin(user, className, arm);
+            SchoolClass schoolClass = resolveClass(classId);
+
+            accessControlService.requireClassTeacherOrAdmin(user, classId);
 
             List<TermResult> classResults = termResultRepository
                     .findByStudent_SchoolClass_ClassNameAndStudent_SchoolClass_ArmAndSessionAndTermOrderByAverageDesc(
-                            className, arm, session, term
+                            schoolClass.getClassName(), schoolClass.getArm(), session, term
                     );
 
             if (classResults.isEmpty()) {
-                return ResponseEntity.ok(Map.of("message", "No results found for this class arm"));
+                return ResponseEntity.ok(Map.of(
+                        "message", "No results found for this class",
+                        "classId", classId,
+                        "className", schoolClass.getClassName(),
+                        "arm", schoolClass.getArm(),
+                        "classCode", schoolClass.getClassCode()
+                ));
             }
 
             double classAverage = classResults.stream()
@@ -314,8 +322,10 @@ public class ResultController {
             stats.put("classAverage", classAverage);
             stats.put("highestScore", highestScore);
             stats.put("lowestScore", lowestScore);
-            stats.put("className", className);
-            stats.put("arm", arm);
+            stats.put("classId", schoolClass.getId());
+            stats.put("className", schoolClass.getClassName());
+            stats.put("arm", schoolClass.getArm());
+            stats.put("classCode", schoolClass.getClassCode());
             stats.put("session", session);
             stats.put("term", term);
 

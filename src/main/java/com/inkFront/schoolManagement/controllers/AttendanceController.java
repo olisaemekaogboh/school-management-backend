@@ -3,9 +3,11 @@ package com.inkFront.schoolManagement.controllers;
 import com.inkFront.schoolManagement.model.Attendance;
 import com.inkFront.schoolManagement.model.AttendanceSummary;
 import com.inkFront.schoolManagement.model.Result;
+import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.model.Student;
 import com.inkFront.schoolManagement.model.User;
 import com.inkFront.schoolManagement.repository.AttendanceRepository;
+import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.security.AccessControlService;
 import com.inkFront.schoolManagement.security.SecurityUtils;
@@ -33,6 +35,7 @@ public class AttendanceController {
     private final AttendanceService attendanceService;
     private final StudentRepository studentRepository;
     private final AttendanceRepository attendanceRepository;
+    private final ClassRepository classRepository;
     private final AccessControlService accessControlService;
     private final SecurityUtils securityUtils;
 
@@ -54,6 +57,11 @@ public class AttendanceController {
                 ));
     }
 
+    private SchoolClass resolveClass(Long classId) {
+        return classRepository.findByIdWithTeacher(classId)
+                .orElseThrow(() -> new RuntimeException("Class not found"));
+    }
+
     private Map<String, Object> studentToMap(Student student) {
         if (student == null) {
             return null;
@@ -65,8 +73,9 @@ public class AttendanceController {
         studentMap.put("lastName", student.getLastName());
         studentMap.put("fullName", (student.getFirstName() + " " + student.getLastName()).trim());
         studentMap.put("admissionNumber", student.getAdmissionNumber());
-        studentMap.put("studentClass", student.getStudentClass());
-        studentMap.put("classArm", student.getClassArm());
+        studentMap.put("studentClass", student.getSchoolClass() != null ? student.getSchoolClass().getClassName() : null);
+        studentMap.put("classArm", student.getSchoolClass() != null ? student.getSchoolClass().getArm() : null);
+        studentMap.put("classCode", student.getSchoolClass() != null ? student.getSchoolClass().getClassCode() : null);
         studentMap.put("classId", student.getSchoolClass() != null ? student.getSchoolClass().getId() : null);
         studentMap.put("profilePictureUrl", student.getProfilePictureUrl());
         return studentMap;
@@ -94,9 +103,17 @@ public class AttendanceController {
         response.put("admissionNumber",
                 summary.getStudent() != null ? summary.getStudent().getAdmissionNumber() : null);
         response.put("studentClass",
-                summary.getStudent() != null ? summary.getStudent().getStudentClass() : null);
+                summary.getStudent() != null && summary.getStudent().getSchoolClass() != null
+                        ? summary.getStudent().getSchoolClass().getClassName()
+                        : null);
         response.put("classArm",
-                summary.getStudent() != null ? summary.getStudent().getClassArm() : null);
+                summary.getStudent() != null && summary.getStudent().getSchoolClass() != null
+                        ? summary.getStudent().getSchoolClass().getArm()
+                        : null);
+        response.put("classCode",
+                summary.getStudent() != null && summary.getStudent().getSchoolClass() != null
+                        ? summary.getStudent().getSchoolClass().getClassCode()
+                        : null);
         response.put("classId",
                 summary.getStudent() != null && summary.getStudent().getSchoolClass() != null
                         ? summary.getStudent().getSchoolClass().getId()
@@ -312,25 +329,37 @@ public class AttendanceController {
         }
     }
 
-    @GetMapping("/class/{className}/arm/{arm}")
+    @GetMapping("/class/{classId}")
     public ResponseEntity<?> getClassAttendance(
-            @PathVariable String className,
-            @PathVariable String arm,
+            @PathVariable Long classId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam String session,
             @RequestParam Result.Term term) {
         try {
             User user = currentUser();
-            accessControlService.requireClassTeacherOrAdmin(user, className, arm);
+            SchoolClass schoolClass = resolveClass(classId);
+            accessControlService.requireClassTeacherOrAdmin(user, classId);
 
             List<Attendance> attendanceList =
-                    attendanceService.getClassAttendance(className, arm, date, session, term);
+                    attendanceService.getClassAttendance(
+                            classId,
+                            date,
+                            session,
+                            term
+                    );
 
             List<Map<String, Object>> response = attendanceList.stream()
                     .map(this::attendanceToMap)
                     .toList();
 
-            return ResponseEntity.ok(response);
+            Map<String, Object> wrapped = new HashMap<>();
+            wrapped.put("classId", schoolClass.getId());
+            wrapped.put("className", schoolClass.getClassName());
+            wrapped.put("arm", schoolClass.getArm());
+            wrapped.put("classCode", schoolClass.getClassCode());
+            wrapped.put("attendance", response);
+
+            return ResponseEntity.ok(wrapped);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -338,17 +367,22 @@ public class AttendanceController {
         }
     }
 
-    @GetMapping("/statistics/class/{className}/arm/{arm}")
+    @GetMapping("/statistics/class/{classId}")
     public ResponseEntity<?> getClassTermStatistics(
-            @PathVariable String className,
-            @PathVariable String arm,
+            @PathVariable Long classId,
             @RequestParam String session,
             @RequestParam Result.Term term) {
         try {
             User user = currentUser();
-            accessControlService.requireClassTeacherOrAdmin(user, className, arm);
+            accessControlService.requireClassTeacherOrAdmin(user, classId);
 
-            Map<String, Object> statistics = attendanceService.getClassTermStatistics(className, arm, session, term);
+            Map<String, Object> statistics =
+                    attendanceService.getClassTermStatistics(
+                            classId,
+                            session,
+                            term
+                    );
+
             return ResponseEntity.ok(statistics);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
@@ -442,10 +476,9 @@ public class AttendanceController {
         }
     }
 
-    @GetMapping("/debug")
+    @GetMapping("/debug/class/{classId}")
     public ResponseEntity<?> debugAttendance(
-            @RequestParam String className,
-            @RequestParam(required = false) String arm,
+            @PathVariable Long classId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam String session,
             @RequestParam Result.Term term) {
@@ -453,14 +486,15 @@ public class AttendanceController {
             User user = currentUser();
             accessControlService.requireAdmin(user);
 
+            SchoolClass schoolClass = resolveClass(classId);
+
             Map<String, Object> response = new HashMap<>();
+            List<Student> students = studentRepository.findBySchoolClassIdOrderByLastNameAscFirstNameAsc(classId);
 
-            List<Student> students = (arm != null && !arm.isBlank())
-                    ? studentRepository.findByClassScopeNormalized(className, arm)
-                    : studentRepository.findByStudentClass(className);
-
-            response.put("className", className);
-            response.put("arm", arm);
+            response.put("classId", classId);
+            response.put("className", schoolClass.getClassName());
+            response.put("arm", schoolClass.getArm());
+            response.put("classCode", schoolClass.getClassCode());
             response.put("studentsFound", students.size());
             response.put("studentIds", students.stream().map(Student::getId).toList());
 
@@ -472,8 +506,9 @@ public class AttendanceController {
                 Map<String, Object> statusMap = new HashMap<>();
                 statusMap.put("studentId", student.getId());
                 statusMap.put("studentName", student.getFirstName() + " " + student.getLastName());
-                statusMap.put("class", student.getStudentClass());
-                statusMap.put("arm", student.getClassArm());
+                statusMap.put("classId", classId);
+                statusMap.put("className", schoolClass.getClassName());
+                statusMap.put("arm", schoolClass.getArm());
                 statusMap.put("existingAttendance", existing.isPresent());
                 attendanceStatus.add(statusMap);
             }

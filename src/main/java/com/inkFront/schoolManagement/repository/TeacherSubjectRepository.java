@@ -3,6 +3,7 @@ package com.inkFront.schoolManagement.repository;
 import com.inkFront.schoolManagement.model.Subject;
 import com.inkFront.schoolManagement.model.Teacher;
 import com.inkFront.schoolManagement.model.TeacherSubject;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -14,10 +15,13 @@ import java.util.Optional;
 @Repository
 public interface TeacherSubjectRepository extends JpaRepository<TeacherSubject, Long> {
 
+    @EntityGraph(attributePaths = {"subject", "teacher"})
     List<TeacherSubject> findByTeacher_IdOrderByClassNameAscClassArmAsc(Long teacherId);
 
+    @EntityGraph(attributePaths = {"subject", "teacher"})
     List<TeacherSubject> findByClassNameAndClassArmOrderBySubject_NameAsc(String className, String classArm);
 
+    @EntityGraph(attributePaths = {"subject", "teacher"})
     Optional<TeacherSubject> findByTeacherAndSubjectAndClassNameAndClassArm(
             Teacher teacher,
             Subject subject,

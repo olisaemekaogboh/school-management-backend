@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/service/IMPL/AfricaTalkingSmsServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
 import com.africastalking.AfricasTalking;
@@ -391,7 +390,9 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
                 Student student = studentOpt.get();
                 smsLog.setStudentId(student.getId());
                 smsLog.setStudentName(student.getFirstName() + " " + student.getLastName());
-                smsLog.setStudentClass(student.getStudentClass());
+                smsLog.setStudentClass(
+                        student.getSchoolClass() != null ? student.getSchoolClass().getClassName() : null
+                );
                 smsLog.setParentName(student.getParentName());
                 log.info("Found student: {} for phone {}", student.getFirstName(), phoneNumber);
             } else {
@@ -477,19 +478,24 @@ public class AfricaTalkingSmsServiceImpl implements SmsService {
         String localNumber = PhoneNumberUtils.formatToLocal(phoneNumber);
         log.info("Local format: {}", localNumber);
 
-        List<Student> students = studentRepository.findByParentPhone(localNumber);
-        if (!students.isEmpty()) {
-            log.info("Found {} student(s) by exact parent phone match", students.size());
-            return Optional.of(students.get(0));
+        if (localNumber == null || localNumber.isBlank()) {
+            return Optional.empty();
         }
 
-        Optional<Student> emergencyMatch = studentRepository.findAll().stream()
-                .filter(s -> localNumber.equals(s.getEmergencyContactPhone()))
-                .findFirst();
+        List<Student> parentMatches =
+                studentRepository.findByParentPhoneOrderByLastNameAscFirstNameAsc(localNumber);
 
-        if (emergencyMatch.isPresent()) {
-            log.info("Found student by emergency contact match");
-            return emergencyMatch;
+        if (!parentMatches.isEmpty()) {
+            log.info("Found {} student(s) by exact parent phone match", parentMatches.size());
+            return Optional.of(parentMatches.get(0));
+        }
+
+        List<Student> emergencyMatches =
+                studentRepository.findByEmergencyContactPhone(localNumber);
+
+        if (!emergencyMatches.isEmpty()) {
+            log.info("Found {} student(s) by emergency contact phone match", emergencyMatches.size());
+            return Optional.of(emergencyMatches.get(0));
         }
 
         log.warn("No student found for phone: {} (local: {})", phoneNumber, localNumber);

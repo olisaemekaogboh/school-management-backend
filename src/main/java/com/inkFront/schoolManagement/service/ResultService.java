@@ -21,9 +21,7 @@ public interface ResultService {
 
     SessionResult calculateSessionResult(Long studentId, String session);
 
-    Map<String, Object> getClassRankings(String className, String arm, String session, Result.Term term);
-
-    Map<String, Object> getArmRankings(String className, String arm, String session, Result.Term term);
+    Map<String, Object> getClassRankings(Long classId, String session, Result.Term term);
 
     Map<String, Object> getSchoolRankings(String session, Result.Term term);
 

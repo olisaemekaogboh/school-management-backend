@@ -4,11 +4,13 @@ import com.inkFront.schoolManagement.dto.ResultRequestDTO;
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
 import com.inkFront.schoolManagement.model.Attendance;
 import com.inkFront.schoolManagement.model.Result;
+import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.model.SessionResult;
 import com.inkFront.schoolManagement.model.Student;
 import com.inkFront.schoolManagement.model.Subject;
 import com.inkFront.schoolManagement.model.TermResult;
 import com.inkFront.schoolManagement.repository.AttendanceRepository;
+import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.ResultRepository;
 import com.inkFront.schoolManagement.repository.SessionResultRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
@@ -36,6 +38,7 @@ public class ResultServiceImpl implements ResultService {
     private final SessionResultRepository sessionResultRepository;
     private final AttendanceRepository attendanceRepository;
     private final SubjectRepository subjectRepository;
+    private final ClassRepository classRepository;
 
     @Override
     @Transactional
@@ -234,13 +237,20 @@ public class ResultServiceImpl implements ResultService {
     }
 
     private void calculatePositions(TermResult termResult) {
-        String className = termResult.getStudent().getStudentClass();
-        String arm = termResult.getStudent().getClassArm();
+        Long classId = termResult.getStudent().getSchoolClass() != null
+                ? termResult.getStudent().getSchoolClass().getId()
+                : null;
+        String className = termResult.getStudent().getSchoolClass() != null
+                ? termResult.getStudent().getSchoolClass().getClassName()
+                : null;
+        String arm = termResult.getStudent().getSchoolClass() != null
+                ? termResult.getStudent().getSchoolClass().getArm()
+                : null;
         String session = termResult.getSession();
         Result.Term term = termResult.getTerm();
 
-        log.info("Calculating positions for student {} in class {} arm {} session {} term {}",
-                termResult.getStudent().getId(), className, arm, session, term);
+        log.info("Calculating positions for student {} in classId {} session {} term {}",
+                termResult.getStudent().getId(), classId, session, term);
 
         try {
             List<TermResult> classResults = termResultRepository
@@ -258,7 +268,7 @@ public class ResultServiceImpl implements ResultService {
                 }
             }
 
-            if (arm != null && !arm.isBlank() && !"null".equalsIgnoreCase(arm)) {
+            if (arm != null && !arm.isBlank()) {
                 List<TermResult> armResults = termResultRepository
                         .findByStudent_SchoolClass_ClassNameAndStudent_SchoolClass_ArmAndSessionAndTermOrderByAverageDesc(
                                 className, arm, session, term
@@ -358,8 +368,12 @@ public class ResultServiceImpl implements ResultService {
     }
 
     private void calculateAnnualPositions(SessionResult sessionResult) {
-        String className = sessionResult.getStudent().getStudentClass();
-        String arm = sessionResult.getStudent().getClassArm();
+        String className = sessionResult.getStudent().getSchoolClass() != null
+                ? sessionResult.getStudent().getSchoolClass().getClassName()
+                : null;
+        String arm = sessionResult.getStudent().getSchoolClass() != null
+                ? sessionResult.getStudent().getSchoolClass().getArm()
+                : null;
         String session = sessionResult.getSession();
 
         log.info("Calculating annual positions for student {} in class {} arm {}",
@@ -369,8 +383,6 @@ public class ResultServiceImpl implements ResultService {
             List<SessionResult> classResults = sessionResultRepository
                     .findByClassAndSessionOrderByAnnualAverageDesc(className, session);
 
-            log.info("Found {} students in class for annual ranking", classResults.size());
-
             for (int i = 0; i < classResults.size(); i++) {
                 SessionResult sr = classResults.get(i);
                 int position = i + 1;
@@ -378,15 +390,12 @@ public class ResultServiceImpl implements ResultService {
 
                 if (sr.getId() != null && sr.getId().equals(sessionResult.getId())) {
                     sessionResult.setAnnualPositionInClass(position);
-                    log.info("Student annual position in class: {}", position);
                 }
             }
 
             if (arm != null && !arm.isEmpty() && !"null".equalsIgnoreCase(arm)) {
                 List<SessionResult> armResults = sessionResultRepository
                         .findByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session);
-
-                log.info("Found {} students in arm for annual ranking", armResults.size());
 
                 for (int i = 0; i < armResults.size(); i++) {
                     SessionResult sr = armResults.get(i);
@@ -395,15 +404,12 @@ public class ResultServiceImpl implements ResultService {
 
                     if (sr.getId() != null && sr.getId().equals(sessionResult.getId())) {
                         sessionResult.setAnnualPositionInArm(position);
-                        log.info("Student annual position in arm: {}", position);
                     }
                 }
             }
 
             List<SessionResult> schoolResults = sessionResultRepository
                     .findBySessionOrderByAnnualAverageDesc(session);
-
-            log.info("Found {} students in school for annual ranking", schoolResults.size());
 
             for (int i = 0; i < schoolResults.size(); i++) {
                 SessionResult sr = schoolResults.get(i);
@@ -412,12 +418,10 @@ public class ResultServiceImpl implements ResultService {
 
                 if (sr.getId() != null && sr.getId().equals(sessionResult.getId())) {
                     sessionResult.setAnnualPositionInSchool(position);
-                    log.info("Student annual position in school: {}", position);
                 }
             }
 
             sessionResultRepository.saveAll(classResults);
-            log.info("Saved all class results with updated annual positions");
 
         } catch (Exception e) {
             log.error("Error calculating annual positions: {}", e.getMessage(), e);
@@ -428,46 +432,15 @@ public class ResultServiceImpl implements ResultService {
     }
 
     @Override
-    public Map<String, Object> getClassRankings(String className, String arm, String session, Result.Term term) {
-        List<Object[]> rankings;
+    public Map<String, Object> getClassRankings(Long classId, String session, Result.Term term) {
+        SchoolClass schoolClass = classRepository.findById(classId)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
 
-        if (arm != null && !arm.isBlank()) {
-            rankings = resultRepository.getArmRankingNormalized(className, arm, session, term);
-        } else {
-            rankings = resultRepository.getClassRankingNormalized(className, session, term);
-        }
-
-        List<Map<String, Object>> resultList = new ArrayList<>();
-        for (int i = 0; i < rankings.size(); i++) {
-            Student student = (Student) rankings.get(i)[0];
-            Double avgScore = (Double) rankings.get(i)[1];
-
-            Map<String, Object> item = new HashMap<>();
-            item.put("position", i + 1);
-            item.put("studentId", student.getId());
-            item.put("studentName", student.getFirstName() + " " + student.getLastName());
-            item.put("admissionNumber", student.getAdmissionNumber());
-            item.put("average", avgScore);
-            item.put("class", student.getStudentClass());
-            item.put("arm", student.getClassArm());
-
-            resultList.add(item);
-        }
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("className", className);
-        response.put("arm", arm);
-        response.put("session", session);
-        response.put("term", term);
-        response.put("totalStudents", resultList.size());
-        response.put("rankings", resultList);
-
-        return response;
-    }
-
-    @Override
-    public Map<String, Object> getArmRankings(String className, String arm, String session, Result.Term term) {
-        List<Object[]> rankings = resultRepository.getArmRankingNormalized(className, arm, session, term);
+        List<Object[]> rankings = resultRepository.getClassRankingByClassId(
+                classId,
+                session,
+                term
+        );
 
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (int i = 0; i < rankings.size(); i++) {
@@ -480,15 +453,19 @@ public class ResultServiceImpl implements ResultService {
             item.put("studentName", student.getFirstName() + " " + student.getLastName());
             item.put("admissionNumber", student.getAdmissionNumber());
             item.put("average", avgScore);
-            item.put("class", student.getStudentClass());
-            item.put("arm", student.getClassArm());
+            item.put("classId", schoolClass.getId());
+            item.put("class", schoolClass.getClassName());
+            item.put("arm", schoolClass.getArm());
+            item.put("classCode", schoolClass.getClassCode());
 
             resultList.add(item);
         }
 
         Map<String, Object> response = new HashMap<>();
-        response.put("className", className);
-        response.put("arm", arm);
+        response.put("classId", schoolClass.getId());
+        response.put("className", schoolClass.getClassName());
+        response.put("arm", schoolClass.getArm());
+        response.put("classCode", schoolClass.getClassCode());
         response.put("session", session);
         response.put("term", term);
         response.put("totalStudents", resultList.size());
@@ -512,8 +489,10 @@ public class ResultServiceImpl implements ResultService {
             item.put("studentName", student.getFirstName() + " " + student.getLastName());
             item.put("admissionNumber", student.getAdmissionNumber());
             item.put("average", avgScore);
-            item.put("class", student.getStudentClass());
-            item.put("arm", student.getClassArm());
+            item.put("classId", student.getSchoolClass() != null ? student.getSchoolClass().getId() : null);
+            item.put("class", student.getSchoolClass() != null ? student.getSchoolClass().getClassName() : null);
+            item.put("arm", student.getSchoolClass() != null ? student.getSchoolClass().getArm() : null);
+            item.put("classCode", student.getSchoolClass() != null ? student.getSchoolClass().getClassCode() : null);
 
             resultList.add(item);
         }
@@ -577,16 +556,11 @@ public class ResultServiceImpl implements ResultService {
         List<Result> results = resultRepository
                 .findByStudentAndSessionAndTerm(student, session, term);
 
-        String className = student.getStudentClass();
-        List<Student> studentsInClass = studentRepository.findByStudentClass(className);
+        Long classId = student.getSchoolClass() != null ? student.getSchoolClass().getId() : null;
+        List<Student> studentsInClass = classId != null
+                ? studentRepository.findBySchoolClassIdOrderByLastNameAscFirstNameAsc(classId)
+                : Collections.emptyList();
         int totalStudentsInClass = studentsInClass.size();
-
-        int totalStudentsInArm = 0;
-        String arm = student.getClassArm();
-        if (arm != null && !arm.isEmpty()) {
-            List<Student> studentsInArm = studentRepository.findByStudentClassAndClassArm(className, arm);
-            totalStudentsInArm = studentsInArm.size();
-        }
 
         Map<String, Object> resultSheet = new HashMap<>();
 
@@ -599,8 +573,10 @@ public class ResultServiceImpl implements ResultService {
         studentInfo.put("lastName", student.getLastName());
         studentInfo.put("middleName", student.getMiddleName());
         studentInfo.put("admissionNumber", student.getAdmissionNumber() != null ? student.getAdmissionNumber() : "");
-        studentInfo.put("class", student.getStudentClass() != null ? student.getStudentClass() : "");
-        studentInfo.put("arm", student.getClassArm() != null ? student.getClassArm() : "");
+        studentInfo.put("classId", classId);
+        studentInfo.put("class", student.getSchoolClass() != null ? student.getSchoolClass().getClassName() : "");
+        studentInfo.put("arm", student.getSchoolClass() != null ? student.getSchoolClass().getArm() : "");
+        studentInfo.put("classCode", student.getSchoolClass() != null ? student.getSchoolClass().getClassCode() : "");
         studentInfo.put("session", session != null ? session : "");
         studentInfo.put("term", term != null ? term.toString() : "");
         studentInfo.put("profilePictureUrl", student.getProfilePictureUrl());
@@ -633,7 +609,6 @@ public class ResultServiceImpl implements ResultService {
         summary.put("positionInClass", termResult.getPositionInClass() != null ? termResult.getPositionInClass() : 0);
         summary.put("totalStudentsInClass", totalStudentsInClass);
         summary.put("positionInArm", termResult.getPositionInArm() != null ? termResult.getPositionInArm() : 0);
-        summary.put("totalStudentsInArm", totalStudentsInArm);
         summary.put("positionInSchool", termResult.getPositionInSchool() != null ? termResult.getPositionInSchool() : 0);
         summary.put("totalSchoolDays", termResult.getTotalSchoolDays());
         summary.put("daysPresent", termResult.getDaysPresent());
@@ -679,8 +654,10 @@ public class ResultServiceImpl implements ResultService {
         studentInfo.put("firstName", student.getFirstName());
         studentInfo.put("lastName", student.getLastName());
         studentInfo.put("admissionNumber", student.getAdmissionNumber() != null ? student.getAdmissionNumber() : "");
-        studentInfo.put("class", student.getStudentClass() != null ? student.getStudentClass() : "");
-        studentInfo.put("arm", student.getClassArm() != null ? student.getClassArm() : "");
+        studentInfo.put("classId", student.getSchoolClass() != null ? student.getSchoolClass().getId() : null);
+        studentInfo.put("class", student.getSchoolClass() != null ? student.getSchoolClass().getClassName() : "");
+        studentInfo.put("arm", student.getSchoolClass() != null ? student.getSchoolClass().getArm() : "");
+        studentInfo.put("classCode", student.getSchoolClass() != null ? student.getSchoolClass().getClassCode() : "");
         studentInfo.put("session", session != null ? session : "");
         studentInfo.put("profilePictureUrl", student.getProfilePictureUrl());
 

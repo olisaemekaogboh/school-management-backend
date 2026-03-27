@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +22,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -48,13 +50,7 @@ public class StudentServiceImpl implements StudentService {
     public Student registerStudent(Student student) {
         log.info("Registering new student: {} {}", student.getFirstName(), student.getLastName());
 
-        if (student.getSchoolClass() == null || student.getSchoolClass().getId() == null) {
-            throw new ResourceNotFoundException("Class is required");
-        }
-
-        SchoolClass schoolClass = classRepository.findById(student.getSchoolClass().getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Class not found"));
-
+        SchoolClass schoolClass = resolveRequiredClass(student);
         student.setSchoolClass(schoolClass);
 
         if (student.getAdmissionNumber() == null || student.getAdmissionNumber().isEmpty()) {
@@ -85,12 +81,7 @@ public class StudentServiceImpl implements StudentService {
         Student existingStudent = studentRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + id));
 
-        if (studentDetails.getSchoolClass() == null || studentDetails.getSchoolClass().getId() == null) {
-            throw new ResourceNotFoundException("Class is required");
-        }
-
-        SchoolClass schoolClass = classRepository.findById(studentDetails.getSchoolClass().getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Class not found"));
+        SchoolClass schoolClass = resolveRequiredClass(studentDetails);
 
         existingStudent.setFirstName(studentDetails.getFirstName());
         existingStudent.setLastName(studentDetails.getLastName());
@@ -125,6 +116,15 @@ public class StudentServiceImpl implements StudentService {
         linkParentIfPossible(existingStudent);
 
         return studentRepository.save(existingStudent);
+    }
+
+    private SchoolClass resolveRequiredClass(Student student) {
+        if (student.getSchoolClass() == null || student.getSchoolClass().getId() == null) {
+            throw new ResourceNotFoundException("Class is required");
+        }
+
+        return classRepository.findById(student.getSchoolClass().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found"));
     }
 
     private void linkParentIfPossible(Student student) {
@@ -172,22 +172,38 @@ public class StudentServiceImpl implements StudentService {
         return value == null || value.trim().isEmpty();
     }
 
+    private String getStudentClassName(Student student) {
+        return student.getSchoolClass() != null ? student.getSchoolClass().getClassName() : null;
+    }
+
+    private String getStudentClassArm(Student student) {
+        return student.getSchoolClass() != null ? student.getSchoolClass().getArm() : null;
+    }
+
+    private Long getStudentClassId(Student student) {
+        return student.getSchoolClass() != null ? student.getSchoolClass().getId() : null;
+    }
+
     @Override
+    @Transactional(readOnly = true)
     public Optional<Student> getStudentById(Long id) {
         return studentRepository.findById(id);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Optional<Student> getStudentByAdmissionNumber(String admissionNumber) {
         return studentRepository.findByAdmissionNumber(admissionNumber);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<Student> getAllStudents() {
-        return studentRepository.findAll();
+        return studentRepository.findAll(Sort.by(Sort.Direction.ASC, "lastName", "firstName"));
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<Student> getAllStudentsPaginated(Pageable pageable) {
         return studentRepository.findAll(pageable);
     }
@@ -207,62 +223,73 @@ public class StudentServiceImpl implements StudentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<Student> searchStudents(String searchTerm) {
         return studentRepository.searchByName(searchTerm);
     }
 
     @Override
-    public List<Student> getStudentsByClass(String studentClass) {
-        return studentRepository.findByStudentClass(studentClass);
+    @Transactional(readOnly = true)
+    public List<Student> getStudentsByClassId(Long classId) {
+        return studentRepository.findBySchoolClassIdOrderByLastNameAscFirstNameAsc(classId);
     }
 
     @Override
-    public List<Student> getStudentsByClassAndArm(String studentClass, String classArm) {
-        return studentRepository.findByStudentClassAndClassArm(studentClass, classArm);
-    }
-
-    @Override
+    @Transactional(readOnly = true)
     public List<Student> getStudentsByState(String stateOfOrigin) {
-        return studentRepository.findByStateOfOrigin(stateOfOrigin);
+        return studentRepository.findByStateOfOriginOrderByLastNameAscFirstNameAsc(stateOfOrigin);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<Student> getStudentsByLGA(String lga) {
-        return studentRepository.findByLocalGovtArea(lga);
+        return studentRepository.findByLocalGovtAreaOrderByLastNameAscFirstNameAsc(lga);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<Student> getActiveStudents() {
-        return studentRepository.findByStatus(Student.StudentStatus.ACTIVE);
+        return studentRepository.findByStatusOrderByLastNameAscFirstNameAsc(Student.StudentStatus.ACTIVE);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<Student> getStudentsByStatus(Student.StudentStatus status) {
-        return studentRepository.findByStatus(status);
+        return studentRepository.findByStatusOrderByLastNameAscFirstNameAsc(status);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Map<String, Long> getStudentCountByClass() {
-        List<Object[]> results = studentRepository.countStudentsByClass();
+        List<Object[]> results = studentRepository.countStudentsByClassWithArm();
 
         return results.stream()
                 .collect(Collectors.toMap(
-                        arr -> (String) arr[0],
-                        arr -> (Long) arr[1]
+                        arr -> {
+                            String className = (String) arr[1];
+                            String arm = (String) arr[2];
+                            return arm != null && !arm.isBlank() ? className + " - " + arm : className;
+                        },
+                        arr -> (Long) arr[3],
+                        Long::sum,
+                        LinkedHashMap::new
                 ));
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Long getTotalStudentCount() {
         return studentRepository.count();
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Long getActiveStudentCount() {
-        return (long) studentRepository.findByStatus(Student.StudentStatus.ACTIVE).size();
+        return studentRepository.countByStatus(Student.StudentStatus.ACTIVE);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<Student> getRecentAdmissions(int days) {
         LocalDate cutoffDate = LocalDate.now().minusDays(days);
         return studentRepository.findRecentAdmissions(cutoffDate);
@@ -276,22 +303,24 @@ public class StudentServiceImpl implements StudentService {
     }
 
     @Override
-    public void updateBulkStudentClass(List<Long> studentIds, String newClass) {
+    public void updateBulkStudentClass(List<Long> studentIds, Long newClassId) {
         List<Student> students = studentRepository.findAllById(studentIds);
 
-        SchoolClass targetClass = classRepository.findByClassName(newClass)
-                .orElseThrow(() -> new ResourceNotFoundException("Class not found: " + newClass));
+        SchoolClass targetClass = classRepository.findById(newClassId)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + newClassId));
 
         students.forEach(student -> student.setSchoolClass(targetClass));
         studentRepository.saveAll(students);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public boolean isAdmissionNumberUnique(String admissionNumber) {
         return !studentRepository.existsByAdmissionNumber(admissionNumber);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public String generateAdmissionNumber() {
         String year = String.valueOf(Year.now().getValue());
         long count = studentRepository.count() + 1;
@@ -300,6 +329,7 @@ public class StudentServiceImpl implements StudentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public byte[] generateStudentReport(Long studentId) {
         studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
@@ -307,38 +337,43 @@ public class StudentServiceImpl implements StudentService {
     }
 
     @Override
-    public byte[] generateClassReport(String studentClass) {
-        studentRepository.findByStudentClass(studentClass);
+    @Transactional(readOnly = true)
+    public byte[] generateClassReport(Long classId) {
+        classRepository.findById(classId)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
         return new byte[0];
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Map<String, Object> getPromotionPreview() {
-        List<Student> allStudents = studentRepository.findAll();
+        List<Student> allStudents = studentRepository.findAll(Sort.by(Sort.Direction.ASC, "lastName", "firstName"));
+        Map<String, Long> currentDistribution = getStudentCountByClass();
 
-        Map<String, Long> currentDistribution = studentRepository.countStudentsByClass()
-                .stream()
-                .collect(Collectors.toMap(
-                        arr -> (String) arr[0],
-                        arr -> (Long) arr[1]
-                ));
-
-        Map<String, Long> projectedDistribution = new HashMap<>();
+        Map<String, Long> projectedDistribution = new LinkedHashMap<>();
         List<Map<String, Object>> promotions = new ArrayList<>();
         int excluded = 0;
 
         for (Student student : allStudents) {
-            if (student.getStatus() != Student.StudentStatus.ACTIVE) continue;
+            if (student.getStatus() != Student.StudentStatus.ACTIVE) {
+                continue;
+            }
 
-            String currentClass = student.getStudentClass();
-            if (currentClass == null) continue;
+            String currentClass = getStudentClassName(student);
+            String currentArm = getStudentClassArm(student);
+            Long currentClassId = getStudentClassId(student);
+
+            if (currentClass == null || currentClassId == null) {
+                continue;
+            }
 
             if (student.isExcludeFromPromotion()) {
                 excluded++;
                 Map<String, Object> promo = new HashMap<>();
-                promo.put("studentId", student.getId().toString());
+                promo.put("studentId", student.getId());
                 promo.put("student", student.getFirstName() + " " + student.getLastName());
-                promo.put("from", currentClass);
+                promo.put("fromClassId", currentClassId);
+                promo.put("from", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
                 promo.put("to", "EXCLUDED");
                 promo.put("status", "EXCLUDED");
                 promo.put("reason", student.getPromotionHoldReason() != null
@@ -352,9 +387,10 @@ public class StudentServiceImpl implements StudentService {
             projectedDistribution.merge(nextClass, 1L, Long::sum);
 
             Map<String, Object> promo = new HashMap<>();
-            promo.put("studentId", student.getId().toString());
+            promo.put("studentId", student.getId());
             promo.put("student", student.getFirstName() + " " + student.getLastName());
-            promo.put("from", currentClass);
+            promo.put("fromClassId", currentClassId);
+            promo.put("from", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
             promo.put("to", nextClass);
             promo.put("status", "READY");
             promotions.add(promo);
@@ -374,7 +410,19 @@ public class StudentServiceImpl implements StudentService {
     @Transactional
     public Map<String, Object> promoteAllStudents() {
         List<Student> allStudents = studentRepository.findAll();
-        int promoted = 0, graduated = 0, unchanged = 0, excluded = 0;
+        Map<String, SchoolClass> classCache = classRepository.findAll()
+                .stream()
+                .collect(Collectors.toMap(
+                        c -> buildClassKey(c.getClassName(), c.getArm()),
+                        Function.identity(),
+                        (a, b) -> a,
+                        HashMap::new
+                ));
+
+        int promoted = 0;
+        int graduated = 0;
+        int unchanged = 0;
+        int excluded = 0;
         List<Map<String, Object>> promotionDetails = new ArrayList<>();
 
         for (Student student : allStudents) {
@@ -383,7 +431,9 @@ public class StudentServiceImpl implements StudentService {
                 continue;
             }
 
-            String currentClass = student.getStudentClass();
+            String currentClass = getStudentClassName(student);
+            String currentArm = getStudentClassArm(student);
+
             if (currentClass == null) {
                 unchanged++;
                 continue;
@@ -392,9 +442,10 @@ public class StudentServiceImpl implements StudentService {
             if (student.isExcludeFromPromotion()) {
                 excluded++;
                 Map<String, Object> detail = new HashMap<>();
-                detail.put("studentId", student.getId().toString());
+                detail.put("studentId", student.getId());
                 detail.put("studentName", student.getFirstName() + " " + student.getLastName());
-                detail.put("currentClass", currentClass);
+                detail.put("currentClassId", getStudentClassId(student));
+                detail.put("currentClass", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
                 detail.put("nextClass", "EXCLUDED");
                 detail.put("status", "EXCLUDED");
                 detail.put("reason", student.getPromotionHoldReason() != null
@@ -407,9 +458,10 @@ public class StudentServiceImpl implements StudentService {
             String nextClass = ClassProgression.getNextClass(currentClass);
 
             Map<String, Object> detail = new HashMap<>();
-            detail.put("studentId", student.getId().toString());
+            detail.put("studentId", student.getId());
             detail.put("studentName", student.getFirstName() + " " + student.getLastName());
-            detail.put("currentClass", currentClass);
+            detail.put("currentClassId", getStudentClassId(student));
+            detail.put("currentClass", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
             detail.put("nextClass", nextClass);
 
             if ("GRADUATED".equals(nextClass)) {
@@ -417,13 +469,11 @@ public class StudentServiceImpl implements StudentService {
                 detail.put("status", "GRADUATED");
                 graduated++;
             } else if (!nextClass.equals(currentClass)) {
-                SchoolClass promotedClass = classRepository.findByClassNameAndArmNormalized(
-                        nextClass,
-                        student.getClassArm()
-                ).orElse(null);
+                SchoolClass promotedClass = classCache.get(buildClassKey(nextClass, currentArm));
 
                 if (promotedClass != null) {
                     student.setSchoolClass(promotedClass);
+                    detail.put("nextClassId", promotedClass.getId());
                     detail.put("status", "PROMOTED");
                     promoted++;
                 } else {
@@ -457,13 +507,49 @@ public class StudentServiceImpl implements StudentService {
     @Transactional
     public Map<String, Object> promoteSelectedStudents(List<Long> studentIds) {
         List<Student> selectedStudents = studentRepository.findAllById(studentIds);
-        int promoted = 0, graduated = 0;
+        Set<String> neededTargets = new HashSet<>();
 
         for (Student student : selectedStudents) {
-            if (student.getStatus() != Student.StudentStatus.ACTIVE) continue;
+            if (student.getStatus() != Student.StudentStatus.ACTIVE) {
+                continue;
+            }
 
-            String currentClass = student.getStudentClass();
-            if (currentClass == null) continue;
+            String currentClass = getStudentClassName(student);
+            String currentArm = getStudentClassArm(student);
+
+            if (currentClass == null) {
+                continue;
+            }
+
+            String nextClass = ClassProgression.getNextClass(currentClass);
+            if (!"GRADUATED".equals(nextClass) && !nextClass.equals(currentClass)) {
+                neededTargets.add(buildClassKey(nextClass, currentArm));
+            }
+        }
+
+        Map<String, SchoolClass> classCache = classRepository.findAll()
+                .stream()
+                .filter(c -> neededTargets.contains(buildClassKey(c.getClassName(), c.getArm())))
+                .collect(Collectors.toMap(
+                        c -> buildClassKey(c.getClassName(), c.getArm()),
+                        Function.identity(),
+                        (a, b) -> a
+                ));
+
+        int promoted = 0;
+        int graduated = 0;
+
+        for (Student student : selectedStudents) {
+            if (student.getStatus() != Student.StudentStatus.ACTIVE) {
+                continue;
+            }
+
+            String currentClass = getStudentClassName(student);
+            String currentArm = getStudentClassArm(student);
+
+            if (currentClass == null) {
+                continue;
+            }
 
             String nextClass = ClassProgression.getNextClass(currentClass);
 
@@ -471,10 +557,7 @@ public class StudentServiceImpl implements StudentService {
                 student.setStatus(Student.StudentStatus.GRADUATED);
                 graduated++;
             } else if (!nextClass.equals(currentClass)) {
-                SchoolClass promotedClass = classRepository.findByClassNameAndArmNormalized(
-                        nextClass,
-                        student.getClassArm()
-                ).orElse(null);
+                SchoolClass promotedClass = classCache.get(buildClassKey(nextClass, currentArm));
 
                 if (promotedClass != null) {
                     student.setSchoolClass(promotedClass);
@@ -495,6 +578,19 @@ public class StudentServiceImpl implements StudentService {
 
     @Override
     @Transactional
+    public Map<String, Object> promoteClass(Long classId) {
+        List<Long> studentIds = studentRepository.findBySchoolClassIdOrderByLastNameAscFirstNameAsc(classId)
+                .stream()
+                .map(Student::getId)
+                .toList();
+
+        Map<String, Object> result = promoteSelectedStudents(studentIds);
+        result.put("classId", classId);
+        return result;
+    }
+
+    @Override
+    @Transactional
     public Student togglePromotionExclusion(Long studentId, boolean exclude, String reason) {
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
@@ -506,7 +602,19 @@ public class StudentServiceImpl implements StudentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<Student> getExcludedStudents() {
-        return studentRepository.findByExcludeFromPromotionTrue();
+        return studentRepository.findByExcludeFromPromotionTrueOrderByLastNameAscFirstNameAsc();
+    }
+
+    private String buildClassKey(String className, String arm) {
+        return normalizeClassComponent(className) + "::" + normalizeClassComponent(arm);
+    }
+
+    private String normalizeClassComponent(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim().replaceAll("\\s+", "").toUpperCase();
     }
 }

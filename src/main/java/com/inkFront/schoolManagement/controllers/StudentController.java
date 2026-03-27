@@ -7,6 +7,7 @@ import com.inkFront.schoolManagement.dto.StudentRequestDTO;
 import com.inkFront.schoolManagement.dto.StudentResponseDTO;
 import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.model.Student;
+import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.security.SecurityUtils;
 import com.inkFront.schoolManagement.service.StudentService;
 import jakarta.validation.Valid;
@@ -29,6 +30,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -44,6 +46,7 @@ public class StudentController {
     private static final String UPLOAD_DIR = "uploads/profile-pictures/";
 
     private final StudentService studentService;
+    private final StudentRepository studentRepository;
     private final SecurityUtils securityUtils;
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -201,24 +204,14 @@ public class StudentController {
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/class/{className}")
-    public ResponseEntity<List<StudentResponseDTO>> getStudentsByClass(@PathVariable String className) {
-        List<Student> students = studentService.getStudentsByClass(className);
-        List<StudentResponseDTO> response = students.stream()
+    @GetMapping("/class/id/{classId}")
+    public ResponseEntity<List<StudentResponseDTO>> getStudentsByClassId(@PathVariable Long classId) {
+        List<StudentResponseDTO> response = studentRepository
+                .findBySchoolClassIdOrderByLastNameAscFirstNameAsc(classId)
+                .stream()
                 .map(StudentResponseDTO::fromStudent)
                 .collect(Collectors.toList());
-        return ResponseEntity.ok(response);
-    }
 
-    @GetMapping("/class/{className}/arm/{arm}")
-    public ResponseEntity<List<StudentResponseDTO>> getStudentsByClassAndArm(
-            @PathVariable String className,
-            @PathVariable String arm) {
-
-        List<Student> students = studentService.getStudentsByClassAndArm(className, arm);
-        List<StudentResponseDTO> response = students.stream()
-                .map(StudentResponseDTO::fromStudent)
-                .collect(Collectors.toList());
         return ResponseEntity.ok(response);
     }
 
@@ -261,7 +254,7 @@ public class StudentController {
 
     @GetMapping("/statistics")
     public ResponseEntity<Map<String, Object>> getStudentStatistics() {
-        Map<String, Object> statistics = new java.util.HashMap<>();
+        Map<String, Object> statistics = new HashMap<>();
         statistics.put("totalStudents", studentService.getTotalStudentCount());
         statistics.put("activeStudents", studentService.getActiveStudentCount());
         statistics.put("studentsByClass", studentService.getStudentCountByClass());
@@ -305,10 +298,10 @@ public class StudentController {
 
     @PatchMapping("/bulk/class")
     public ResponseEntity<Void> bulkUpdateClass(
-            @RequestParam String newClass,
+            @RequestParam Long newClassId,
             @RequestBody List<Long> studentIds) {
 
-        studentService.updateBulkStudentClass(studentIds, newClass);
+        studentService.updateBulkStudentClass(studentIds, newClassId);
         return ResponseEntity.ok().build();
     }
 
@@ -333,12 +326,12 @@ public class StudentController {
                 .body(report);
     }
 
-    @GetMapping("/class/{className}/report")
-    public ResponseEntity<byte[]> generateClassReport(@PathVariable String className) {
-        byte[] report = studentService.generateClassReport(className);
+    @GetMapping("/class/id/{classId}/report")
+    public ResponseEntity<byte[]> generateClassReport(@PathVariable Long classId) {
+        byte[] report = studentService.generateClassReport(classId);
         return ResponseEntity.ok()
                 .header("Content-Type", "application/pdf")
-                .header("Content-Disposition", "attachment; filename=class-report-" + className + ".pdf")
+                .header("Content-Disposition", "attachment; filename=class-report-" + classId + ".pdf")
                 .body(report);
     }
 
@@ -379,26 +372,10 @@ public class StudentController {
         return ResponseEntity.ok(StudentResponseDTO.fromStudent(student));
     }
 
-    @PostMapping("/promote/class/{className}")
-    public ResponseEntity<Map<String, Object>> promoteClass(
-            @PathVariable String className,
-            @RequestParam(required = false) String arm) {
-
-        List<Student> students;
-        if (arm != null && !arm.isEmpty()) {
-            students = studentService.getStudentsByClassAndArm(className, arm);
-        } else {
-            students = studentService.getStudentsByClass(className);
-        }
-
-        List<Long> studentIds = students.stream()
-                .map(Student::getId)
-                .collect(Collectors.toList());
-
-        Map<String, Object> result = studentService.promoteSelectedStudents(studentIds);
-        result.put("className", className);
-        result.put("arm", arm);
-
+    @PostMapping("/promote/class/id/{classId}")
+    public ResponseEntity<Map<String, Object>> promoteClass(@PathVariable Long classId) {
+        Map<String, Object> result = studentService.promoteClass(classId);
+        result.put("classId", classId);
         return ResponseEntity.ok(result);
     }
 

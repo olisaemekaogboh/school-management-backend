@@ -25,9 +25,9 @@ public interface AttendanceService {
 
     Map<String, Object> getStudentSessionSummary(Long studentId, String session);
 
-    List<Attendance> getClassAttendance(String className, String arm, LocalDate date, String session, Result.Term term);
+    List<Attendance> getClassAttendance(Long classId, LocalDate date, String session, Result.Term term);
 
-    Map<String, Object> getClassTermStatistics(String className, String arm, String session, Result.Term term);
+    Map<String, Object> getClassTermStatistics(Long classId, String session, Result.Term term);
 
     Map<String, Object> getSchoolAttendanceStatistics(String session, Result.Term term);
 

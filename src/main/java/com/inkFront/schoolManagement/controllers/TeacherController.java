@@ -601,12 +601,11 @@ public class TeacherController {
             @RequestParam String session,
             @RequestParam Result.Term term) {
 
-        SchoolClass schoolClass = validateTeacherOwnsFormClass(classId);
+        validateTeacherOwnsFormClass(classId);
 
         return ResponseEntity.ok(
                 resultService.getClassRankings(
-                        schoolClass.getClassName(),
-                        schoolClass.getArm(),
+                        classId,
                         session,
                         term
                 )
@@ -620,12 +619,11 @@ public class TeacherController {
             @RequestParam String session,
             @RequestParam Result.Term term) {
 
-        SchoolClass schoolClass = validateTeacherCanAccessClass(classId);
+        validateTeacherCanAccessClass(classId);
 
         return ResponseEntity.ok(
                 attendanceService.getClassAttendance(
-                        schoolClass.getClassName(),
-                        schoolClass.getArm(),
+                        classId,
                         date,
                         session,
                         term
@@ -652,7 +650,7 @@ public class TeacherController {
 
         if (hasInvalidStudent) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("message", "One or more students do not belong to your class arm"));
+                    .body(Map.of("message", "One or more students do not belong to this class"));
         }
 
         return ResponseEntity.ok(

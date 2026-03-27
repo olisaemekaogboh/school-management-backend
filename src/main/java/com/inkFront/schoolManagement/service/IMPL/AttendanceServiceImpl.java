@@ -4,10 +4,11 @@ import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
 import com.inkFront.schoolManagement.model.Attendance;
 import com.inkFront.schoolManagement.model.AttendanceSummary;
 import com.inkFront.schoolManagement.model.Result;
-import com.inkFront.schoolManagement.model.SessionResult;
+import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.model.Student;
 import com.inkFront.schoolManagement.model.TermResult;
 import com.inkFront.schoolManagement.repository.AttendanceRepository;
+import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.SessionResultRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.repository.TermResultRepository;
@@ -30,6 +31,7 @@ public class AttendanceServiceImpl implements AttendanceService {
     private final AttendanceRepository attendanceRepository;
     private final TermResultRepository termResultRepository;
     private final SessionResultRepository sessionResultRepository;
+    private final ClassRepository classRepository;
 
     @Override
     public Attendance markAttendance(Long studentId, LocalDate date, String session,
@@ -171,8 +173,10 @@ public class AttendanceServiceImpl implements AttendanceService {
         response.put("studentId", student.getId());
         response.put("studentName", (student.getFirstName() + " " + student.getLastName()).trim());
         response.put("admissionNumber", student.getAdmissionNumber());
-        response.put("studentClass", student.getStudentClass());
-        response.put("classArm", student.getClassArm());
+        response.put("classId", student.getSchoolClass() != null ? student.getSchoolClass().getId() : null);
+        response.put("studentClass", student.getSchoolClass() != null ? student.getSchoolClass().getClassName() : null);
+        response.put("classArm", student.getSchoolClass() != null ? student.getSchoolClass().getArm() : null);
+        response.put("classCode", student.getSchoolClass() != null ? student.getSchoolClass().getClassCode() : null);
         response.put("session", session);
 
         response.put("firstTerm", buildSummaryMap(firstTerm));
@@ -208,8 +212,8 @@ public class AttendanceServiceImpl implements AttendanceService {
     }
 
     @Override
-    public List<Attendance> getClassAttendance(String className, String arm, LocalDate date, String session, Result.Term term) {
-        List<Student> students = studentRepository.findByClassScopeNormalized(className, arm);
+    public List<Attendance> getClassAttendance(Long classId, LocalDate date, String session, Result.Term term) {
+        List<Student> students = studentRepository.findBySchoolClassIdOrderByLastNameAscFirstNameAsc(classId);
 
         if (students.isEmpty()) {
             return Collections.emptyList();
@@ -226,8 +230,11 @@ public class AttendanceServiceImpl implements AttendanceService {
     }
 
     @Override
-    public Map<String, Object> getClassTermStatistics(String className, String arm, String session, Result.Term term) {
-        List<Student> students = studentRepository.findByClassScopeNormalized(className, arm);
+    public Map<String, Object> getClassTermStatistics(Long classId, String session, Result.Term term) {
+        SchoolClass schoolClass = classRepository.findById(classId)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found"));
+
+        List<Student> students = studentRepository.findBySchoolClassIdOrderByLastNameAscFirstNameAsc(classId);
 
         int totalStudents = students.size();
         int presentCount = 0;
@@ -244,8 +251,10 @@ public class AttendanceServiceImpl implements AttendanceService {
             studentData.put("studentId", student.getId());
             studentData.put("studentName", student.getFirstName() + " " + student.getLastName());
             studentData.put("admissionNumber", student.getAdmissionNumber());
-            studentData.put("class", student.getStudentClass());
-            studentData.put("arm", student.getClassArm());
+            studentData.put("classId", schoolClass.getId());
+            studentData.put("class", schoolClass.getClassName());
+            studentData.put("arm", schoolClass.getArm());
+            studentData.put("classCode", schoolClass.getClassCode());
             studentData.put("present", summary.getDaysPresent());
             studentData.put("absent", summary.getDaysAbsent());
             studentData.put("late", summary.getDaysLate());
@@ -269,8 +278,10 @@ public class AttendanceServiceImpl implements AttendanceService {
         }
 
         Map<String, Object> statistics = new HashMap<>();
-        statistics.put("className", className);
-        statistics.put("arm", arm);
+        statistics.put("classId", schoolClass.getId());
+        statistics.put("className", schoolClass.getClassName());
+        statistics.put("arm", schoolClass.getArm());
+        statistics.put("classCode", schoolClass.getClassCode());
         statistics.put("session", session);
         statistics.put("term", term.name());
         statistics.put("totalStudents", totalStudents);
@@ -304,9 +315,12 @@ public class AttendanceServiceImpl implements AttendanceService {
             totalLate += summary.getDaysLate();
             totalExcused += summary.getDaysExcused();
 
-            String className = student.getStudentClass();
-            classStats.merge(className + "_present", summary.getDaysPresent(), Integer::sum);
-            classStats.merge(className + "_absent", summary.getDaysAbsent(), Integer::sum);
+            String className = student.getSchoolClass() != null ? student.getSchoolClass().getClassName() : "UNASSIGNED";
+            String arm = student.getSchoolClass() != null ? student.getSchoolClass().getArm() : "";
+            String key = arm != null && !arm.isBlank() ? className + "-" + arm : className;
+
+            classStats.merge(key + "_present", summary.getDaysPresent(), Integer::sum);
+            classStats.merge(key + "_absent", summary.getDaysAbsent(), Integer::sum);
         }
 
         Map<String, Object> statistics = new HashMap<>();

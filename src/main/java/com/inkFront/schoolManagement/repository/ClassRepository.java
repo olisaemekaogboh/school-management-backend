@@ -1,6 +1,8 @@
 package com.inkFront.schoolManagement.repository;
 
 import com.inkFront.schoolManagement.model.SchoolClass;
+import com.inkFront.schoolManagement.model.Teacher;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -8,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,6 +30,9 @@ public interface ClassRepository extends JpaRepository<SchoolClass, Long> {
     List<SchoolClass> findByClassNameOrderByArmAsc(String className);
 
     List<SchoolClass> findByClassTeacherId(Long classTeacherId);
+
+    @EntityGraph(attributePaths = {"classTeacher"})
+    Optional<SchoolClass> findById(Long id);
 
     @Query("""
         SELECT c
@@ -73,6 +79,21 @@ public interface ClassRepository extends JpaRepository<SchoolClass, Long> {
             @Param("arm") String arm
     );
 
+    @Query("""
+        SELECT c
+        FROM SchoolClass c
+        LEFT JOIN FETCH c.classTeacher
+        WHERE c.id IN :ids
+    """)
+    List<SchoolClass> findAllByIdWithTeacher(@Param("ids") Collection<Long> ids);
+
+    @Query("""
+        SELECT c
+        FROM SchoolClass c
+        WHERE c.id IN :ids
+    """)
+    List<SchoolClass> findAllByIdIn(@Param("ids") Collection<Long> ids);
+
     @Transactional
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -92,5 +113,5 @@ public interface ClassRepository extends JpaRepository<SchoolClass, Long> {
           AND c.classTeacher.id = :oldTeacherId
     """)
     int reassignTeacherInClasses(@Param("oldTeacherId") Long oldTeacherId,
-                                 @Param("newTeacher") com.inkFront.schoolManagement.model.Teacher newTeacher);
+                                 @Param("newTeacher") Teacher newTeacher);
 }
