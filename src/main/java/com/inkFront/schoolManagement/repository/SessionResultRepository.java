@@ -14,16 +14,37 @@ import java.util.Optional;
 @Repository
 public interface SessionResultRepository extends JpaRepository<SessionResult, Long> {
 
-    @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
+    @EntityGraph(attributePaths = {
+            "student",
+            "subjectAnnualTotals",
+            "subjectAverages",
+            "firstTermSubjectScores",
+            "secondTermSubjectScores",
+            "thirdTermSubjectScores"
+    })
     Optional<SessionResult> findByStudentAndSession(Student student, String session);
 
-    @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
+    @EntityGraph(attributePaths = {
+            "student",
+            "subjectAnnualTotals",
+            "subjectAverages",
+            "firstTermSubjectScores",
+            "secondTermSubjectScores",
+            "thirdTermSubjectScores"
+    })
     List<SessionResult> findByStudent_SchoolClass_IdAndSessionOrderByAnnualAverageDesc(
             Long classId,
             String session
     );
 
-    @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
+    @EntityGraph(attributePaths = {
+            "student",
+            "subjectAnnualTotals",
+            "subjectAverages",
+            "firstTermSubjectScores",
+            "secondTermSubjectScores",
+            "thirdTermSubjectScores"
+    })
     @Query("""
         SELECT sr
         FROM SessionResult sr
@@ -37,7 +58,14 @@ public interface SessionResultRepository extends JpaRepository<SessionResult, Lo
             @Param("session") String session
     );
 
-    @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
+    @EntityGraph(attributePaths = {
+            "student",
+            "subjectAnnualTotals",
+            "subjectAverages",
+            "firstTermSubjectScores",
+            "secondTermSubjectScores",
+            "thirdTermSubjectScores"
+    })
     @Query("""
         SELECT sr
         FROM SessionResult sr
@@ -54,7 +82,14 @@ public interface SessionResultRepository extends JpaRepository<SessionResult, Lo
             @Param("session") String session
     );
 
-    @EntityGraph(attributePaths = {"student", "subjectAnnualTotals", "subjectAverages"})
+    @EntityGraph(attributePaths = {
+            "student",
+            "subjectAnnualTotals",
+            "subjectAverages",
+            "firstTermSubjectScores",
+            "secondTermSubjectScores",
+            "thirdTermSubjectScores"
+    })
     @Query("""
         SELECT sr
         FROM SessionResult sr
