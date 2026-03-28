@@ -34,7 +34,7 @@ public class Student {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "class_id")
-    @JsonIgnoreProperties({"classTeacher"})
+    @JsonIgnoreProperties({"classTeacher", "students", "hibernateLazyInitializer", "handler"})
     private SchoolClass schoolClass;
 
     @Enumerated(EnumType.STRING)
@@ -73,13 +73,14 @@ public class Student {
 
     private LocalDateTime updatedAt;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_id")
+    @JsonIgnoreProperties({"wards", "hibernateLazyInitializer", "handler"})
     private Parent parent;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "bus_route_id")
-    @JsonIgnoreProperties({"students"})
+    @JsonIgnoreProperties({"students", "hibernateLazyInitializer", "handler"})
     private BusRoute busRoute;
 
     @PrePersist

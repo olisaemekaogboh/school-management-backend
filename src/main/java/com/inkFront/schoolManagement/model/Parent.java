@@ -47,7 +47,13 @@ public class Parent {
     private String profilePictureUrl;
 
     @OneToMany(mappedBy = "parent", fetch = FetchType.LAZY)
-    @JsonIgnoreProperties({"parent", "hibernateLazyInitializer", "handler"})
+    @JsonIgnoreProperties({
+            "parent",
+            "busRoute",
+            "schoolClass",
+            "hibernateLazyInitializer",
+            "handler"
+    })
     @Builder.Default
     private List<Student> wards = new ArrayList<>();
 

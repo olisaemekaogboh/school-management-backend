@@ -1,10 +1,11 @@
-// src/main/java/com/inkFront/schoolManagement/model/Attendance.java
 package com.inkFront.schoolManagement.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -15,14 +16,27 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Attendance {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "student_id", nullable = false)
+    @JsonIgnoreProperties({
+            "hibernateLazyInitializer",
+            "handler",
+            "parent",
+            "busRoute",
+            "results",
+            "sessionResults",
+            "fees",
+            "bookBorrowings",
+            "attendanceRecords",
+            "user"
+    })
     private Student student;
 
     @Column(nullable = false)

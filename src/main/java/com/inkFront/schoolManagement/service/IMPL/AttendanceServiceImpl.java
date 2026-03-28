@@ -70,7 +70,7 @@ public class AttendanceServiceImpl implements AttendanceService {
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
         return attendanceRepository.findByStudentAndDateAndSessionAndTerm(student, date, session, term)
-                .orElseThrow(() -> new ResourceNotFoundException("Attendance not found"));
+                .orElse(null);
     }
 
     @Override
@@ -133,6 +133,8 @@ public class AttendanceServiceImpl implements AttendanceService {
         summary.setTotalSchoolDays(totalSchoolDays);
         summary.setDaysPresent(presentEquivalent);
         summary.setDaysAbsent(daysAbsent);
+        summary.setDaysLate(daysLate);
+        summary.setDaysExcused(daysExcused);
         summary.setAttendancePercentage(attendancePercentage);
 
         return summary;
@@ -218,7 +220,7 @@ public class AttendanceServiceImpl implements AttendanceService {
         List<LocalDate> schoolDays = attendanceRepository.findDistinctDatesBySessionAndTerm(session, term);
         int totalSchoolDays = schoolDays == null ? 0 : schoolDays.size();
 
-        List<Student> students = studentRepository.findBySchoolClassId(classId);
+        List<Student> students = studentRepository.findBySchoolClassIdOrderByLastNameAscFirstNameAsc(classId);
         int totalStudents = students.size();
 
         long totalPresent = attendanceRepository.countByClassIdAndSessionAndTermAndStatus(
@@ -239,19 +241,68 @@ public class AttendanceServiceImpl implements AttendanceService {
                 ? 0.0
                 : (presentEquivalent * 100.0) / (totalStudents * totalSchoolDays);
 
+        List<Map<String, Object>> studentAttendance = new ArrayList<>();
+
+        for (Student student : students) {
+            List<Attendance> records = attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(
+                    student, session, term
+            );
+
+            long present = records.stream()
+                    .filter(a -> a.getStatus() == Attendance.AttendanceStatus.PRESENT)
+                    .count();
+
+            long absent = records.stream()
+                    .filter(a -> a.getStatus() == Attendance.AttendanceStatus.ABSENT)
+                    .count();
+
+            long late = records.stream()
+                    .filter(a -> a.getStatus() == Attendance.AttendanceStatus.LATE)
+                    .count();
+
+            long excused = records.stream()
+                    .filter(a -> a.getStatus() == Attendance.AttendanceStatus.EXCUSED)
+                    .count();
+
+            long studentPresentEquivalent = present + late + excused;
+            double percentage = totalSchoolDays > 0
+                    ? (studentPresentEquivalent * 100.0 / totalSchoolDays)
+                    : 0.0;
+
+            Map<String, Object> studentMap = new HashMap<>();
+            studentMap.put("studentId", student.getId());
+            studentMap.put("studentName",
+                    (student.getFirstName() + " " + student.getLastName()).trim());
+            studentMap.put("admissionNumber", student.getAdmissionNumber());
+            studentMap.put("class", schoolClass.getClassName());
+            studentMap.put("arm", schoolClass.getArm());
+            studentMap.put("present", present);
+            studentMap.put("absent", absent);
+            studentMap.put("late", late);
+            studentMap.put("excused", excused);
+            studentMap.put("percentage", percentage);
+
+            studentAttendance.add(studentMap);
+        }
+
         Map<String, Object> response = new HashMap<>();
         response.put("classId", schoolClass.getId());
         response.put("className", schoolClass.getClassName());
         response.put("arm", schoolClass.getArm());
         response.put("session", session);
-        response.put("term", term);
+        response.put("term", term.name());
         response.put("totalStudents", totalStudents);
         response.put("totalSchoolDays", totalSchoolDays);
+        response.put("present", totalPresent);
+        response.put("absent", totalAbsent);
+        response.put("late", totalLate);
+        response.put("excused", totalExcused);
         response.put("presentCount", totalPresent);
         response.put("absentCount", totalAbsent);
         response.put("lateCount", totalLate);
         response.put("excusedCount", totalExcused);
         response.put("attendancePercentage", attendancePercentage);
+        response.put("studentAttendance", studentAttendance);
 
         return response;
     }
@@ -295,7 +346,7 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         Map<String, Object> response = new HashMap<>();
         response.put("session", session);
-        response.put("term", term);
+        response.put("term", term.name());
         response.put("totalStudents", totalStudents);
         response.put("totalSchoolDays", totalSchoolDays);
         response.put("presentCount", totalPresent);
