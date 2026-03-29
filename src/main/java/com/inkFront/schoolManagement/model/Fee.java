@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/model/Fee.java
 package com.inkFront.schoolManagement.model;
 
 import jakarta.persistence.*;
@@ -6,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -21,7 +21,7 @@ public class Fee {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "student_id", nullable = false)
     private Student student;
 
@@ -67,25 +67,49 @@ public class Fee {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
-        if (paidAmount == null) paidAmount = 0.0;
-        if (reminderCount == null) reminderCount = 0;
+
+        if (paidAmount == null) {
+            paidAmount = 0.0;
+        }
+
+        if (amount == null) {
+            amount = 0.0;
+        }
+
+        if (reminderCount == null) {
+            reminderCount = 0;
+        }
+
         calculateBalance();
     }
 
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+
+        if (paidAmount == null) {
+            paidAmount = 0.0;
+        }
+
+        if (amount == null) {
+            amount = 0.0;
+        }
+
         calculateBalance();
     }
 
     private void calculateBalance() {
-        this.balance = this.amount - (this.paidAmount != null ? this.paidAmount : 0.0);
+        double safeAmount = amount != null ? amount : 0.0;
+        double safePaidAmount = paidAmount != null ? paidAmount : 0.0;
+
+        this.balance = safeAmount - safePaidAmount;
 
         if (this.balance <= 0) {
+            this.balance = 0.0;
             this.status = PaymentStatus.PAID;
-        } else if (this.paidAmount > 0) {
+        } else if (safePaidAmount > 0) {
             this.status = PaymentStatus.PARTIAL;
-        } else if (LocalDate.now().isAfter(this.dueDate)) {
+        } else if (this.dueDate != null && LocalDate.now().isAfter(this.dueDate)) {
             this.status = PaymentStatus.OVERDUE;
         } else {
             this.status = PaymentStatus.PENDING;
@@ -109,7 +133,7 @@ public class Fee {
         TRANSPORT("Transport Fee"),
         OTHER("Other");
 
-        private String displayName;
+        private final String displayName;
 
         FeeType(String displayName) {
             this.displayName = displayName;

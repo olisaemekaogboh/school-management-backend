@@ -198,14 +198,23 @@ public class FeeServiceImpl implements FeeService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<Fee> getStudentFees(Long studentId, String session, Fee.Term term) {
+        if (session == null || session.isBlank()) {
+            throw new IllegalArgumentException("Session is required");
+        }
+        if (term == null) {
+            throw new IllegalArgumentException("Term is required");
+        }
+
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
-        return feeRepository.findByStudentAndSessionAndTerm(student, session, term);
+        return feeRepository.findByStudentAndSessionAndTerm(student, session.trim(), term);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<Fee> getStudentAllFees(Long studentId) {
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));

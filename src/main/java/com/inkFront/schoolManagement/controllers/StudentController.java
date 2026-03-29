@@ -383,12 +383,22 @@ public class StudentController {
     public ResponseEntity<?> getMyProfile() {
         var currentUser = securityUtils.getCurrentUser();
 
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("message", "User not authenticated"));
+        }
+
         if (currentUser.getStudent() == null) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("message", "This account is not linked to a student"));
         }
 
-        return ResponseEntity.ok(StudentResponseDTO.fromStudent(currentUser.getStudent()));
+        Long studentId = currentUser.getStudent().getId();
+
+        Student student = studentService.getStudentById(studentId)
+                .orElseThrow(() -> new RuntimeException("Student profile not found"));
+
+        return ResponseEntity.ok(StudentResponseDTO.fromStudent(student));
     }
 
     private StudentRequestDTO parseStudentRequest(String studentJson, String legacyStudentJson) throws IOException {

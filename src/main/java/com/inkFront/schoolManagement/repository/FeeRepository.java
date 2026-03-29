@@ -2,6 +2,7 @@ package com.inkFront.schoolManagement.repository;
 
 import com.inkFront.schoolManagement.model.Fee;
 import com.inkFront.schoolManagement.model.Student;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -14,24 +15,42 @@ import java.util.Optional;
 @Repository
 public interface FeeRepository extends JpaRepository<Fee, Long> {
 
-    // Basic queries
+    @Override
+    @EntityGraph(attributePaths = {"student", "student.schoolClass"})
+    List<Fee> findAll();
+
+    @Override
+    @EntityGraph(attributePaths = {"student", "student.schoolClass"})
+    Optional<Fee> findById(Long id);
+
+    @EntityGraph(attributePaths = {"student", "student.schoolClass"})
     List<Fee> findByStudentAndSessionAndTerm(Student student, String session, Fee.Term term);
 
+    @EntityGraph(attributePaths = {"student", "student.schoolClass"})
     List<Fee> findByStudent(Student student);
 
+    @EntityGraph(attributePaths = {"student", "student.schoolClass"})
     List<Fee> findBySessionAndTerm(String session, Fee.Term term);
 
+    @EntityGraph(attributePaths = {"student", "student.schoolClass"})
     List<Fee> findByStatus(Fee.PaymentStatus status);
 
+    @EntityGraph(attributePaths = {"student", "student.schoolClass"})
     List<Fee> findByStatusIn(List<Fee.PaymentStatus> statuses);
 
+    @EntityGraph(attributePaths = {"student", "student.schoolClass"})
     Optional<Fee> findByStudentAndSessionAndTermAndFeeType(
-            Student student, String session, Fee.Term term, Fee.FeeType feeType);
+            Student student,
+            String session,
+            Fee.Term term,
+            Fee.FeeType feeType
+    );
 
-    // Overdue queries
     @Query("""
         SELECT f
         FROM Fee f
+        JOIN FETCH f.student s
+        LEFT JOIN FETCH s.schoolClass
         WHERE f.status IN ('PENDING', 'PARTIAL', 'OVERDUE')
           AND f.dueDate < :date
     """)
@@ -44,20 +63,29 @@ public interface FeeRepository extends JpaRepository<Fee, Long> {
           AND f.session = :session
           AND f.term = :term
     """)
-    long countOverdueFeesBySessionAndTerm(@Param("session") String session, @Param("term") Fee.Term term);
+    long countOverdueFeesBySessionAndTerm(
+            @Param("session") String session,
+            @Param("term") Fee.Term term
+    );
 
-    // Upcoming queries
     @Query("""
         SELECT f
         FROM Fee f
+        JOIN FETCH f.student s
+        LEFT JOIN FETCH s.schoolClass
         WHERE f.status = 'PENDING'
           AND f.dueDate BETWEEN :start AND :end
     """)
-    List<Fee> findUpcomingFees(@Param("start") LocalDate start, @Param("end") LocalDate end);
+    List<Fee> findUpcomingFees(
+            @Param("start") LocalDate start,
+            @Param("end") LocalDate end
+    );
 
     @Query("""
         SELECT f
         FROM Fee f
+        JOIN FETCH f.student s
+        LEFT JOIN FETCH s.schoolClass
         WHERE f.status = 'PENDING'
           AND f.dueDate BETWEEN :start AND :end
           AND f.session = :session
@@ -67,16 +95,19 @@ public interface FeeRepository extends JpaRepository<Fee, Long> {
             @Param("start") LocalDate start,
             @Param("end") LocalDate end,
             @Param("session") String session,
-            @Param("term") Fee.Term term);
+            @Param("term") Fee.Term term
+    );
 
-    // Statistics queries
     @Query("""
         SELECT SUM(f.amount)
         FROM Fee f
         WHERE f.session = :session
           AND f.term = :term
     """)
-    Double getTotalExpectedBySessionAndTerm(@Param("session") String session, @Param("term") Fee.Term term);
+    Double getTotalExpectedBySessionAndTerm(
+            @Param("session") String session,
+            @Param("term") Fee.Term term
+    );
 
     @Query("""
         SELECT SUM(f.paidAmount)
@@ -84,16 +115,22 @@ public interface FeeRepository extends JpaRepository<Fee, Long> {
         WHERE f.session = :session
           AND f.term = :term
     """)
-    Double getTotalCollectedBySessionAndTerm(@Param("session") String session, @Param("term") Fee.Term term);
+    Double getTotalCollectedBySessionAndTerm(
+            @Param("session") String session,
+            @Param("term") Fee.Term term
+    );
 
     @Query("""
         SELECT SUM(f.balance)
         FROM Fee f
         WHERE f.session = :session
           AND f.term = :term
-          AND f.status != 'PAID'
+          AND f.status <> 'PAID'
     """)
-    Double getTotalOutstandingBySessionAndTerm(@Param("session") String session, @Param("term") Fee.Term term);
+    Double getTotalOutstandingBySessionAndTerm(
+            @Param("session") String session,
+            @Param("term") Fee.Term term
+    );
 
     @Query("""
         SELECT COUNT(f)
@@ -101,7 +138,10 @@ public interface FeeRepository extends JpaRepository<Fee, Long> {
         WHERE f.session = :session
           AND f.term = :term
     """)
-    Long getTotalFeesCountBySessionAndTerm(@Param("session") String session, @Param("term") Fee.Term term);
+    Long getTotalFeesCountBySessionAndTerm(
+            @Param("session") String session,
+            @Param("term") Fee.Term term
+    );
 
     @Query("""
         SELECT COUNT(DISTINCT f.student)
@@ -109,7 +149,10 @@ public interface FeeRepository extends JpaRepository<Fee, Long> {
         WHERE f.session = :session
           AND f.term = :term
     """)
-    Long getTotalStudentsWithFeesBySessionAndTerm(@Param("session") String session, @Param("term") Fee.Term term);
+    Long getTotalStudentsWithFeesBySessionAndTerm(
+            @Param("session") String session,
+            @Param("term") Fee.Term term
+    );
 
     @Query("""
         SELECT f.status, COUNT(f)
@@ -118,13 +161,15 @@ public interface FeeRepository extends JpaRepository<Fee, Long> {
           AND f.term = :term
         GROUP BY f.status
     """)
-    List<Object[]> countFeesByStatus(@Param("session") String session, @Param("term") Fee.Term term);
+    List<Object[]> countFeesByStatus(
+            @Param("session") String session,
+            @Param("term") Fee.Term term
+    );
 
-    // Defaulter queries
     @Query("""
         SELECT f.student, SUM(f.balance)
         FROM Fee f
-        WHERE f.status != 'PAID'
+        WHERE f.status <> 'PAID'
           AND f.session = :session
           AND f.term = :term
         GROUP BY f.student
@@ -132,20 +177,8 @@ public interface FeeRepository extends JpaRepository<Fee, Long> {
     """)
     List<Object[]> getStudentsWithOutstandingBalance(
             @Param("session") String session,
-            @Param("term") Fee.Term term);
-
-    // Class-wise queries
-    @Query("""
-        SELECT f.student.schoolClass.className, SUM(f.balance)
-        FROM Fee f
-        WHERE f.status != 'PAID'
-          AND f.session = :session
-          AND f.term = :term
-        GROUP BY f.student.schoolClass.className
-    """)
-    List<Object[]> getOutstandingBalanceByClass(
-            @Param("session") String session,
-            @Param("term") Fee.Term term);
+            @Param("term") Fee.Term term
+    );
 
     @Query("""
         SELECT f.student.schoolClass.className,
@@ -159,12 +192,14 @@ public interface FeeRepository extends JpaRepository<Fee, Long> {
     """)
     List<Object[]> getClassWiseSummary(
             @Param("session") String session,
-            @Param("term") Fee.Term term);
+            @Param("term") Fee.Term term
+    );
 
-    // Payment history
     @Query("""
         SELECT f
         FROM Fee f
+        JOIN FETCH f.student s
+        LEFT JOIN FETCH s.schoolClass
         WHERE f.student = :student
           AND f.paidAmount > 0
         ORDER BY f.paidDate DESC
@@ -174,29 +209,26 @@ public interface FeeRepository extends JpaRepository<Fee, Long> {
     @Query("""
         SELECT f
         FROM Fee f
+        JOIN FETCH f.student s
+        LEFT JOIN FETCH s.schoolClass
         WHERE f.paidDate BETWEEN :startDate AND :endDate
         ORDER BY f.paidDate DESC
     """)
-    List<Fee> findPaymentsInDateRange(@Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
+    List<Fee> findPaymentsInDateRange(
+            @Param("startDate") LocalDate startDate,
+            @Param("endDate") LocalDate endDate
+    );
 
-    // Reminder queries
     @Query("""
         SELECT f
         FROM Fee f
+        JOIN FETCH f.student s
+        LEFT JOIN FETCH s.schoolClass
         WHERE f.reminderCount < :maxReminders
           AND f.status IN ('PENDING', 'PARTIAL', 'OVERDUE')
     """)
     List<Fee> findFeesNeedingReminders(@Param("maxReminders") int maxReminders);
 
-    @Query("""
-        SELECT f
-        FROM Fee f
-        WHERE f.lastReminderSent < :date
-           OR f.lastReminderSent IS NULL
-    """)
-    List<Fee> findFeesWithOldReminders(@Param("date") LocalDate date);
-
-    // Monthly/Yearly reports
     @Query("""
         SELECT YEAR(f.paidDate), MONTH(f.paidDate), SUM(f.paidAmount)
         FROM Fee f
@@ -207,12 +239,14 @@ public interface FeeRepository extends JpaRepository<Fee, Long> {
     """)
     List<Object[]> getMonthlyCollectionReport();
 
-    // Dashboard queries
     @Query("""
         SELECT COUNT(f)
         FROM Fee f
         WHERE f.dueDate BETWEEN :start AND :end
-          AND f.status != 'PAID'
+          AND f.status <> 'PAID'
     """)
-    long countDueFeesInRange(@Param("start") LocalDate start, @Param("end") LocalDate end);
+    long countDueFeesInRange(
+            @Param("start") LocalDate start,
+            @Param("end") LocalDate end
+    );
 }

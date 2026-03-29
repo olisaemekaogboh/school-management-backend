@@ -30,7 +30,6 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/fees")
-@CrossOrigin(origins = "https://localhost:3000")
 @RequiredArgsConstructor
 public class FeeController {
 
@@ -47,13 +46,18 @@ public class FeeController {
                 .body(Map.of("message", message));
     }
 
-    // ==================== ADMIN CRUD ====================
+    private ResponseEntity<Map<String, Object>> badRequest(String message) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("message", message));
+    }
 
     @PostMapping
     public ResponseEntity<?> createFee(@Valid @RequestBody FeeDTO feeDTO) {
         try {
             accessControlService.requireAdmin(currentUser());
             return new ResponseEntity<>(FeeDTO.fromFee(feeService.createFee(feeDTO)), HttpStatus.CREATED);
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }
@@ -68,6 +72,8 @@ public class FeeController {
                     .map(FeeDTO::fromFee)
                     .collect(Collectors.toList());
             return new ResponseEntity<>(dtos, HttpStatus.CREATED);
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }
@@ -78,6 +84,8 @@ public class FeeController {
         try {
             accessControlService.requireAdmin(currentUser());
             return ResponseEntity.ok(FeeDTO.fromFee(feeService.updateFee(id, feeDTO)));
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }
@@ -138,16 +146,14 @@ public class FeeController {
                     : Sort.by(sortBy).descending();
 
             Pageable pageable = PageRequest.of(page, size, sort);
-            Page<FeeDTO> dtos = feeService.getAllFeesPaginated(session, term, status, pageable)
+            Page<FeeDTO> feePage = feeService.getAllFeesPaginated(session, term, status, pageable)
                     .map(FeeDTO::fromFee);
 
-            return ResponseEntity.ok(dtos);
+            return ResponseEntity.ok(feePage);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }
     }
-
-    // ==================== STUDENT / PARENT SAFE ACCESS ====================
 
     @GetMapping("/student/{studentId}")
     public ResponseEntity<?> getStudentFees(
@@ -161,7 +167,10 @@ public class FeeController {
                     .stream()
                     .map(FeeDTO::fromFee)
                     .collect(Collectors.toList());
+
             return ResponseEntity.ok(dtos);
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }
@@ -176,58 +185,8 @@ public class FeeController {
                     .stream()
                     .map(FeeDTO::fromFee)
                     .collect(Collectors.toList());
+
             return ResponseEntity.ok(dtos);
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/student/{studentId}/payments")
-    public ResponseEntity<?> getStudentPaymentHistory(
-            @PathVariable Long studentId,
-            @RequestParam(required = false) String session) {
-        try {
-            accessControlService.requireFeeAccess(currentUser(), studentId);
-            return ResponseEntity.ok(feeService.getPaymentHistory(studentId, session));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/student/{studentId}/has-outstanding")
-    public ResponseEntity<?> hasOutstandingFees(
-            @PathVariable Long studentId,
-            @RequestParam String session,
-            @RequestParam Fee.Term term) {
-        try {
-            accessControlService.requireFeeAccess(currentUser(), studentId);
-            return ResponseEntity.ok(feeService.hasOutstandingFees(studentId, session, term));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/student/{studentId}/outstanding/total")
-    public ResponseEntity<?> getTotalOutstanding(
-            @PathVariable Long studentId,
-            @RequestParam String session,
-            @RequestParam Fee.Term term) {
-        try {
-            accessControlService.requireFeeAccess(currentUser(), studentId);
-            return ResponseEntity.ok(feeService.getTotalOutstanding(studentId, session, term));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/student/{studentId}/outstanding/by-type")
-    public ResponseEntity<?> getOutstandingByType(
-            @PathVariable Long studentId,
-            @RequestParam String session,
-            @RequestParam Fee.Term term) {
-        try {
-            accessControlService.requireFeeAccess(currentUser(), studentId);
-            return ResponseEntity.ok(feeService.getOutstandingByType(studentId, session, term));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }
@@ -247,122 +206,49 @@ public class FeeController {
                     .stream()
                     .map(FeeDTO::fromFee)
                     .collect(Collectors.toList());
+
             return ResponseEntity.ok(dtos);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("message", "Unable to fetch your fees", "error", e.getMessage()));
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         }
     }
 
-    @GetMapping("/me/payments")
-    public ResponseEntity<?> getMyPaymentHistory(@RequestParam(required = false) String session) {
-        try {
-            User user = currentUser();
-            if (user.getStudent() == null) {
-                return forbidden("This account is not linked to a student");
-            }
-
-            return ResponseEntity.ok(feeService.getPaymentHistory(user.getStudent().getId(), session));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("message", "Unable to fetch your payment history", "error", e.getMessage()));
-        }
-    }
-
-    // ==================== ADMIN PAYMENT OPERATIONS ====================
-
-    @PostMapping("/{id}/payment")
+    @PostMapping("/{feeId}/payment")
     public ResponseEntity<?> recordPayment(
-            @PathVariable Long id,
+            @PathVariable Long feeId,
             @RequestParam Double amount,
             @RequestParam String paymentMethod,
             @RequestParam(required = false) String reference,
             @RequestParam(required = false) String notes) {
         try {
             accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(FeeDTO.fromFee(
-                    feeService.recordPayment(id, amount, paymentMethod, reference, notes)
-            ));
+            return ResponseEntity.ok(
+                    FeeDTO.fromFee(feeService.recordPayment(feeId, amount, paymentMethod, reference, notes))
+            );
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }
     }
 
-    @PostMapping("/{id}/partial-payment")
+    @PostMapping("/{feeId}/partial-payment")
     public ResponseEntity<?> recordPartialPayment(
-            @PathVariable Long id,
+            @PathVariable Long feeId,
             @RequestParam Double amount,
             @RequestParam String paymentMethod,
             @RequestParam(required = false) String reference) {
         try {
             accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(FeeDTO.fromFee(
-                    feeService.recordPartialPayment(id, amount, paymentMethod, reference)
-            ));
+            return ResponseEntity.ok(
+                    FeeDTO.fromFee(feeService.recordPartialPayment(feeId, amount, paymentMethod, reference))
+            );
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }
     }
-
-    @PostMapping("/bulk-payment")
-    public ResponseEntity<?> recordBulkPayment(
-            @RequestParam List<Long> feeIds,
-            @RequestParam Double amount,
-            @RequestParam String paymentMethod,
-            @RequestParam(required = false) String reference) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.recordBulkPayment(feeIds, amount, paymentMethod, reference));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @PostMapping("/{id}/reverse")
-    public ResponseEntity<?> reversePayment(
-            @PathVariable Long id,
-            @RequestParam String reason) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(FeeDTO.fromFee(feeService.reversePayment(id, reason)));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @PostMapping("/{id}/waive")
-    public ResponseEntity<?> waiveFee(
-            @PathVariable Long id,
-            @RequestParam String reason) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(FeeDTO.fromFee(feeService.waiveFee(id, reason)));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @PostMapping("/{id}/mark-overdue")
-    public ResponseEntity<?> markAsOverdue(@PathVariable Long id) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(FeeDTO.fromFee(feeService.markAsOverdue(id)));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @PostMapping("/{id}/reopen")
-    public ResponseEntity<?> reopenFee(@PathVariable Long id) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(FeeDTO.fromFee(feeService.reopenFee(id)));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    // ==================== ADMIN STATISTICS / REPORTS ====================
 
     @GetMapping("/statistics")
     public ResponseEntity<?> getFeeStatistics(
@@ -371,40 +257,6 @@ public class FeeController {
         try {
             accessControlService.requireAdmin(currentUser());
             return ResponseEntity.ok(feeService.getFeeStatistics(session, term));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/statistics/detailed")
-    public ResponseEntity<?> getDetailedStatistics(
-            @RequestParam String session,
-            @RequestParam Fee.Term term) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.getDetailedStatistics(session, term));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/statistics/class-wise")
-    public ResponseEntity<?> getClassWiseSummary(
-            @RequestParam String session,
-            @RequestParam Fee.Term term) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.getClassWiseSummary(session, term));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/statistics/monthly")
-    public ResponseEntity<?> getMonthlyCollectionReport() {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.getMonthlyCollectionReport());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }
@@ -422,92 +274,14 @@ public class FeeController {
         }
     }
 
-    @GetMapping("/defaulters/top")
-    public ResponseEntity<?> getTopDefaulters(
-            @RequestParam String session,
-            @RequestParam Fee.Term term,
-            @RequestParam(defaultValue = "10") int limit) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.getTopDefaulters(session, term, limit));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/defaulters/count")
-    public ResponseEntity<?> countDefaulters(
-            @RequestParam String session,
-            @RequestParam Fee.Term term) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.countDefaulters(session, term));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @PostMapping("/reminders/send")
-    public ResponseEntity<?> sendFeeReminders(
-            @RequestParam String session,
-            @RequestParam Fee.Term term,
-            @RequestParam(defaultValue = "7") int daysBeforeDue) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.sendFeeReminders(session, term, daysBeforeDue));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @PostMapping("/reminders/overdue")
-    public ResponseEntity<?> sendOverdueReminders() {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.sendOverdueReminders());
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @PostMapping("/{id}/send-reminder")
-    public ResponseEntity<?> sendSingleReminder(@PathVariable Long id) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.sendSingleReminder(id));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @PostMapping("/reminders/bulk")
-    public ResponseEntity<?> sendBulkReminders(@RequestParam List<Long> feeIds) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.sendBulkReminders(feeIds));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
     @GetMapping("/overdue")
     public ResponseEntity<?> getOverdueFees() {
         try {
             accessControlService.requireAdmin(currentUser());
-            List<FeeDTO> dtos = feeService.getOverdueFees().stream().map(FeeDTO::fromFee).collect(Collectors.toList());
-            return ResponseEntity.ok(dtos);
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/overdue/filtered")
-    public ResponseEntity<?> getOverdueFees(
-            @RequestParam String session,
-            @RequestParam Fee.Term term) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            List<FeeDTO> dtos = feeService.getOverdueFees(session, term).stream().map(FeeDTO::fromFee).collect(Collectors.toList());
+            List<FeeDTO> dtos = feeService.getOverdueFees()
+                    .stream()
+                    .map(FeeDTO::fromFee)
+                    .collect(Collectors.toList());
             return ResponseEntity.ok(dtos);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
@@ -518,11 +292,107 @@ public class FeeController {
     public ResponseEntity<?> getUpcomingFees(@RequestParam(defaultValue = "7") int days) {
         try {
             accessControlService.requireAdmin(currentUser());
-            List<FeeDTO> dtos = feeService.getUpcomingFees(days).stream().map(FeeDTO::fromFee).collect(Collectors.toList());
+            List<FeeDTO> dtos = feeService.getUpcomingFees(days)
+                    .stream()
+                    .map(FeeDTO::fromFee)
+                    .collect(Collectors.toList());
             return ResponseEntity.ok(dtos);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }
+    }
+
+    @GetMapping("/student/{studentId}/has-outstanding")
+    public ResponseEntity<?> hasOutstandingFees(
+            @PathVariable Long studentId,
+            @RequestParam String session,
+            @RequestParam Fee.Term term) {
+        try {
+            accessControlService.requireFeeAccess(currentUser(), studentId);
+            return ResponseEntity.ok(Map.of(
+                    "studentId", studentId,
+                    "hasOutstanding", feeService.hasOutstandingFees(studentId, session, term)
+            ));
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        }
+    }
+
+    @GetMapping("/student/{studentId}/outstanding/total")
+    public ResponseEntity<?> getTotalOutstanding(
+            @PathVariable Long studentId,
+            @RequestParam String session,
+            @RequestParam Fee.Term term) {
+        try {
+            accessControlService.requireFeeAccess(currentUser(), studentId);
+            return ResponseEntity.ok(Map.of(
+                    "studentId", studentId,
+                    "totalOutstanding", feeService.getTotalOutstanding(studentId, session, term)
+            ));
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        }
+    }
+
+    @GetMapping("/student/{studentId}/outstanding/by-type")
+    public ResponseEntity<?> getOutstandingByType(
+            @PathVariable Long studentId,
+            @RequestParam String session,
+            @RequestParam Fee.Term term) {
+        try {
+            accessControlService.requireFeeAccess(currentUser(), studentId);
+            return ResponseEntity.ok(feeService.getOutstandingByType(studentId, session, term));
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        }
+    }
+
+    @GetMapping("/report/pdf")
+    public ResponseEntity<Resource> generateFeeReportPdf(
+            @RequestParam String session,
+            @RequestParam Fee.Term term) {
+        accessControlService.requireAdmin(currentUser());
+
+        byte[] pdfBytes = feeService.generateFeeReportPdf(session, term);
+        ByteArrayResource resource = new ByteArrayResource(pdfBytes);
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=fee-report.pdf")
+                .contentLength(pdfBytes.length)
+                .body(resource);
+    }
+
+    @GetMapping("/report/excel")
+    public ResponseEntity<Resource> generateFeeReportExcel(
+            @RequestParam String session,
+            @RequestParam Fee.Term term) {
+        accessControlService.requireAdmin(currentUser());
+
+        byte[] excelBytes = feeService.generateFeeReportExcel(session, term);
+        ByteArrayResource resource = new ByteArrayResource(excelBytes);
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                ))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=fee-report.xlsx")
+                .contentLength(excelBytes.length)
+                .body(resource);
+    }
+
+    @GetMapping("/{feeId}/receipt")
+    public ResponseEntity<Resource> generateReceipt(@PathVariable Long feeId) {
+        accessControlService.requireAdmin(currentUser());
+
+        byte[] pdfBytes = feeService.generateReceipt(feeId);
+        ByteArrayResource resource = new ByteArrayResource(pdfBytes);
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=receipt-" + feeId + ".pdf")
+                .contentLength(pdfBytes.length)
+                .body(resource);
     }
 
     @GetMapping("/due-between")
@@ -531,141 +401,13 @@ public class FeeController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end) {
         try {
             accessControlService.requireAdmin(currentUser());
-            List<FeeDTO> dtos = feeService.getFeesDueBetween(start, end).stream().map(FeeDTO::fromFee).collect(Collectors.toList());
+
+            List<FeeDTO> dtos = feeService.getFeesDueBetween(start, end)
+                    .stream()
+                    .map(FeeDTO::fromFee)
+                    .collect(Collectors.toList());
+
             return ResponseEntity.ok(dtos);
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/due-today/count")
-    public ResponseEntity<?> countFeesDueToday() {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.countFeesDueToday());
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/{id}/payments")
-    public ResponseEntity<?> getFeePaymentHistory(@PathVariable Long id) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.getFeePaymentHistory(id));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/payments/recent")
-    public ResponseEntity<?> getRecentPayments(
-            @RequestParam(defaultValue = "10") int limit) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.getRecentPayments(limit));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/report")
-    public ResponseEntity<?> generateFeeReport(
-            @RequestParam String session,
-            @RequestParam Fee.Term term) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.generateFeeReport(session, term));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/report/pdf")
-    public ResponseEntity<?> generateFeeReportPdf(
-            @RequestParam String session,
-            @RequestParam Fee.Term term) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            byte[] reportBytes = feeService.generateFeeReportPdf(session, term);
-            ByteArrayResource resource = new ByteArrayResource(reportBytes);
-
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=fee_report_" + session + "_" + term + ".pdf")
-                    .contentType(MediaType.APPLICATION_PDF)
-                    .contentLength(reportBytes.length)
-                    .body(resource);
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/report/excel")
-    public ResponseEntity<?> generateFeeReportExcel(
-            @RequestParam String session,
-            @RequestParam Fee.Term term) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            byte[] reportBytes = feeService.generateFeeReportExcel(session, term);
-            ByteArrayResource resource = new ByteArrayResource(reportBytes);
-
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=fee_report_" + session + "_" + term + ".xlsx")
-                    .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-                    .contentLength(reportBytes.length)
-                    .body(resource);
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/{id}/receipt")
-    public ResponseEntity<?> generateReceipt(@PathVariable Long id) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            byte[] receiptBytes = feeService.generateReceipt(id);
-            ByteArrayResource resource = new ByteArrayResource(receiptBytes);
-
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=receipt_" + id + ".pdf")
-                    .contentType(MediaType.APPLICATION_PDF)
-                    .contentLength(receiptBytes.length)
-                    .body(resource);
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @PutMapping("/update-due-dates")
-    public ResponseEntity<?> updateFeesDueDate(
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate oldDate,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate newDate) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.updateFeesDueDate(oldDate, newDate));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/dashboard")
-    public ResponseEntity<?> getDashboardData(
-            @RequestParam String session,
-            @RequestParam Fee.Term term) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.getDashboardData(session, term));
-        } catch (AccessDeniedException e) {
-            return forbidden(e.getMessage());
-        }
-    }
-
-    @GetMapping("/payment-trends")
-    public ResponseEntity<?> getPaymentTrends(
-            @RequestParam(defaultValue = "12") int months) {
-        try {
-            accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(feeService.getPaymentTrends(months));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }

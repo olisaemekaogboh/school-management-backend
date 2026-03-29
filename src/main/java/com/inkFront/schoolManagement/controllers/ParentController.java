@@ -2,17 +2,14 @@ package com.inkFront.schoolManagement.controllers;
 
 import com.inkFront.schoolManagement.dto.ParentDTO;
 import com.inkFront.schoolManagement.dto.SessionResultResponseDTO;
+import com.inkFront.schoolManagement.dto.StudentResponseDTO;
 import com.inkFront.schoolManagement.model.AttendanceSummary;
 import com.inkFront.schoolManagement.model.Fee;
 import com.inkFront.schoolManagement.model.Student;
 import com.inkFront.schoolManagement.model.User;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.security.SecurityUtils;
-import com.inkFront.schoolManagement.service.AttendanceService;
-import com.inkFront.schoolManagement.service.FeeService;
-import com.inkFront.schoolManagement.service.ParentService;
-import com.inkFront.schoolManagement.service.ResultService;
-import com.inkFront.schoolManagement.service.SessionResultService;
+import com.inkFront.schoolManagement.service.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -41,6 +38,7 @@ public class ParentController {
     private final SessionResultService sessionResultService;
     private final AttendanceService attendanceService;
     private final FeeService feeService;
+    private final StudentService studentService;
 
     private User currentUser() {
         return securityUtils.getCurrentUser();
@@ -102,28 +100,26 @@ public class ParentController {
     }
 
     private Map<String, Object> wardToMap(Student student) {
+
+        Student fullStudent = studentService.getStudentById(student.getId())
+                .orElseThrow(() -> new RuntimeException("Student not found"));
+
+        StudentResponseDTO dto = StudentResponseDTO.fromStudent(fullStudent);
+
         Map<String, Object> map = new HashMap<>();
-        map.put("id", student.getId());
-        map.put("firstName", student.getFirstName());
-        map.put("lastName", student.getLastName());
-        map.put("middleName", student.getMiddleName());
-        map.put(
-                "fullName",
-                ((student.getFirstName() != null ? student.getFirstName() : "") + " " +
-                        (student.getMiddleName() != null ? student.getMiddleName() + " " : "") +
-                        (student.getLastName() != null ? student.getLastName() : ""))
-                        .replaceAll("\\s+", " ")
-                        .trim()
-        );
-        map.put("admissionNumber", student.getAdmissionNumber());
-        map.put("studentClass", student.getStudentClass());
-        map.put("classArm", student.getClassArm());
-        map.put("classId", student.getSchoolClass() != null ? student.getSchoolClass().getId() : null);
-        map.put("profilePictureUrl", student.getProfilePictureUrl());
-        map.put("status", student.getStatus() != null ? student.getStatus().name() : null);
+
+        map.put("id", dto.getId());
+        map.put("fullName", dto.getFullName());
+        map.put("admissionNumber", dto.getAdmissionNumber());
+
+        map.put("className", dto.getStudentClass());
+        map.put("classArm", dto.getClassArm());
+        map.put("classCode", dto.getClassCode());
+
+        map.put("profilePictureUrl", dto.getProfilePictureUrl());
+
         return map;
     }
-
     private Map<String, Object> attendanceSummaryToMap(AttendanceSummary summary) {
         Map<String, Object> response = new HashMap<>();
         response.put("studentId", summary.getStudent() != null ? summary.getStudent().getId() : null);
