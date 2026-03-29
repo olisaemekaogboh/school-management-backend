@@ -30,6 +30,12 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findAll(Sort sort);
 
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
+    Optional<Student> findDetailedById(Long id);
+
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
+    Optional<Student> findDetailedByAdmissionNumber(String admissionNumber);
+
     @Query("""
         SELECT s
         FROM Student s
@@ -166,20 +172,5 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     List<Student> findByStudentClassAndClassArmNormalized(
             @Param("className") String className,
             @Param("arm") String arm
-    );
-
-    @Query("""
-        SELECT s
-        FROM Student s
-        JOIN FETCH s.schoolClass sc
-        LEFT JOIN FETCH s.parent
-        LEFT JOIN FETCH s.busRoute
-        WHERE LOWER(REPLACE(TRIM(sc.className), ' ', '')) = LOWER(REPLACE(TRIM(:studentClass), ' ', ''))
-          AND LOWER(TRIM(sc.arm)) = LOWER(TRIM(:classArm))
-        ORDER BY s.lastName ASC, s.firstName ASC
-    """)
-    List<Student> findByClassScopeNormalized(
-            @Param("studentClass") String studentClass,
-            @Param("classArm") String classArm
     );
 }

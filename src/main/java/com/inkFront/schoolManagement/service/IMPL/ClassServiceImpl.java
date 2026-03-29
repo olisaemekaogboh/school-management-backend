@@ -300,7 +300,7 @@ public class ClassServiceImpl implements ClassService {
         SchoolClass schoolClass = classRepository.findByIdWithTeacher(classId)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
 
-        List<Student> students = studentRepository.findByClassScopeNormalized(
+        List<Student> students = studentRepository.findByStudentClassAndClassArmNormalized(
                 schoolClass.getClassName(),
                 schoolClass.getArm()
         );

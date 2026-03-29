@@ -128,10 +128,9 @@ public class AccessControlService {
         }
     }
 
-    // Compatibility overload for old callers still passing className + arm
     public void requireResultClassAccess(User user, String className, String arm) {
         SchoolClass schoolClass = classRepository.findByClassNameAndArmNormalized(className, arm)
-                .orElseThrow(() -> new RuntimeException("Class not found"));
+                .orElseThrow(() -> new AccessDeniedException("Class not found or inaccessible"));
 
         requireResultClassAccess(user, schoolClass.getId());
     }
@@ -248,7 +247,7 @@ public class AccessControlService {
     public boolean isOwnerStudent(User user, Long studentId) {
         return isStudent(user)
                 && user.getStudent() != null
-                && user.getStudent().getId().equals(studentId);
+                && Objects.equals(user.getStudent().getId(), studentId);
     }
 
     public boolean isParentOfStudent(User user, Long studentId) {
@@ -259,7 +258,7 @@ public class AccessControlService {
         Parent parent = user.getParent();
 
         return studentRepository.findById(studentId)
-                .map(student -> student.getParent() != null && student.getParent().getId().equals(parent.getId()))
+                .map(student -> student.getParent() != null && Objects.equals(student.getParent().getId(), parent.getId()))
                 .orElse(false);
     }
 
@@ -293,7 +292,7 @@ public class AccessControlService {
             return false;
         }
 
-        boolean match = resolvedClass.getClassTeacher().getId().equals(user.getTeacher().getId());
+        boolean match = Objects.equals(resolvedClass.getClassTeacher().getId(), user.getTeacher().getId());
 
         log.info("Form teacher check => classId={}, classTeacherId={}, currentTeacherId={}, match={}",
                 resolvedClass.getId(),
@@ -335,10 +334,12 @@ public class AccessControlService {
 
         for (TeacherSubject assignment : assignments) {
             Long assignedSubjectId = assignment.getSubject() != null ? assignment.getSubject().getId() : null;
+
             boolean sameScope =
-                    normalizeCompact(studentClassName).equals(normalizeCompact(assignment.getClassName())) &&
-                            normalizeCompact(studentClassArm).equals(normalizeCompact(assignment.getClassArm()));
-            boolean subjectMatch = assignedSubjectId != null && assignedSubjectId.equals(subjectId);
+                    normalizeCompact(studentClassName).equals(normalizeCompact(assignment.getClassName()))
+                            && normalizeCompact(studentClassArm).equals(normalizeCompact(assignment.getClassArm()));
+
+            boolean subjectMatch = assignedSubjectId != null && Objects.equals(assignedSubjectId, subjectId);
 
             log.info("Assignment candidate => className={}, classArm={}, assignedSubjectId={}, sameScope={}, subjectMatch={}",
                     assignment.getClassName(),
@@ -392,18 +393,25 @@ public class AccessControlService {
         String arm = schoolClass.getArm();
 
         return assignments.stream().anyMatch(assignment ->
-                normalizeCompact(className).equals(normalizeCompact(assignment.getClassName())) &&
-                        normalizeCompact(arm).equals(normalizeCompact(assignment.getClassArm()))
+                normalizeCompact(className).equals(normalizeCompact(assignment.getClassName()))
+                        && normalizeCompact(arm).equals(normalizeCompact(assignment.getClassArm()))
         );
     }
 
     private Student findStudent(Long studentId) {
+        if (studentId == null) {
+            return null;
+        }
         return studentRepository.findById(studentId).orElse(null);
     }
 
     private SchoolClass findSchoolClass(Long classId) {
+        if (classId == null) {
+            throw new AccessDeniedException("Class id is required");
+        }
+
         return classRepository.findByIdWithTeacher(classId)
-                .orElseThrow(() -> new RuntimeException("Class not found"));
+                .orElseThrow(() -> new AccessDeniedException("Class not found or inaccessible"));
     }
 
     private Long getStudentClassId(Student student) {

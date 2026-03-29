@@ -34,3 +34,9 @@ build/
 /uploads/
 /build.log
 /target/
+
+.env
+*.env
+src/main/resources/application-local.properties
+
+/keystore.p12
