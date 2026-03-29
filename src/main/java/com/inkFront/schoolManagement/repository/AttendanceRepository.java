@@ -16,6 +16,7 @@ import java.util.Optional;
 @Repository
 public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
 
+    @EntityGraph(attributePaths = {"student", "student.schoolClass"})
     Optional<Attendance> findByStudentAndDateAndSessionAndTerm(
             Student student,
             LocalDate date,
@@ -94,5 +95,4 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
             @Param("term") Result.Term term,
             @Param("status") Attendance.AttendanceStatus status
     );
-
 }

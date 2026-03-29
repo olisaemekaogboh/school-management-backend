@@ -26,7 +26,6 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/attendance")
-@CrossOrigin(origins = "https://localhost:3000")
 @RequiredArgsConstructor
 public class AttendanceController {
 
@@ -45,6 +44,11 @@ public class AttendanceController {
 
     private ResponseEntity<Map<String, Object>> forbidden(String message) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("message", message));
+    }
+
+    private ResponseEntity<Map<String, Object>> badRequest(String message) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("message", message));
     }
 
@@ -89,6 +93,7 @@ public class AttendanceController {
         item.put("term", att.getTerm() != null ? att.getTerm().name() : null);
         item.put("status", att.getStatus() != null ? att.getStatus().name() : null);
         item.put("remarks", att.getRemarks());
+        item.put("exists", att.getId() != null);
         item.put("student", studentToMap(att.getStudent()));
         return item;
     }
@@ -148,6 +153,8 @@ public class AttendanceController {
             );
 
             return new ResponseEntity<>(attendanceToMap(attendance), HttpStatus.CREATED);
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -163,26 +170,25 @@ public class AttendanceController {
             @RequestParam Result.Term term,
             @RequestParam Attendance.AttendanceStatus status) {
         try {
-            User user = currentUser();
-            accessControlService.requireTeacherOrAdmin(user);
-
             if (studentIds == null || studentIds.isEmpty()) {
-                return ResponseEntity.badRequest().body(Map.of("message", "Student list cannot be empty"));
+                return badRequest("Student ids are required");
             }
 
-            for (Long studentId : studentIds) {
+            User user = currentUser();
+            for (Long studentId : new LinkedHashSet<>(studentIds)) {
                 accessControlService.requireAttendanceMarking(user, studentId);
             }
 
-            List<Attendance> attendances = attendanceService.markBulkAttendance(
-                    studentIds, date, session, term, status
-            );
+            List<Attendance> attendanceList =
+                    attendanceService.markBulkAttendance(studentIds, date, session, term, status);
 
-            List<Map<String, Object>> response = attendances.stream()
+            List<Map<String, Object>> response = attendanceList.stream()
                     .map(this::attendanceToMap)
                     .toList();
 
-            return new ResponseEntity<>(response, HttpStatus.CREATED);
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -202,20 +208,19 @@ public class AttendanceController {
 
             Attendance attendance = attendanceService.getStudentAttendance(studentId, date, session, term);
 
-            if (attendance != null) {
-                return ResponseEntity.ok(attendanceToMap(attendance));
+            if (attendance == null) {
+                return ResponseEntity.ok(Map.of(
+                        "exists", false,
+                        "studentId", studentId,
+                        "date", date,
+                        "session", session,
+                        "term", term.name()
+                ));
             }
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("exists", false);
-            response.put("studentId", studentId);
-            response.put("date", date);
-            response.put("session", session);
-            response.put("term", term.name());
-            response.put("status", null);
-            response.put("remarks", null);
-
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(attendanceToMap(attendance));
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -240,10 +245,12 @@ public class AttendanceController {
                     .toList();
 
             return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
-            return serverError("Unable to fetch student term attendance", e);
+            return serverError("Unable to fetch term attendance", e);
         }
     }
 
@@ -260,6 +267,8 @@ public class AttendanceController {
                     attendanceService.getStudentTermSummary(studentId, session, term);
 
             return ResponseEntity.ok(summaryToMap(summary));
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -278,6 +287,8 @@ public class AttendanceController {
             return ResponseEntity.ok(
                     attendanceService.getStudentSessionSummary(studentId, session)
             );
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -304,6 +315,8 @@ public class AttendanceController {
                     .toList();
 
             return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to fetch your attendance", e);
         }
@@ -324,6 +337,8 @@ public class AttendanceController {
                     attendanceService.getStudentTermSummary(user.getStudent().getId(), session, term);
 
             return ResponseEntity.ok(summaryToMap(summary));
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to fetch your attendance summary", e);
         }
@@ -341,12 +356,7 @@ public class AttendanceController {
             accessControlService.requireClassTeacherOrAdmin(user, classId);
 
             List<Attendance> attendanceList =
-                    attendanceService.getClassAttendance(
-                            classId,
-                            date,
-                            session,
-                            term
-                    );
+                    attendanceService.getClassAttendance(classId, date, session, term);
 
             List<Map<String, Object>> response = attendanceList.stream()
                     .map(this::attendanceToMap)
@@ -360,6 +370,8 @@ public class AttendanceController {
             wrapped.put("attendance", response);
 
             return ResponseEntity.ok(wrapped);
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -377,13 +389,11 @@ public class AttendanceController {
             accessControlService.requireClassTeacherOrAdmin(user, classId);
 
             Map<String, Object> statistics =
-                    attendanceService.getClassTermStatistics(
-                            classId,
-                            session,
-                            term
-                    );
+                    attendanceService.getClassTermStatistics(classId, session, term);
 
             return ResponseEntity.ok(statistics);
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -402,6 +412,8 @@ public class AttendanceController {
             return ResponseEntity.ok(
                     attendanceService.getSchoolAttendanceStatistics(session, term)
             );
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -421,6 +433,8 @@ public class AttendanceController {
             return ResponseEntity.ok(
                     attendanceService.initializeSchoolDays(dates, session, term)
             );
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -438,6 +452,8 @@ public class AttendanceController {
 
             attendanceService.calculateAllTermSummaries(session, term);
             return ResponseEntity.ok(Map.of("message", "Attendance summaries calculated successfully"));
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -462,13 +478,15 @@ public class AttendanceController {
             Attendance attendance = new Attendance();
             attendance.setStudent(student);
             attendance.setDate(date);
-            attendance.setSession(session);
+            attendance.setSession(session.trim());
             attendance.setTerm(term);
             attendance.setStatus(status);
 
             attendanceRepository.save(attendance);
 
             return ResponseEntity.ok(Map.of("message", "Success"));
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -501,7 +519,7 @@ public class AttendanceController {
             List<Map<String, Object>> attendanceStatus = new ArrayList<>();
             for (Student student : students) {
                 Optional<Attendance> existing =
-                        attendanceRepository.findByStudentAndDateAndSessionAndTerm(student, date, session, term);
+                        attendanceRepository.findByStudentAndDateAndSessionAndTerm(student, date, session.trim(), term);
 
                 Map<String, Object> statusMap = new HashMap<>();
                 statusMap.put("studentId", student.getId());
@@ -517,6 +535,8 @@ public class AttendanceController {
             response.put("success", true);
 
             return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {

@@ -31,6 +31,8 @@ public class AttendanceServiceImpl implements AttendanceService {
     @Override
     public Attendance markAttendance(Long studentId, LocalDate date, String session, Result.Term term,
                                      Attendance.AttendanceStatus status, String remarks) {
+        validateInputs(date, session, term, status);
+
         log.info("Marking attendance for student: {}, date: {}, session: {}, term: {}",
                 studentId, date, session, term);
 
@@ -38,15 +40,15 @@ public class AttendanceServiceImpl implements AttendanceService {
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
         Attendance attendance = attendanceRepository
-                .findByStudentAndDateAndSessionAndTerm(student, date, session, term)
+                .findByStudentAndDateAndSessionAndTerm(student, date, normalizeSession(session), term)
                 .orElse(new Attendance());
 
         attendance.setStudent(student);
         attendance.setDate(date);
-        attendance.setSession(session);
+        attendance.setSession(normalizeSession(session));
         attendance.setTerm(term);
         attendance.setStatus(status);
-        attendance.setRemarks(remarks);
+        attendance.setRemarks(normalizeRemarks(remarks));
 
         return attendanceRepository.save(attendance);
     }
@@ -54,9 +56,16 @@ public class AttendanceServiceImpl implements AttendanceService {
     @Override
     public List<Attendance> markBulkAttendance(List<Long> studentIds, LocalDate date, String session,
                                                Result.Term term, Attendance.AttendanceStatus status) {
-        List<Attendance> attendances = new ArrayList<>();
+        validateInputs(date, session, term, status);
 
-        for (Long studentId : studentIds) {
+        if (studentIds == null || studentIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<Attendance> attendances = new ArrayList<>();
+        Set<Long> uniqueIds = new LinkedHashSet<>(studentIds);
+
+        for (Long studentId : uniqueIds) {
             attendances.add(markAttendance(studentId, date, session, term, status, null));
         }
 
@@ -66,33 +75,45 @@ public class AttendanceServiceImpl implements AttendanceService {
     @Override
     @Transactional(readOnly = true)
     public Attendance getStudentAttendance(Long studentId, LocalDate date, String session, Result.Term term) {
+        validateFetchInputs(date, session, term);
+
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
-        return attendanceRepository.findByStudentAndDateAndSessionAndTerm(student, date, session, term)
+        return attendanceRepository.findByStudentAndDateAndSessionAndTerm(
+                        student, date, normalizeSession(session), term
+                )
                 .orElse(null);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<Attendance> getStudentTermAttendance(Long studentId, String session, Result.Term term) {
+        validateSessionTerm(session, term);
+
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
-        return attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(student, session, term);
+        return attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(
+                student, normalizeSession(session), term
+        );
     }
 
     @Override
     @Transactional(readOnly = true)
     public AttendanceSummary getStudentTermSummary(Long studentId, String session, Result.Term term) {
+        validateSessionTerm(session, term);
+
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
         List<Attendance> records = attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(
-                student, session, term
+                student, normalizeSession(session), term
         );
 
-        List<LocalDate> schoolDays = attendanceRepository.findDistinctDatesBySessionAndTerm(session, term);
+        List<LocalDate> schoolDays = attendanceRepository.findDistinctDatesBySessionAndTerm(
+                normalizeSession(session), term
+        );
 
         if ((schoolDays == null || schoolDays.isEmpty()) && !records.isEmpty()) {
             schoolDays = records.stream()
@@ -128,7 +149,7 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         AttendanceSummary summary = new AttendanceSummary();
         summary.setStudent(student);
-        summary.setSession(session);
+        summary.setSession(normalizeSession(session));
         summary.setTerm(term);
         summary.setTotalSchoolDays(totalSchoolDays);
         summary.setDaysPresent(presentEquivalent);
@@ -143,15 +164,21 @@ public class AttendanceServiceImpl implements AttendanceService {
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> getStudentSessionSummary(Long studentId, String session) {
+        if (session == null || session.isBlank()) {
+            throw new IllegalArgumentException("Session is required");
+        }
+
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
+        String normalizedSession = normalizeSession(session);
+
         List<Attendance> firstTermAttendance =
-                attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(student, session, Result.Term.FIRST);
+                attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(student, normalizedSession, Result.Term.FIRST);
         List<Attendance> secondTermAttendance =
-                attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(student, session, Result.Term.SECOND);
+                attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(student, normalizedSession, Result.Term.SECOND);
         List<Attendance> thirdTermAttendance =
-                attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(student, session, Result.Term.THIRD);
+                attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(student, normalizedSession, Result.Term.THIRD);
 
         List<Attendance> allAttendance = new ArrayList<>();
         allAttendance.addAll(firstTermAttendance);
@@ -187,7 +214,7 @@ public class AttendanceServiceImpl implements AttendanceService {
         Map<String, Object> response = new HashMap<>();
         response.put("studentId", student.getId());
         response.put("studentName", student.getFirstName() + " " + student.getLastName());
-        response.put("session", session);
+        response.put("session", normalizedSession);
         response.put("totalSchoolDays", uniqueSchoolDays.size());
         response.put("daysPresent", presentEquivalent);
         response.put("daysAbsent", absent);
@@ -202,38 +229,70 @@ public class AttendanceServiceImpl implements AttendanceService {
     @Override
     @Transactional(readOnly = true)
     public List<Attendance> getClassAttendance(Long classId, LocalDate date, String session, Result.Term term) {
+        validateFetchInputs(date, session, term);
+
         classRepository.findById(classId)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
 
-        return attendanceRepository
-                .findByStudent_SchoolClass_IdAndDateAndSessionAndTermOrderByStudent_LastNameAscStudent_FirstNameAsc(
-                        classId, date, session, term
+        List<Student> students = studentRepository.findBySchoolClassIdOrderByLastNameAscFirstNameAsc(classId);
+        List<Attendance> existingAttendance =
+                attendanceRepository.findByStudent_SchoolClass_IdAndDateAndSessionAndTermOrderByStudent_LastNameAscStudent_FirstNameAsc(
+                        classId, date, normalizeSession(session), term
                 );
+
+        Map<Long, Attendance> existingByStudentId = new HashMap<>();
+        for (Attendance attendance : existingAttendance) {
+            if (attendance.getStudent() != null && attendance.getStudent().getId() != null) {
+                existingByStudentId.put(attendance.getStudent().getId(), attendance);
+            }
+        }
+
+        List<Attendance> result = new ArrayList<>();
+        for (Student student : students) {
+            Attendance attendance = existingByStudentId.get(student.getId());
+            if (attendance == null) {
+                attendance = new Attendance();
+                attendance.setId(null);
+                attendance.setStudent(student);
+                attendance.setDate(date);
+                attendance.setSession(normalizeSession(session));
+                attendance.setTerm(term);
+                attendance.setStatus(null);
+                attendance.setRemarks(null);
+            }
+            result.add(attendance);
+        }
+
+        return result;
     }
 
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> getClassTermStatistics(Long classId, String session, Result.Term term) {
+        validateSessionTerm(session, term);
+
         SchoolClass schoolClass = classRepository.findById(classId)
                 .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
 
-        List<LocalDate> schoolDays = attendanceRepository.findDistinctDatesBySessionAndTerm(session, term);
+        String normalizedSession = normalizeSession(session);
+
+        List<LocalDate> schoolDays = attendanceRepository.findDistinctDatesBySessionAndTerm(normalizedSession, term);
         int totalSchoolDays = schoolDays == null ? 0 : schoolDays.size();
 
         List<Student> students = studentRepository.findBySchoolClassIdOrderByLastNameAscFirstNameAsc(classId);
         int totalStudents = students.size();
 
         long totalPresent = attendanceRepository.countByClassIdAndSessionAndTermAndStatus(
-                classId, session, term, Attendance.AttendanceStatus.PRESENT
+                classId, normalizedSession, term, Attendance.AttendanceStatus.PRESENT
         );
         long totalAbsent = attendanceRepository.countByClassIdAndSessionAndTermAndStatus(
-                classId, session, term, Attendance.AttendanceStatus.ABSENT
+                classId, normalizedSession, term, Attendance.AttendanceStatus.ABSENT
         );
         long totalLate = attendanceRepository.countByClassIdAndSessionAndTermAndStatus(
-                classId, session, term, Attendance.AttendanceStatus.LATE
+                classId, normalizedSession, term, Attendance.AttendanceStatus.LATE
         );
         long totalExcused = attendanceRepository.countByClassIdAndSessionAndTermAndStatus(
-                classId, session, term, Attendance.AttendanceStatus.EXCUSED
+                classId, normalizedSession, term, Attendance.AttendanceStatus.EXCUSED
         );
 
         long presentEquivalent = totalPresent + totalLate + totalExcused;
@@ -245,7 +304,7 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         for (Student student : students) {
             List<Attendance> records = attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(
-                    student, session, term
+                    student, normalizedSession, term
             );
 
             long present = records.stream()
@@ -271,8 +330,7 @@ public class AttendanceServiceImpl implements AttendanceService {
 
             Map<String, Object> studentMap = new HashMap<>();
             studentMap.put("studentId", student.getId());
-            studentMap.put("studentName",
-                    (student.getFirstName() + " " + student.getLastName()).trim());
+            studentMap.put("studentName", (student.getFirstName() + " " + student.getLastName()).trim());
             studentMap.put("admissionNumber", student.getAdmissionNumber());
             studentMap.put("class", schoolClass.getClassName());
             studentMap.put("arm", schoolClass.getArm());
@@ -289,7 +347,7 @@ public class AttendanceServiceImpl implements AttendanceService {
         response.put("classId", schoolClass.getId());
         response.put("className", schoolClass.getClassName());
         response.put("arm", schoolClass.getArm());
-        response.put("session", session);
+        response.put("session", normalizedSession);
         response.put("term", term.name());
         response.put("totalStudents", totalStudents);
         response.put("totalSchoolDays", totalSchoolDays);
@@ -310,7 +368,11 @@ public class AttendanceServiceImpl implements AttendanceService {
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> getSchoolAttendanceStatistics(String session, Result.Term term) {
-        List<LocalDate> schoolDays = attendanceRepository.findDistinctDatesBySessionAndTerm(session, term);
+        validateSessionTerm(session, term);
+
+        String normalizedSession = normalizeSession(session);
+
+        List<LocalDate> schoolDays = attendanceRepository.findDistinctDatesBySessionAndTerm(normalizedSession, term);
         int totalSchoolDays = schoolDays == null ? 0 : schoolDays.size();
 
         List<Student> students = studentRepository.findAll();
@@ -323,7 +385,7 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         for (Student student : students) {
             List<Attendance> records = attendanceRepository.findByStudentAndSessionAndTermOrderByDateAsc(
-                    student, session, term
+                    student, normalizedSession, term
             );
 
             for (Attendance attendance : records) {
@@ -345,7 +407,7 @@ public class AttendanceServiceImpl implements AttendanceService {
                 : (presentEquivalent * 100.0) / (totalStudents * totalSchoolDays);
 
         Map<String, Object> response = new HashMap<>();
-        response.put("session", session);
+        response.put("session", normalizedSession);
         response.put("term", term.name());
         response.put("totalStudents", totalStudents);
         response.put("totalSchoolDays", totalSchoolDays);
@@ -360,45 +422,89 @@ public class AttendanceServiceImpl implements AttendanceService {
 
     @Override
     public List<Attendance> initializeSchoolDays(List<LocalDate> dates, String session, Result.Term term) {
-        List<Attendance> initializedRecords = new ArrayList<>();
+        validateSessionTerm(session, term);
 
+        if (dates == null || dates.isEmpty()) {
+            return List.of();
+        }
+
+        List<Attendance> initializedRecords = new ArrayList<>();
         List<Student> students = studentRepository.findAll();
+        String normalizedSession = normalizeSession(session);
 
         for (LocalDate date : dates) {
+            if (date == null) {
+                continue;
+            }
+
             for (Student student : students) {
                 Optional<Attendance> existing = attendanceRepository
-                        .findByStudentAndDateAndSessionAndTerm(student, date, session, term);
+                        .findByStudentAndDateAndSessionAndTerm(student, date, normalizedSession, term);
 
                 if (existing.isEmpty()) {
                     Attendance attendance = new Attendance();
                     attendance.setStudent(student);
                     attendance.setDate(date);
-                    attendance.setSession(session);
+                    attendance.setSession(normalizedSession);
                     attendance.setTerm(term);
-                    attendance.setStatus(Attendance.AttendanceStatus.ABSENT);
-                    attendance.setRemarks("Initialized school day");
-
-                    initializedRecords.add(attendance);
+                    attendance.setStatus(Attendance.AttendanceStatus.HOLIDAY);
+                    attendance.setRemarks("Initialized school day placeholder");
+                    initializedRecords.add(attendanceRepository.save(attendance));
                 }
             }
         }
 
-        return initializedRecords.isEmpty()
-                ? Collections.emptyList()
-                : attendanceRepository.saveAll(initializedRecords);
+        return initializedRecords;
     }
 
     @Override
     public void calculateAllTermSummaries(String session, Result.Term term) {
+        validateSessionTerm(session, term);
+
+        String normalizedSession = normalizeSession(session);
         List<Student> students = studentRepository.findAll();
 
         for (Student student : students) {
             try {
-                getStudentTermSummary(student.getId(), session, term);
+                getStudentTermSummary(student.getId(), normalizedSession, term);
             } catch (Exception e) {
-                log.error("Error calculating attendance summary for student {}: {}",
-                        student.getId(), e.getMessage(), e);
+                log.warn("Failed to calculate attendance summary for student {}: {}", student.getId(), e.getMessage());
             }
         }
+    }
+
+    private void validateInputs(LocalDate date, String session, Result.Term term, Attendance.AttendanceStatus status) {
+        validateFetchInputs(date, session, term);
+        if (status == null) {
+            throw new IllegalArgumentException("Attendance status is required");
+        }
+    }
+
+    private void validateFetchInputs(LocalDate date, String session, Result.Term term) {
+        if (date == null) {
+            throw new IllegalArgumentException("Date is required");
+        }
+        validateSessionTerm(session, term);
+    }
+
+    private void validateSessionTerm(String session, Result.Term term) {
+        if (session == null || session.isBlank()) {
+            throw new IllegalArgumentException("Session is required");
+        }
+        if (term == null) {
+            throw new IllegalArgumentException("Term is required");
+        }
+    }
+
+    private String normalizeSession(String session) {
+        return session == null ? null : session.trim();
+    }
+
+    private String normalizeRemarks(String remarks) {
+        if (remarks == null) {
+            return null;
+        }
+        String trimmed = remarks.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }
