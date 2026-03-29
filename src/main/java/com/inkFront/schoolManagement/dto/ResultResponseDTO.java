@@ -1,7 +1,7 @@
-// src/main/java/com/inkFront/schoolManagement/dto/ResultResponseDTO.java
 package com.inkFront.schoolManagement.dto;
 
 import com.inkFront.schoolManagement.model.Result;
+import com.inkFront.schoolManagement.model.Student;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -21,12 +21,12 @@ public class ResultResponseDTO {
     private String admissionNumber;
     private String studentClass;
     private String classArm;
+    private String classCode;
 
     private String subject;
     private String session;
     private String term;
 
-    // Assessment components
     private double resumptionTest;
     private double assignments;
     private double project;
@@ -39,32 +39,41 @@ public class ResultResponseDTO {
     private String grade;
     private String remarks;
 
-    // Position fields (optional, for term results)
     private Integer positionInClass;
     private Integer positionInArm;
     private Integer positionInSchool;
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
     public static ResultResponseDTO fromResult(Result result) {
         if (result == null) {
             return null;
         }
 
-        String studentFullName = result.getStudent().getFirstName() + " " +
-                (result.getStudent().getMiddleName() != null ? result.getStudent().getMiddleName() + " " : "") +
-                result.getStudent().getLastName();
+        Student student = result.getStudent();
+
+        String studentFullName = student == null
+                ? null
+                : (
+                (student.getFirstName() != null ? student.getFirstName() : "") + " " +
+                        (student.getMiddleName() != null ? student.getMiddleName() + " " : "") +
+                        (student.getLastName() != null ? student.getLastName() : "")
+        ).replaceAll("\\s+", " ").trim();
 
         return ResultResponseDTO.builder()
                 .id(result.getId())
-                .studentId(result.getStudent().getId())
+                .studentId(student != null ? student.getId() : null)
                 .studentName(studentFullName)
-                .admissionNumber(result.getStudent().getAdmissionNumber())
-                .studentClass(result.getStudent().getStudentClass())
-                .classArm(result.getStudent().getClassArm())
+                .admissionNumber(student != null ? student.getAdmissionNumber() : null)
+                .studentClass(student != null ? student.getStudentClass() : null)
+                .classArm(student != null ? student.getClassArm() : null)
+                .classCode(student != null && student.getSchoolClass() != null
+                        ? student.getSchoolClass().getClassCode()
+                        : null)
                 .subject(result.getSubject() != null ? result.getSubject().getName() : null)
                 .session(result.getSession())
-                .term(result.getTerm() != null ? result.getTerm().toString() : null)
+                .term(result.getTerm() != null ? result.getTerm().name() : null)
                 .resumptionTest(result.getResumptionTest())
                 .assignments(result.getAssignments())
                 .project(result.getProject())
@@ -75,6 +84,9 @@ public class ResultResponseDTO {
                 .total(result.getTotal())
                 .grade(result.getGrade())
                 .remarks(result.getRemarks())
+                .positionInClass(result.getPositionInClass())
+                .positionInArm(result.getPositionInArm())
+                .positionInSchool(result.getPositionInSchool())
                 .createdAt(result.getCreatedAt())
                 .updatedAt(result.getUpdatedAt())
                 .build();

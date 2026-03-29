@@ -8,7 +8,7 @@ import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.ParentRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.service.StudentService;
-import com.inkFront.schoolManagement.utils.ClassProgression;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +21,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.Year;
 import java.util.*;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -77,7 +76,7 @@ public class StudentServiceImpl implements StudentService {
     public Student updateStudent(Long id, Student studentDetails) {
         log.info("Updating student with ID: {}", id);
 
-        Student existingStudent = studentRepository.findDetailedById(id)
+        Student existingStudent = studentRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + id));
 
         SchoolClass schoolClass = resolveRequiredClass(studentDetails);
@@ -182,23 +181,112 @@ public class StudentServiceImpl implements StudentService {
     private Long getStudentClassId(Student student) {
         return student.getSchoolClass() != null ? student.getSchoolClass().getId() : null;
     }
+    private SchoolClass resolveNextClass(Long currentClassId) {
+        if (currentClassId == null) {
+            return null;
+        }
 
-    private String buildClassKey(String className, String arm) {
-        String normalizedClass = className == null ? "" : className.trim().replaceAll("\\s+", "").toUpperCase();
-        String normalizedArm = arm == null ? "" : arm.trim().toUpperCase();
-        return normalizedClass + "::" + normalizedArm;
+        SchoolClass currentClass = classRepository.findById(currentClassId)
+                .orElse(null);
+
+        if (currentClass == null) {
+            return null;
+        }
+
+        String currentClassName = normalizeClassName(currentClass.getClassName());
+        String currentArm = currentClass.getArm();
+
+        String nextClassName = switch (currentClassName) {
+            case "NURSERY" -> "PRIMARY 1";
+            case "PRIMARY 1" -> "PRIMARY 2";
+            case "PRIMARY 2" -> "PRIMARY 3";
+            case "PRIMARY 3" -> "PRIMARY 4";
+            case "PRIMARY 4" -> "PRIMARY 5";
+            case "PRIMARY 5" -> "PRIMARY 6";
+            case "PRIMARY 6" -> "JSS 1";
+            case "JSS 1" -> "JSS 2";
+            case "JSS 2" -> "JSS 3";
+            case "JSS 3" -> "SSS 1";
+            case "SSS 1" -> "SSS 2";
+            case "SSS 2" -> "SSS 3";
+            case "SSS 3" -> null;
+            default -> null;
+        };
+
+        if (nextClassName == null) {
+            return null;
+        }
+
+        return findMatchingClass(nextClassName, currentArm);
+    }
+
+    private SchoolClass findMatchingClass(String className, String arm) {
+        List<SchoolClass> allClasses = classRepository.findAll();
+
+        for (SchoolClass schoolClass : allClasses) {
+            if (schoolClass == null) continue;
+
+            String dbClassName = normalizeClassName(schoolClass.getClassName());
+            String dbArm = normalizeArm(schoolClass.getArm());
+
+            if (Objects.equals(dbClassName, normalizeClassName(className))
+                    && Objects.equals(dbArm, normalizeArm(arm))) {
+                return schoolClass;
+            }
+        }
+
+        for (SchoolClass schoolClass : allClasses) {
+            if (schoolClass == null) continue;
+
+            String dbClassName = normalizeClassName(schoolClass.getClassName());
+
+            if (Objects.equals(dbClassName, normalizeClassName(className))) {
+                return schoolClass;
+            }
+        }
+
+        return null;
+    }
+
+    private String normalizeClassName(String value) {
+        if (value == null) return null;
+
+        String normalized = value.trim().replaceAll("\\s+", " ").toUpperCase();
+
+        if (normalized.matches("^SS\\s*1$")) return "SSS 1";
+        if (normalized.matches("^SS\\s*2$")) return "SSS 2";
+        if (normalized.matches("^SS\\s*3$")) return "SSS 3";
+        if (normalized.matches("^SSS\\s*1$")) return "SSS 1";
+        if (normalized.matches("^SSS\\s*2$")) return "SSS 2";
+        if (normalized.matches("^SSS\\s*3$")) return "SSS 3";
+        if (normalized.matches("^JSS\\s*1$")) return "JSS 1";
+        if (normalized.matches("^JSS\\s*2$")) return "JSS 2";
+        if (normalized.matches("^JSS\\s*3$")) return "JSS 3";
+        if (normalized.matches("^PRIMARY\\s*1$")) return "PRIMARY 1";
+        if (normalized.matches("^PRIMARY\\s*2$")) return "PRIMARY 2";
+        if (normalized.matches("^PRIMARY\\s*3$")) return "PRIMARY 3";
+        if (normalized.matches("^PRIMARY\\s*4$")) return "PRIMARY 4";
+        if (normalized.matches("^PRIMARY\\s*5$")) return "PRIMARY 5";
+        if (normalized.matches("^PRIMARY\\s*6$")) return "PRIMARY 6";
+
+        return normalized;
+    }
+
+    private String normalizeArm(String value) {
+        if (value == null) return "";
+        return value.trim().toUpperCase();
     }
 
     @Override
     @Transactional(readOnly = true)
     public Optional<Student> getStudentById(Long id) {
-        return studentRepository.findDetailedById(id);
+        return studentRepository.findById(id);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Optional<Student> getStudentByAdmissionNumber(String admissionNumber) {
-        return studentRepository.findDetailedByAdmissionNumber(admissionNumber);
+        return studentRepository.findByAdmissionNumber(admissionNumber);
     }
 
     @Override
@@ -374,300 +462,185 @@ public class StudentServiceImpl implements StudentService {
 
             if (student.isExcludeFromPromotion()) {
                 excluded++;
-                Map<String, Object> promo = new HashMap<>();
-                promo.put("studentId", student.getId());
-                promo.put("student", student.getFirstName() + " " + student.getLastName());
-                promo.put("fromClassId", currentClassId);
-                promo.put("from", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
-                promo.put("to", "EXCLUDED");
-                promo.put("status", "EXCLUDED");
-                promo.put("reason", student.getPromotionHoldReason() != null
-                        ? student.getPromotionHoldReason()
-                        : "No reason provided");
-                promotions.add(promo);
+                promotions.add(Map.of(
+                        "studentId", student.getId(),
+                        "studentName", student.getFirstName() + " " + student.getLastName(),
+                        "currentClass", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass,
+                        "nextClass", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass,
+                        "excluded", true,
+                        "reason", student.getPromotionHoldReason()
+                ));
+                projectedDistribution.merge(
+                        currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass,
+                        1L,
+                        Long::sum
+                );
                 continue;
             }
 
-            String nextClass = ClassProgression.getNextClass(currentClass);
-            projectedDistribution.merge(nextClass, 1L, Long::sum);
+            SchoolClass nextClass = resolveNextClass(currentClassId);
 
-            Map<String, Object> promo = new HashMap<>();
-            promo.put("studentId", student.getId());
-            promo.put("student", student.getFirstName() + " " + student.getLastName());
-            promo.put("fromClassId", currentClassId);
-            promo.put("from", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
-            promo.put("to", nextClass);
-            promo.put("status", "READY");
-            promotions.add(promo);
+            String nextClassLabel = nextClass != null
+                    ? (nextClass.getArm() != null && !nextClass.getArm().isBlank()
+                    ? nextClass.getClassName() + " - " + nextClass.getArm()
+                    : nextClass.getClassName())
+                    : "GRADUATED";
+
+            promotions.add(Map.of(
+                    "studentId", student.getId(),
+                    "studentName", student.getFirstName() + " " + student.getLastName(),
+                    "currentClass", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass,
+                    "nextClass", nextClassLabel,
+                    "excluded", false
+            ));
+
+            projectedDistribution.merge(nextClassLabel, 1L, Long::sum);
         }
 
-        Map<String, Object> preview = new HashMap<>();
-        preview.put("currentDistribution", currentDistribution);
-        preview.put("projectedDistribution", projectedDistribution);
-        preview.put("promotions", promotions);
-        preview.put("totalStudents", allStudents.size());
-        preview.put("excludedCount", excluded);
+        Map<String, Object> response = new HashMap<>();
+        response.put("currentDistribution", currentDistribution);
+        response.put("projectedDistribution", projectedDistribution);
+        response.put("promotions", promotions);
+        response.put("excludedCount", excluded);
+        response.put("eligibleCount", promotions.size() - excluded);
 
-        return preview;
+        return response;
     }
 
     @Override
-    @Transactional
     public Map<String, Object> promoteAllStudents() {
-        List<Student> allStudents = studentRepository.findAll();
-        Map<String, SchoolClass> classCache = classRepository.findAll()
-                .stream()
-                .collect(Collectors.toMap(
-                        c -> buildClassKey(c.getClassName(), c.getArm()),
-                        Function.identity(),
-                        (a, b) -> a,
-                        HashMap::new
-                ));
+        List<Student> allStudents = studentRepository.findAll(Sort.by(Sort.Direction.ASC, "lastName", "firstName"));
 
         int promoted = 0;
         int graduated = 0;
-        int unchanged = 0;
         int excluded = 0;
-        List<Map<String, Object>> promotionDetails = new ArrayList<>();
+        List<String> promotedStudents = new ArrayList<>();
 
         for (Student student : allStudents) {
             if (student.getStatus() != Student.StudentStatus.ACTIVE) {
-                unchanged++;
-                continue;
-            }
-
-            String currentClass = getStudentClassName(student);
-            String currentArm = getStudentClassArm(student);
-
-            if (currentClass == null) {
-                unchanged++;
                 continue;
             }
 
             if (student.isExcludeFromPromotion()) {
                 excluded++;
-                Map<String, Object> detail = new HashMap<>();
-                detail.put("studentId", student.getId());
-                detail.put("studentName", student.getFirstName() + " " + student.getLastName());
-                detail.put("currentClassId", getStudentClassId(student));
-                detail.put("currentClass", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
-                detail.put("nextClass", "EXCLUDED");
-                detail.put("status", "EXCLUDED");
-                detail.put("reason", student.getPromotionHoldReason() != null
-                        ? student.getPromotionHoldReason()
-                        : "No reason provided");
-                promotionDetails.add(detail);
                 continue;
             }
 
-            String nextClassName = ClassProgression.getNextClass(currentClass);
+            Long currentClassId = getStudentClassId(student);
+            if (currentClassId == null) {
+                continue;
+            }
 
-            if (nextClassName == null || nextClassName.equalsIgnoreCase(currentClass)) {
+            SchoolClass nextClass = resolveNextClass(currentClassId);
+            if (nextClass == null) {
                 student.setStatus(Student.StudentStatus.GRADUATED);
-                studentRepository.save(student);
-
                 graduated++;
-                Map<String, Object> detail = new HashMap<>();
-                detail.put("studentId", student.getId());
-                detail.put("studentName", student.getFirstName() + " " + student.getLastName());
-                detail.put("currentClassId", getStudentClassId(student));
-                detail.put("currentClass", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
-                detail.put("nextClass", "GRADUATED");
-                detail.put("status", "GRADUATED");
-                promotionDetails.add(detail);
-                continue;
+                promotedStudents.add(student.getFirstName() + " " + student.getLastName() + " => GRADUATED");
+            } else {
+                student.setSchoolClass(nextClass);
+                promoted++;
+                promotedStudents.add(student.getFirstName() + " " + student.getLastName() + " => " + nextClass.getClassName() + (nextClass.getArm() != null ? " - " + nextClass.getArm() : ""));
             }
 
-            SchoolClass nextSchoolClass = classCache.get(buildClassKey(nextClassName, currentArm));
-
-            if (nextSchoolClass == null) {
-                unchanged++;
-                Map<String, Object> detail = new HashMap<>();
-                detail.put("studentId", student.getId());
-                detail.put("studentName", student.getFirstName() + " " + student.getLastName());
-                detail.put("currentClassId", getStudentClassId(student));
-                detail.put("currentClass", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
-                detail.put("nextClass", nextClassName + (currentArm != null ? " - " + currentArm : ""));
-                detail.put("status", "SKIPPED");
-                detail.put("reason", "Target class not found");
-                promotionDetails.add(detail);
-                continue;
-            }
-
-            student.setSchoolClass(nextSchoolClass);
             studentRepository.save(student);
-
-            promoted++;
-            Map<String, Object> detail = new HashMap<>();
-            detail.put("studentId", student.getId());
-            detail.put("studentName", student.getFirstName() + " " + student.getLastName());
-            detail.put("currentClassId", getStudentClassId(student));
-            detail.put("currentClass", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
-            detail.put("nextClassId", nextSchoolClass.getId());
-            detail.put("nextClass", nextSchoolClass.getClassName() + (nextSchoolClass.getArm() != null && !nextSchoolClass.getArm().isBlank()
-                    ? " - " + nextSchoolClass.getArm()
-                    : ""));
-            detail.put("status", "PROMOTED");
-            promotionDetails.add(detail);
         }
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("promotedCount", promoted);
-        result.put("graduatedCount", graduated);
-        result.put("excludedCount", excluded);
-        result.put("unchangedCount", unchanged);
-        result.put("details", promotionDetails);
+        Map<String, Object> response = new HashMap<>();
+        response.put("promotedCount", promoted);
+        response.put("graduatedCount", graduated);
+        response.put("excludedCount", excluded);
+        response.put("details", promotedStudents);
 
-        return result;
+        return response;
     }
 
     @Override
-    @Transactional
     public Map<String, Object> promoteSelectedStudents(List<Long> studentIds) {
-        if (studentIds == null || studentIds.isEmpty()) {
-            Map<String, Object> result = new HashMap<>();
-            result.put("promotedCount", 0);
-            result.put("graduatedCount", 0);
-            result.put("excludedCount", 0);
-            result.put("unchangedCount", 0);
-            result.put("details", List.of());
-            return result;
-        }
-
-        List<Student> selectedStudents = studentRepository.findAllById(studentIds);
-        List<Student> allClassesSeed = studentRepository.findAllById(studentIds); // harmless local seed to keep method flow simple
-        Map<String, SchoolClass> classCache = classRepository.findAll()
-                .stream()
-                .collect(Collectors.toMap(
-                        c -> buildClassKey(c.getClassName(), c.getArm()),
-                        Function.identity(),
-                        (a, b) -> a,
-                        HashMap::new
-                ));
+        List<Student> students = studentRepository.findAllById(studentIds);
 
         int promoted = 0;
         int graduated = 0;
-        int unchanged = 0;
         int excluded = 0;
-        List<Map<String, Object>> promotionDetails = new ArrayList<>();
+        List<String> details = new ArrayList<>();
 
-        for (Student student : selectedStudents) {
+        for (Student student : students) {
             if (student.getStatus() != Student.StudentStatus.ACTIVE) {
-                unchanged++;
-                continue;
-            }
-
-            String currentClass = getStudentClassName(student);
-            String currentArm = getStudentClassArm(student);
-
-            if (currentClass == null) {
-                unchanged++;
                 continue;
             }
 
             if (student.isExcludeFromPromotion()) {
                 excluded++;
-                Map<String, Object> detail = new HashMap<>();
-                detail.put("studentId", student.getId());
-                detail.put("studentName", student.getFirstName() + " " + student.getLastName());
-                detail.put("currentClassId", getStudentClassId(student));
-                detail.put("currentClass", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
-                detail.put("nextClass", "EXCLUDED");
-                detail.put("status", "EXCLUDED");
-                detail.put("reason", student.getPromotionHoldReason() != null
-                        ? student.getPromotionHoldReason()
-                        : "No reason provided");
-                promotionDetails.add(detail);
                 continue;
             }
 
-            String nextClassName = ClassProgression.getNextClass(currentClass);
+            Long currentClassId = getStudentClassId(student);
+            if (currentClassId == null) {
+                continue;
+            }
 
-            if (nextClassName == null || nextClassName.equalsIgnoreCase(currentClass)) {
+            SchoolClass nextClass = resolveNextClass(currentClassId);
+            if (nextClass == null) {
                 student.setStatus(Student.StudentStatus.GRADUATED);
-                studentRepository.save(student);
-
                 graduated++;
-                Map<String, Object> detail = new HashMap<>();
-                detail.put("studentId", student.getId());
-                detail.put("studentName", student.getFirstName() + " " + student.getLastName());
-                detail.put("currentClassId", getStudentClassId(student));
-                detail.put("currentClass", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
-                detail.put("nextClass", "GRADUATED");
-                detail.put("status", "GRADUATED");
-                promotionDetails.add(detail);
-                continue;
+                details.add(student.getFirstName() + " " + student.getLastName() + " => GRADUATED");
+            } else {
+                student.setSchoolClass(nextClass);
+                promoted++;
+                details.add(student.getFirstName() + " " + student.getLastName() + " => " + nextClass.getClassName() + (nextClass.getArm() != null ? " - " + nextClass.getArm() : ""));
             }
 
-            SchoolClass nextSchoolClass = classCache.get(buildClassKey(nextClassName, currentArm));
-
-            if (nextSchoolClass == null) {
-                unchanged++;
-                Map<String, Object> detail = new HashMap<>();
-                detail.put("studentId", student.getId());
-                detail.put("studentName", student.getFirstName() + " " + student.getLastName());
-                detail.put("currentClassId", getStudentClassId(student));
-                detail.put("currentClass", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
-                detail.put("nextClass", nextClassName + (currentArm != null ? " - " + currentArm : ""));
-                detail.put("status", "SKIPPED");
-                detail.put("reason", "Target class not found");
-                promotionDetails.add(detail);
-                continue;
-            }
-
-            student.setSchoolClass(nextSchoolClass);
             studentRepository.save(student);
-
-            promoted++;
-            Map<String, Object> detail = new HashMap<>();
-            detail.put("studentId", student.getId());
-            detail.put("studentName", student.getFirstName() + " " + student.getLastName());
-            detail.put("currentClassId", getStudentClassId(student));
-            detail.put("currentClass", currentArm != null && !currentArm.isBlank() ? currentClass + " - " + currentArm : currentClass);
-            detail.put("nextClassId", nextSchoolClass.getId());
-            detail.put("nextClass", nextSchoolClass.getClassName() + (nextSchoolClass.getArm() != null && !nextSchoolClass.getArm().isBlank()
-                    ? " - " + nextSchoolClass.getArm()
-                    : ""));
-            detail.put("status", "PROMOTED");
-            promotionDetails.add(detail);
         }
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("promotedCount", promoted);
-        result.put("graduatedCount", graduated);
-        result.put("excludedCount", excluded);
-        result.put("unchangedCount", unchanged);
-        result.put("details", promotionDetails);
-        result.put("requestedIds", studentIds);
-        result.put("processedCount", selectedStudents.size());
-        result.put("debugSeedCount", allClassesSeed.size());
+        Map<String, Object> response = new HashMap<>();
+        response.put("promotedCount", promoted);
+        response.put("graduatedCount", graduated);
+        response.put("excludedCount", excluded);
+        response.put("details", details);
 
-        return result;
+        return response;
     }
 
     @Override
-    @Transactional
     public Map<String, Object> promoteClass(Long classId) {
-        List<Student> classStudents = studentRepository.findBySchoolClassId(classId);
+        List<Student> students = studentRepository.findBySchoolClassIdOrderByLastNameAscFirstNameAsc(classId);
 
-        if (classStudents.isEmpty()) {
-            Map<String, Object> result = new HashMap<>();
-            result.put("classId", classId);
-            result.put("promotedCount", 0);
-            result.put("graduatedCount", 0);
-            result.put("excludedCount", 0);
-            result.put("unchangedCount", 0);
-            result.put("details", List.of());
-            return result;
+        int promoted = 0;
+        int graduated = 0;
+        int excluded = 0;
+        List<String> details = new ArrayList<>();
+
+        for (Student student : students) {
+            if (student.getStatus() != Student.StudentStatus.ACTIVE) {
+                continue;
+            }
+
+            if (student.isExcludeFromPromotion()) {
+                excluded++;
+                continue;
+            }
+
+            SchoolClass nextClass = resolveNextClass(classId);
+            if (nextClass == null) {
+                student.setStatus(Student.StudentStatus.GRADUATED);
+                graduated++;
+                details.add(student.getFirstName() + " " + student.getLastName() + " => GRADUATED");
+            } else {
+                student.setSchoolClass(nextClass);
+                promoted++;
+                details.add(student.getFirstName() + " " + student.getLastName() + " => " + nextClass.getClassName() + (nextClass.getArm() != null ? " - " + nextClass.getArm() : ""));
+            }
+
+            studentRepository.save(student);
         }
 
-        List<Long> studentIds = classStudents.stream()
-                .map(Student::getId)
-                .toList();
+        Map<String, Object> response = new HashMap<>();
+        response.put("promotedCount", promoted);
+        response.put("graduatedCount", graduated);
+        response.put("excludedCount", excluded);
+        response.put("details", details);
 
-        Map<String, Object> result = promoteSelectedStudents(studentIds);
-        result.put("classId", classId);
-        return result;
+        return response;
     }
 
     @Override

@@ -100,24 +100,27 @@ public class ParentController {
     }
 
     private Map<String, Object> wardToMap(Student student) {
-
         Student fullStudent = studentService.getStudentById(student.getId())
                 .orElseThrow(() -> new RuntimeException("Student not found"));
 
         StudentResponseDTO dto = StudentResponseDTO.fromStudent(fullStudent);
 
         Map<String, Object> map = new HashMap<>();
-
         map.put("id", dto.getId());
+        map.put("firstName", dto.getFirstName());
+        map.put("middleName", dto.getMiddleName());
+        map.put("lastName", dto.getLastName());
         map.put("fullName", dto.getFullName());
         map.put("admissionNumber", dto.getAdmissionNumber());
-
-        map.put("className", dto.getStudentClass());
+        map.put("studentClass", dto.getStudentClass());
         map.put("classArm", dto.getClassArm());
         map.put("classCode", dto.getClassCode());
-
         map.put("profilePictureUrl", dto.getProfilePictureUrl());
-
+        map.put("parentName", dto.getParentName());
+        map.put("parentPhone", dto.getParentPhone());
+        map.put("parentEmail", dto.getParentEmail());
+        map.put("address", dto.getAddress());
+        map.put("status", dto.getStatus());
         return map;
     }
     private Map<String, Object> attendanceSummaryToMap(AttendanceSummary summary) {

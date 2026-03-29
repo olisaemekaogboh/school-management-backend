@@ -620,77 +620,80 @@ public class ResultServiceImpl implements ResultService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Map<String, Object> generateResultSheet(Long studentId, String session, Result.Term term) {
+        log.info("Generating term result sheet for student: {}, session: {}, term: {}", studentId, session, term);
+
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
         TermResult termResult = termResultRepository
                 .findByStudentAndSessionAndTerm(student, session, term)
-                .orElseThrow(() -> new RuntimeException("Term result not found for student: " + studentId));
+                .orElseGet(() -> calculateTermResult(studentId, session, term));
 
-        List<Result> results = resultRepository
-                .findByStudentAndSessionAndTerm(student, session, term);
+        List<Result> subjectResults = resultRepository.findByStudentAndSessionAndTerm(student, session, term);
 
-        Long classId = student.getSchoolClass() != null ? student.getSchoolClass().getId() : null;
-        int totalStudentsInClass = classId != null ? studentRepository.findBySchoolClassId(classId).size() : 0;
-
-        Map<String, Object> resultSheet = new HashMap<>();
+        Map<String, Object> report = new HashMap<>();
 
         Map<String, Object> studentInfo = new HashMap<>();
         studentInfo.put("id", student.getId());
-        studentInfo.put("name", student.getFirstName() + " " +
-                (student.getMiddleName() != null ? student.getMiddleName() + " " : "") +
-                student.getLastName());
-        studentInfo.put("fullName", student.getFirstName() + " " + student.getLastName());
         studentInfo.put("firstName", student.getFirstName());
-        studentInfo.put("lastName", student.getLastName());
         studentInfo.put("middleName", student.getMiddleName());
-        studentInfo.put("admissionNumber", student.getAdmissionNumber() != null ? student.getAdmissionNumber() : "");
-        studentInfo.put("classId", classId);
-        studentInfo.put("class", student.getStudentClass() != null ? student.getStudentClass() : "");
-        studentInfo.put("arm", student.getClassArm() != null ? student.getClassArm() : "");
-        studentInfo.put("session", session != null ? session : "");
-        studentInfo.put("term", term != null ? term.toString() : "");
+        studentInfo.put("lastName", student.getLastName());
+        studentInfo.put("fullName", (
+                (student.getFirstName() != null ? student.getFirstName() : "") + " " +
+                        (student.getMiddleName() != null ? student.getMiddleName() + " " : "") +
+                        (student.getLastName() != null ? student.getLastName() : "")
+        ).replaceAll("\\s+", " ").trim());
+        studentInfo.put("admissionNumber", student.getAdmissionNumber());
+        studentInfo.put("studentClass", student.getStudentClass());
+        studentInfo.put("classArm", student.getClassArm());
+        studentInfo.put("classCode", student.getSchoolClass() != null ? student.getSchoolClass().getClassCode() : null);
+        studentInfo.put("session", session);
+        studentInfo.put("term", term.name());
         studentInfo.put("profilePictureUrl", student.getProfilePictureUrl());
+        studentInfo.put("dateOfBirth", student.getDateOfBirth());
+        studentInfo.put("parentName", student.getParentName());
+        studentInfo.put("parentPhone", student.getParentPhone());
+        studentInfo.put("address", student.getAddress());
+        report.put("studentInfo", studentInfo);
 
-        resultSheet.put("studentInfo", studentInfo);
-
-        List<Map<String, Object>> subjectResults = results.stream()
+        List<Map<String, Object>> subjects = subjectResults.stream()
                 .map(r -> {
-                    Map<String, Object> subjectMap = new HashMap<>();
-                    subjectMap.put("subject", r.getSubject() != null ? r.getSubject().getName() : "");
-                    subjectMap.put("resumptionTest", r.getResumptionTest());
-                    subjectMap.put("assignments", r.getAssignments());
-                    subjectMap.put("project", r.getProject());
-                    subjectMap.put("midtermTest", r.getMidtermTest());
-                    subjectMap.put("secondTest", r.getSecondTest());
-                    subjectMap.put("continuousAssessment", r.getContinuousAssessment());
-                    subjectMap.put("examination", r.getExamination());
-                    subjectMap.put("total", r.getTotal());
-                    subjectMap.put("grade", r.getGrade() != null ? r.getGrade() : "");
-                    subjectMap.put("remarks", r.getRemarks() != null ? r.getRemarks() : "");
-                    return subjectMap;
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("id", r.getId());
+                    item.put("subject", r.getSubject() != null ? r.getSubject().getName() : "-");
+                    item.put("resumptionTest", safeDouble(r.getResumptionTest()));
+                    item.put("assignments", safeDouble(r.getAssignments()));
+                    item.put("project", safeDouble(r.getProject()));
+                    item.put("midtermTest", safeDouble(r.getMidtermTest()));
+                    item.put("secondTest", safeDouble(r.getSecondTest()));
+                    item.put("continuousAssessment", safeDouble(r.getContinuousAssessment()));
+                    item.put("examination", safeDouble(r.getExamination()));
+                    item.put("total", safeDouble(r.getTotal()));
+                    item.put("grade", r.getGrade());
+                    item.put("remarks", r.getRemarks());
+                    return item;
                 })
-                .collect(Collectors.toList());
+                .toList();
 
-        resultSheet.put("subjects", subjectResults);
+        report.put("subjects", subjects);
 
         Map<String, Object> summary = new HashMap<>();
-        summary.put("totalScore", termResult.getTotalScore());
-        summary.put("average", termResult.getAverage());
-        summary.put("positionInClass", termResult.getPositionInClass() != null ? termResult.getPositionInClass() : 0);
-        summary.put("totalStudentsInClass", totalStudentsInClass);
-        summary.put("positionInArm", termResult.getPositionInArm() != null ? termResult.getPositionInArm() : 0);
-        summary.put("totalStudentsInArm", totalStudentsInClass);
-        summary.put("positionInSchool", termResult.getPositionInSchool() != null ? termResult.getPositionInSchool() : 0);
+        summary.put("totalScore", safeDouble(termResult.getTotalScore()));
+        summary.put("average", safeDouble(termResult.getAverage()));
+        summary.put("positionInClass", termResult.getPositionInClass());
+        summary.put("positionInArm", termResult.getPositionInArm());
+        summary.put("positionInSchool", termResult.getPositionInSchool());
         summary.put("totalSchoolDays", termResult.getTotalSchoolDays());
         summary.put("daysPresent", termResult.getDaysPresent());
         summary.put("daysAbsent", termResult.getDaysAbsent());
-        summary.put("attendancePercentage", termResult.getAttendancePercentage());
+        summary.put("attendancePercentage", safeDouble(termResult.getAttendancePercentage()));
+        summary.put("classTeacherComment", termResult.getClassTeacherComment());
+        summary.put("principalComment", termResult.getPrincipalComment());
+        report.put("summary", summary);
 
-        resultSheet.put("summary", summary);
-
-        return resultSheet;
+        return report;
     }
     @Override
     @Transactional(readOnly = true)

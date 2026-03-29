@@ -2,6 +2,8 @@ package com.inkFront.schoolManagement.repository;
 
 import com.inkFront.schoolManagement.model.BusRoute;
 import com.inkFront.schoolManagement.model.Student;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -27,14 +29,17 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
 
     boolean existsByAdmissionNumber(String admissionNumber);
 
+    @Override
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
+    Optional<Student> findById(Long id);
+
+    @Override
     @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findAll(Sort sort);
 
+    @Override
     @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
-    Optional<Student> findDetailedById(Long id);
-
-    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
-    Optional<Student> findDetailedByAdmissionNumber(String admissionNumber);
+    Page<Student> findAll(Pageable pageable);
 
     @Query("""
         SELECT s
@@ -42,6 +47,7 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
         WHERE s.status = com.inkFront.schoolManagement.model.Student$StudentStatus.ACTIVE
         ORDER BY s.lastName ASC, s.firstName ASC
     """)
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findAllActiveStudents();
 
     @Query("""
@@ -58,16 +64,22 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findBySchoolClassIdOrderByLastNameAscFirstNameAsc(Long schoolClassId);
 
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findBySchoolClassId(Long classId);
 
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findByExcludeFromPromotionTrueOrderByLastNameAscFirstNameAsc();
 
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findByParentIdOrderByLastNameAscFirstNameAsc(Long parentId);
 
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     Optional<Student> findByAdmissionNumber(String admissionNumber);
 
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findByParentEmailOrderByLastNameAscFirstNameAsc(String parentEmail);
 
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findByParentPhoneOrderByLastNameAscFirstNameAsc(String parentPhone);
 
     @Query("""
@@ -108,8 +120,10 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     """)
     List<Student> findRecentAdmissions(@Param("date") LocalDate date);
 
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findByBusRouteIdOrderByLastNameAscFirstNameAsc(Long busRouteId);
 
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findByBusRoute(BusRoute busRoute);
 
     long countByBusRouteId(Long busRouteId);
@@ -165,12 +179,15 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
         JOIN FETCH s.schoolClass sc
         LEFT JOIN FETCH s.parent
         LEFT JOIN FETCH s.busRoute
-        WHERE LOWER(REPLACE(TRIM(sc.className), ' ', '')) = LOWER(REPLACE(TRIM(:className), ' ', ''))
-          AND LOWER(TRIM(sc.arm)) = LOWER(TRIM(:arm))
+        WHERE LOWER(REPLACE(TRIM(sc.className), ' ', '')) = LOWER(REPLACE(TRIM(:studentClass), ' ', ''))
+          AND LOWER(REPLACE(TRIM(sc.arm), ' ', '')) = LOWER(REPLACE(TRIM(:classArm), ' ', ''))
         ORDER BY s.lastName ASC, s.firstName ASC
     """)
-    List<Student> findByStudentClassAndClassArmNormalized(
-            @Param("className") String className,
-            @Param("arm") String arm
+    List<Student> findByClassScopeNormalized(
+            @Param("studentClass") String studentClass,
+            @Param("classArm") String classArm
     );
+    default List<Student> findByStudentClassAndClassArmNormalized(String studentClass, String classArm) {
+        return findByClassScopeNormalized(studentClass, classArm);
+    }
 }
