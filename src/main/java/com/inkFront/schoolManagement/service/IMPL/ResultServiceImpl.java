@@ -692,17 +692,16 @@ public class ResultServiceImpl implements ResultService {
 
         return resultSheet;
     }
-
     @Override
+    @Transactional(readOnly = true)
     public Map<String, Object> generateAnnualResultSheet(Long studentId, String session) {
         log.info("Generating annual result sheet for student: {}, session: {}", studentId, session);
 
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
-        SessionResult sessionResult = sessionResultRepository
-                .findByStudentAndSession(student, session)
-                .orElseThrow(() -> new RuntimeException("Session result not found for student: " + studentId));
+        SessionResult sessionResult = sessionResultRepository.findByStudentAndSession(student, session)
+                .orElseGet(() -> calculateSessionResult(studentId, session));
 
         TermResult firstTerm = termResultRepository
                 .findByStudentAndSessionAndTerm(student, session, Result.Term.FIRST)
@@ -716,109 +715,85 @@ public class ResultServiceImpl implements ResultService {
                 .findByStudentAndSessionAndTerm(student, session, Result.Term.THIRD)
                 .orElse(null);
 
+        List<Result> firstTermResults = firstTerm == null
+                ? List.of()
+                : resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.FIRST);
+
+        List<Result> secondTermResults = secondTerm == null
+                ? List.of()
+                : resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.SECOND);
+
+        List<Result> thirdTermResults = thirdTerm == null
+                ? List.of()
+                : resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.THIRD);
+
         Map<String, Object> resultSheet = new HashMap<>();
 
         Map<String, Object> studentInfo = new HashMap<>();
         studentInfo.put("id", student.getId());
-        studentInfo.put("name", student.getFirstName() + " " +
-                (student.getMiddleName() != null ? student.getMiddleName() + " " : "") +
-                student.getLastName());
-        studentInfo.put("fullName", student.getFirstName() + " " + student.getLastName());
+        studentInfo.put("name", (student.getFirstName() + " " + student.getLastName()).trim());
         studentInfo.put("firstName", student.getFirstName());
         studentInfo.put("lastName", student.getLastName());
-        studentInfo.put("middleName", student.getMiddleName());
-        studentInfo.put("admissionNumber", student.getAdmissionNumber() != null ? student.getAdmissionNumber() : "");
-        studentInfo.put("classId", student.getSchoolClass() != null ? student.getSchoolClass().getId() : null);
-        studentInfo.put("class", student.getStudentClass() != null ? student.getStudentClass() : "");
-        studentInfo.put("arm", student.getClassArm() != null ? student.getClassArm() : "");
-        studentInfo.put("session", session != null ? session : "");
+        studentInfo.put("admissionNumber", student.getAdmissionNumber());
+        studentInfo.put("class", student.getStudentClass());
+        studentInfo.put("arm", student.getClassArm());
+        studentInfo.put("session", session);
         studentInfo.put("profilePictureUrl", student.getProfilePictureUrl());
-
-        if (student.getParent() != null) {
-            String parentName = "";
-            if (student.getParent().getFirstName() != null) {
-                parentName += student.getParent().getFirstName();
-            }
-            if (student.getParent().getLastName() != null) {
-                parentName += (parentName.isBlank() ? "" : " ") + student.getParent().getLastName();
-            }
-            studentInfo.put("parentName", parentName.isBlank() ? "N/A" : parentName);
-            studentInfo.put("parentPhone",
-                    student.getParent().getPhoneNumber() != null ? student.getParent().getPhoneNumber() : "N/A");
-            studentInfo.put("address",
-                    student.getParent().getAddress() != null ? student.getParent().getAddress() : "N/A");
-        } else {
-            studentInfo.put("parentName", "N/A");
-            studentInfo.put("parentPhone", "N/A");
-            studentInfo.put("address", "N/A");
-        }
-
+        studentInfo.put("dateOfBirth", student.getDateOfBirth());
+        studentInfo.put("parentName", student.getParentName());
+        studentInfo.put("parentPhone", student.getParentPhone());
+        studentInfo.put("address", student.getAddress());
         resultSheet.put("studentInfo", studentInfo);
 
         Map<String, Object> termSummaries = new HashMap<>();
 
         if (firstTerm != null) {
-            Map<String, Object> firstTermMap = new HashMap<>();
-            firstTermMap.put("totalScore", firstTerm.getTotalScore());
-            firstTermMap.put("average", firstTerm.getAverage());
-            firstTermMap.put("positionInClass", firstTerm.getPositionInClass() != null ? firstTerm.getPositionInClass() : 0);
-            termSummaries.put("FIRST", firstTermMap);
+            Map<String, Object> first = new HashMap<>();
+            first.put("total", safeDouble(firstTerm.getTotalScore()));
+            first.put("average", safeDouble(firstTerm.getAverage()));
+            first.put("position", firstTerm.getPositionInClass());
+            first.put("attendance", safeDouble(firstTerm.getAttendancePercentage()));
+            first.put("subjects", firstTermResults.stream().map(this::toAnnualTermSubjectRow).toList());
+            termSummaries.put("FIRST", first);
         }
 
         if (secondTerm != null) {
-            Map<String, Object> secondTermMap = new HashMap<>();
-            secondTermMap.put("totalScore", secondTerm.getTotalScore());
-            secondTermMap.put("average", secondTerm.getAverage());
-            secondTermMap.put("positionInClass", secondTerm.getPositionInClass() != null ? secondTerm.getPositionInClass() : 0);
-            termSummaries.put("SECOND", secondTermMap);
+            Map<String, Object> second = new HashMap<>();
+            second.put("total", safeDouble(secondTerm.getTotalScore()));
+            second.put("average", safeDouble(secondTerm.getAverage()));
+            second.put("position", secondTerm.getPositionInClass());
+            second.put("attendance", safeDouble(secondTerm.getAttendancePercentage()));
+            second.put("subjects", secondTermResults.stream().map(this::toAnnualTermSubjectRow).toList());
+            termSummaries.put("SECOND", second);
         }
 
         if (thirdTerm != null) {
-            Map<String, Object> thirdTermMap = new HashMap<>();
-            thirdTermMap.put("totalScore", thirdTerm.getTotalScore());
-            thirdTermMap.put("average", thirdTerm.getAverage());
-            thirdTermMap.put("positionInClass", thirdTerm.getPositionInClass() != null ? thirdTerm.getPositionInClass() : 0);
-            termSummaries.put("THIRD", thirdTermMap);
+            Map<String, Object> third = new HashMap<>();
+            third.put("total", safeDouble(thirdTerm.getTotalScore()));
+            third.put("average", safeDouble(thirdTerm.getAverage()));
+            third.put("position", thirdTerm.getPositionInClass());
+            third.put("attendance", safeDouble(thirdTerm.getAttendancePercentage()));
+            third.put("subjects", thirdTermResults.stream().map(this::toAnnualTermSubjectRow).toList());
+            termSummaries.put("THIRD", third);
         }
 
         resultSheet.put("termSummaries", termSummaries);
-
-        // keep backward compatibility too
-        Map<String, Object> termResults = new HashMap<>();
-        if (firstTerm != null) {
-            Map<String, Object> m = new HashMap<>();
-            m.put("total", firstTerm.getTotalScore());
-            m.put("average", firstTerm.getAverage());
-            m.put("position", firstTerm.getPositionInClass() != null ? firstTerm.getPositionInClass() : 0);
-            termResults.put("firstTerm", m);
-        }
-        if (secondTerm != null) {
-            Map<String, Object> m = new HashMap<>();
-            m.put("total", secondTerm.getTotalScore());
-            m.put("average", secondTerm.getAverage());
-            m.put("position", secondTerm.getPositionInClass() != null ? secondTerm.getPositionInClass() : 0);
-            termResults.put("secondTerm", m);
-        }
-        if (thirdTerm != null) {
-            Map<String, Object> m = new HashMap<>();
-            m.put("total", thirdTerm.getTotalScore());
-            m.put("average", thirdTerm.getAverage());
-            m.put("position", thirdTerm.getPositionInClass() != null ? thirdTerm.getPositionInClass() : 0);
-            termResults.put("thirdTerm", m);
-        }
-        resultSheet.put("termResults", termResults);
+        resultSheet.put("termResults", termSummaries); // frontend fallback support
 
         Map<String, Object> annualSummary = new HashMap<>();
-        annualSummary.put("firstTermTotal", sessionResult.getFirstTermTotal());
-        annualSummary.put("secondTermTotal", sessionResult.getSecondTermTotal());
-        annualSummary.put("thirdTermTotal", sessionResult.getThirdTermTotal());
-        annualSummary.put("annualTotal", sessionResult.getAnnualTotal());
-        annualSummary.put("annualAverage", sessionResult.getAnnualAverage());
+        annualSummary.put("firstTermTotal", safeDouble(sessionResult.getFirstTermTotal()));
+        annualSummary.put("secondTermTotal", safeDouble(sessionResult.getSecondTermTotal()));
+        annualSummary.put("thirdTermTotal", safeDouble(sessionResult.getThirdTermTotal()));
+        annualSummary.put("annualTotal", safeDouble(sessionResult.getAnnualTotal()));
+        annualSummary.put("annualAverage", safeDouble(sessionResult.getAnnualAverage()));
         annualSummary.put("positionInClass", sessionResult.getAnnualPositionInClass() != null ? sessionResult.getAnnualPositionInClass() : 0);
         annualSummary.put("positionInArm", sessionResult.getAnnualPositionInArm() != null ? sessionResult.getAnnualPositionInArm() : 0);
         annualSummary.put("positionInSchool", sessionResult.getAnnualPositionInSchool() != null ? sessionResult.getAnnualPositionInSchool() : 0);
         annualSummary.put("promoted", sessionResult.isPromoted());
-
+        annualSummary.put("remark", sessionResult.getPromotionRemark());
+        annualSummary.put("subjectAverages", sessionResult.getSubjectAverages() != null
+                ? sessionResult.getSubjectAverages()
+                : Collections.emptyMap());
         resultSheet.put("annualSummary", annualSummary);
 
         Map<String, Object> attendance = new HashMap<>();
@@ -830,48 +805,140 @@ public class ResultServiceImpl implements ResultService {
 
         Map<String, Object> promotion = new HashMap<>();
         promotion.put("promoted", sessionResult.isPromoted());
-        promotion.put("remark", sessionResult.isPromoted() ? "Promoted to next class" : "Not promoted");
+        promotion.put("remark", sessionResult.getPromotionRemark());
         resultSheet.put("promotion", promotion);
 
-        List<Map<String, Object>> subjectPerformance = new ArrayList<>();
+        Map<String, Double> firstScores = sessionResult.getFirstTermSubjectScores() != null
+                ? sessionResult.getFirstTermSubjectScores()
+                : Collections.emptyMap();
+        Map<String, Double> secondScores = sessionResult.getSecondTermSubjectScores() != null
+                ? sessionResult.getSecondTermSubjectScores()
+                : Collections.emptyMap();
+        Map<String, Double> thirdScores = sessionResult.getThirdTermSubjectScores() != null
+                ? sessionResult.getThirdTermSubjectScores()
+                : Collections.emptyMap();
+        Map<String, Double> annualTotals = sessionResult.getSubjectAnnualTotals() != null
+                ? sessionResult.getSubjectAnnualTotals()
+                : Collections.emptyMap();
+        Map<String, Double> subjectAverages = sessionResult.getSubjectAverages() != null
+                ? sessionResult.getSubjectAverages()
+                : Collections.emptyMap();
 
         Set<String> subjectNames = new TreeSet<>();
-        if (sessionResult.getSubjectAverages() != null) {
-            subjectNames.addAll(sessionResult.getSubjectAverages().keySet());
-        }
-        if (sessionResult.getSubjectAnnualTotals() != null) {
-            subjectNames.addAll(sessionResult.getSubjectAnnualTotals().keySet());
-        }
+        subjectNames.addAll(firstScores.keySet());
+        subjectNames.addAll(secondScores.keySet());
+        subjectNames.addAll(thirdScores.keySet());
+        subjectNames.addAll(annualTotals.keySet());
+        subjectNames.addAll(subjectAverages.keySet());
 
+        List<Map<String, Object>> annualSubjects = new ArrayList<>();
         for (String subject : subjectNames) {
+            double first = safeDouble(firstScores.get(subject));
+            double second = safeDouble(secondScores.get(subject));
+            double third = safeDouble(thirdScores.get(subject));
+            double total = annualTotals.containsKey(subject)
+                    ? safeDouble(annualTotals.get(subject))
+                    : (first + second + third);
+
+            double average = subjectAverages.containsKey(subject)
+                    ? safeDouble(subjectAverages.get(subject))
+                    : computeAverageFromAvailableTerms(firstScores.containsKey(subject), secondScores.containsKey(subject), thirdScores.containsKey(subject), first, second, third);
+
             Map<String, Object> item = new HashMap<>();
             item.put("subject", subject);
+            item.put("firstTerm", first);
+            item.put("secondTerm", second);
+            item.put("thirdTerm", third);
+            item.put("total", total);
+            item.put("annualTotal", total);
+            item.put("average", average);
+            item.put("annualAverage", average);
+            item.put("grade", gradeFromScore(average));
+            item.put("remark", remarkFromScore(average));
 
-            Map<String, Object> termScores = new HashMap<>();
-            termScores.put("FIRST", 0.0);
-            termScores.put("SECOND", 0.0);
-            termScores.put("THIRD", 0.0);
-
+            Map<String, Double> termScores = new HashMap<>();
+            termScores.put("FIRST", first);
+            termScores.put("SECOND", second);
+            termScores.put("THIRD", third);
             item.put("termScores", termScores);
-            item.put("annualAverage",
-                    sessionResult.getSubjectAverages() != null && sessionResult.getSubjectAverages().get(subject) != null
-                            ? sessionResult.getSubjectAverages().get(subject)
-                            : 0.0);
 
-            subjectPerformance.add(item);
+            annualSubjects.add(item);
         }
 
-        resultSheet.put("subjectPerformance", subjectPerformance);
-
-        // also expose raw maps for the frontend if needed
-        resultSheet.put("subjectAverages",
-                sessionResult.getSubjectAverages() != null ? sessionResult.getSubjectAverages() : Collections.emptyMap());
-        resultSheet.put("subjectAnnualTotals",
-                sessionResult.getSubjectAnnualTotals() != null ? sessionResult.getSubjectAnnualTotals() : Collections.emptyMap());
+        resultSheet.put("subjectPerformance", annualSubjects);
+        resultSheet.put("subjects", annualSubjects); // frontend directSubjects support
+        resultSheet.put("annualSubjects", annualSubjects);
+        resultSheet.put("subjectAverages", subjectAverages);
+        resultSheet.put("subjectAnnualTotals", annualTotals);
 
         log.info("Annual result sheet generated successfully for student: {}", studentId);
         return resultSheet;
     }
+
+    private Map<String, Object> toAnnualTermSubjectRow(Result result) {
+        Map<String, Object> row = new HashMap<>();
+        row.put("id", result.getId());
+        row.put("subject", result.getSubject() != null ? result.getSubject().getName() : "-");
+        row.put("subjectName", result.getSubject() != null ? result.getSubject().getName() : "-");
+        row.put("resumptionTest", safeDouble(result.getResumptionTest()));
+        row.put("assignments", safeDouble(result.getAssignments()));
+        row.put("project", safeDouble(result.getProject()));
+        row.put("midtermTest", safeDouble(result.getMidtermTest()));
+        row.put("secondTest", safeDouble(result.getSecondTest()));
+        row.put("continuousAssessment", safeDouble(result.getContinuousAssessment()));
+        row.put("examination", safeDouble(result.getExamination()));
+        row.put("total", safeDouble(result.getTotal()));
+        row.put("totalScore", safeDouble(result.getTotal()));
+        row.put("grade", result.getGrade());
+        row.put("remarks", result.getRemarks());
+        return row;
+    }
+
+    private double computeAverageFromAvailableTerms(
+            boolean hasFirst,
+            boolean hasSecond,
+            boolean hasThird,
+            double first,
+            double second,
+            double third
+    ) {
+        int count = 0;
+        double sum = 0.0;
+
+        if (hasFirst) {
+            sum += first;
+            count++;
+        }
+        if (hasSecond) {
+            sum += second;
+            count++;
+        }
+        if (hasThird) {
+            sum += third;
+            count++;
+        }
+
+        return count > 0 ? sum / count : 0.0;
+    }
+
+    private String gradeFromScore(double score) {
+        if (score >= 70) return "A";
+        if (score >= 60) return "B";
+        if (score >= 50) return "C";
+        if (score >= 45) return "D";
+        if (score >= 40) return "E";
+        return "F";
+    }
+
+    private String remarkFromScore(double score) {
+        if (score >= 70) return "Excellent";
+        if (score >= 60) return "Very Good";
+        if (score >= 50) return "Good";
+        if (score >= 45) return "Pass";
+        if (score >= 40) return "Fair";
+        return "Fail";
+    }
+
 
     private void calculateTermAttendance(TermResult termResult) {
         List<Attendance> attendanceRecords = attendanceRepository
