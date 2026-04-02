@@ -11,7 +11,12 @@ public interface SessionResultService {
 
     List<SessionResultResponseDTO> calculateAllSessionResults(String session);
 
-
+    SessionResultResponseDTO setSessionResultPrintableStatus(
+            Long studentId,
+            String session,
+            boolean printable,
+            String printLockMessage
+    );
 
     SessionResultResponseDTO getSessionResult(Long studentId, String session);
 

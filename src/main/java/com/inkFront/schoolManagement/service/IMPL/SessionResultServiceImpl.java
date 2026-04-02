@@ -110,7 +110,32 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         return SessionResultResponseDTO.fromEntity(fresh);
     }
+    @Override
+    public SessionResultResponseDTO setSessionResultPrintableStatus(
+            Long studentId,
+            String session,
+            boolean printable,
+            String printLockMessage
+    ) {
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
+        SessionResult sessionResult = sessionResultRepository
+                .findDetailedByStudentAndSession(student, session)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Session result not found for student ID " + studentId + " in session " + session
+                ));
+
+        sessionResult.setPrintable(printable);
+        sessionResult.setPrintLockMessage(
+                printLockMessage != null && !printLockMessage.trim().isEmpty()
+                        ? printLockMessage.trim()
+                        : "Printable result is locked. The admin will unlock it when the result is ready."
+        );
+
+        SessionResult saved = sessionResultRepository.save(sessionResult);
+        return SessionResultResponseDTO.fromEntity(saved);
+    }
     @Override
     public List<SessionResultResponseDTO> calculateAllSessionResults(String session) {
         log.info("Calculating session results for all students in session: {}", session);

@@ -16,7 +16,13 @@ public interface ResultService {
                              Result.Term term, Map<String, Double> scores);
 
     List<Result> getStudentResults(Long studentId, String session, Result.Term term);
-
+    TermResult setTermResultPrintableStatus(
+            Long studentId,
+            String session,
+            Result.Term term,
+            boolean printable,
+            String printLockMessage
+    );
     TermResult calculateTermResult(Long studentId, String session, Result.Term term);
 
     SessionResult calculateSessionResult(Long studentId, String session);

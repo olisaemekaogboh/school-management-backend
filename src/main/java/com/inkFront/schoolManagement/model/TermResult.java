@@ -32,7 +32,12 @@ public class TermResult {
     @Column(nullable = false)
     private Result.Term term;
 
+    @Column(nullable = false)
+    private boolean printable = false;
 
+    @Column(length = 300)
+    private String printLockMessage =
+            "Printable result is locked. The admin will unlock it when the result is ready.";
     @OneToMany(mappedBy = "termResult",
             cascade = CascadeType.ALL,
             fetch = FetchType.LAZY,

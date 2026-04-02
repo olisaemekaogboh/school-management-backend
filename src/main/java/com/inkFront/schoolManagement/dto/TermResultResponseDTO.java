@@ -41,6 +41,9 @@ public class TermResultResponseDTO {
     private String classTeacherComment;
     private String principalComment;
 
+    private boolean printable;
+    private String printLockMessage;
+
     private List<ResultResponseDTO> subjectResults;
 
     private LocalDateTime createdAt;
@@ -87,6 +90,8 @@ public class TermResultResponseDTO {
                 .attendancePercentage(termResult.getAttendancePercentage())
                 .classTeacherComment(termResult.getClassTeacherComment())
                 .principalComment(termResult.getPrincipalComment())
+                .printable(termResult.isPrintable())
+                .printLockMessage(termResult.getPrintLockMessage())
                 .subjectResults(subjectResults)
                 .createdAt(termResult.getCreatedAt())
                 .updatedAt(termResult.getUpdatedAt())

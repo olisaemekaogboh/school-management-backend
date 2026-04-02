@@ -216,7 +216,12 @@ public class ResultServiceImpl implements ResultService {
 
         TermResult termResult = termResultRepository
                 .findDetailedByStudentAndSessionAndTerm(student, session, term)
-                .orElse(new TermResult());
+                .orElseGet(() -> {
+                    TermResult tr = new TermResult();
+                    tr.setPrintable(false);
+                    tr.setPrintLockMessage("Printable result is locked until admin approves");
+                    return tr;
+                });
 
         termResult.setStudent(student);
         termResult.setSession(session);
@@ -316,7 +321,12 @@ public class ResultServiceImpl implements ResultService {
 
         SessionResult sessionResult = sessionResultRepository
                 .findDetailedByStudentAndSession(student, session)
-                .orElse(new SessionResult());
+                .orElseGet(() -> {
+                    SessionResult sr = new SessionResult();
+                    sr.setPrintable(false);
+                    sr.setPrintLockMessage("Printable result is locked until admin approves");
+                    return sr;
+                });
 
         sessionResult.setStudent(student);
         sessionResult.setSession(session);
@@ -618,7 +628,33 @@ public class ResultServiceImpl implements ResultService {
             }
         }
     }
+    @Override
+    public TermResult setTermResultPrintableStatus(
+            Long studentId,
+            String session,
+            Result.Term term,
+            boolean printable,
+            String printLockMessage
+    ) {
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
+        TermResult termResult = termResultRepository
+                .findDetailedByStudentAndSessionAndTerm(student, session, term)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Term result not found for student ID " + studentId +
+                                " in session " + session + " and term " + term
+                ));
+
+        termResult.setPrintable(printable);
+        termResult.setPrintLockMessage(
+                printLockMessage != null && !printLockMessage.trim().isEmpty()
+                        ? printLockMessage.trim()
+                        : "Printable result is locked. The admin will unlock it when the result is ready."
+        );
+
+        return termResultRepository.save(termResult);
+    }
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> generateResultSheet(Long studentId, String session, Result.Term term) {

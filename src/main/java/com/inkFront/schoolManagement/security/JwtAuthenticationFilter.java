@@ -39,6 +39,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 || path.startsWith("/api/auth/refresh-token")
                 || path.startsWith("/api/auth/verify-email")
                 || path.startsWith("/api/public/")
+                || path.startsWith("/uploads/")
                 || path.startsWith("/webjars/")
                 || path.equals("/error");
     }

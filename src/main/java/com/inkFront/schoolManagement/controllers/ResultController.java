@@ -1,11 +1,9 @@
 package com.inkFront.schoolManagement.controllers;
 
+import com.inkFront.schoolManagement.dto.PrintableStatusUpdateDTO;
 import com.inkFront.schoolManagement.dto.ResultRequestDTO;
 import com.inkFront.schoolManagement.dto.ResultResponseDTO;
-import com.inkFront.schoolManagement.model.Result;
-import com.inkFront.schoolManagement.model.SchoolClass;
-import com.inkFront.schoolManagement.model.TermResult;
-import com.inkFront.schoolManagement.model.User;
+import com.inkFront.schoolManagement.model.*;
 import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.TermResultRepository;
 import com.inkFront.schoolManagement.security.AccessControlService;
@@ -124,7 +122,6 @@ public class ResultController {
             return serverError("Unable to fetch student results", e);
         }
     }
-
     @GetMapping("/student/{studentId}/term")
     public ResponseEntity<?> getTermResult(
             @PathVariable Long studentId,
@@ -135,11 +132,55 @@ public class ResultController {
             accessControlService.requireStudentResultAccess(user, studentId);
 
             Map<String, Object> resultSheet = resultService.generateResultSheet(studentId, session, term);
+
+            boolean isStudent = user != null && user.getRole() != null
+                    && "STUDENT".equalsIgnoreCase(user.getRole().name());
+            boolean isParent = user != null && user.getRole() != null
+                    && "PARENT".equalsIgnoreCase(user.getRole().name());
+
+            if (isStudent || isParent) {
+                Object printableObj = resultSheet.get("printable");
+                boolean printable = printableObj instanceof Boolean && (Boolean) printableObj;
+
+                if (!printable) {
+                    String message = resultSheet.get("printLockMessage") != null
+                            ? String.valueOf(resultSheet.get("printLockMessage"))
+                            : "Printable result is locked. The admin will unlock it when the result is ready.";
+
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                            .body(Map.of("message", message));
+                }
+            }
+
             return ResponseEntity.ok(resultSheet);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to fetch term result", e);
+        }
+    }
+    @PatchMapping("/student/{studentId}/term/printable")
+    public ResponseEntity<?> setTermPrintable(
+            @PathVariable Long studentId,
+            @RequestParam String session,
+            @RequestParam Result.Term term,
+            @RequestBody PrintableStatusUpdateDTO dto) {
+        try {
+            accessControlService.requireAdmin(currentUser());
+
+            return ResponseEntity.ok(
+                    resultService.setTermResultPrintableStatus(
+                            studentId,
+                            session,
+                            term,
+                            Boolean.TRUE.equals(dto.getPrintable()),
+                            dto.getPrintLockMessage()
+                    )
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to update printable term result status", e);
         }
     }
 
