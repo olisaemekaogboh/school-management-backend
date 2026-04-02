@@ -97,12 +97,28 @@ public class Student {
         updatedAt = LocalDateTime.now();
     }
 
+    /**
+     * Keep these compatibility helpers for now.
+     * A lot of the codebase still calls them directly.
+     */
+    @Transient
     public String getStudentClass() {
         return schoolClass != null ? schoolClass.getClassName() : null;
     }
 
+    @Transient
     public String getClassArm() {
         return schoolClass != null ? schoolClass.getArm() : null;
+    }
+
+    @Transient
+    public String getClassCode() {
+        return schoolClass != null ? schoolClass.getClassCode() : null;
+    }
+
+    @Transient
+    public Long getClassId() {
+        return schoolClass != null ? schoolClass.getId() : null;
     }
 
     public enum Gender {

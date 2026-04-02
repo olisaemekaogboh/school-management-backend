@@ -44,15 +44,15 @@ public class SessionResultServiceImpl implements SessionResultService {
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
         TermResult firstTerm = termResultRepository
-                .findByStudentAndSessionAndTerm(student, session, Result.Term.FIRST)
+                .findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.FIRST)
                 .orElse(null);
 
         TermResult secondTerm = termResultRepository
-                .findByStudentAndSessionAndTerm(student, session, Result.Term.SECOND)
+                .findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.SECOND)
                 .orElse(null);
 
         TermResult thirdTerm = termResultRepository
-                .findByStudentAndSessionAndTerm(student, session, Result.Term.THIRD)
+                .findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.THIRD)
                 .orElse(null);
 
         if (firstTerm == null && secondTerm == null && thirdTerm == null) {
@@ -60,7 +60,7 @@ public class SessionResultServiceImpl implements SessionResultService {
         }
 
         SessionResult sessionResult = sessionResultRepository
-                .findByStudentAndSession(student, session)
+                .findDetailedByStudentAndSession(student, session)
                 .orElse(new SessionResult());
 
         sessionResult.setStudent(student);
@@ -105,7 +105,7 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         calculateAnnualPositions(savedResult);
 
-        SessionResult fresh = sessionResultRepository.findById(savedResult.getId())
+        SessionResult fresh = sessionResultRepository.findDetailedById(savedResult.getId())
                 .orElse(savedResult);
 
         return SessionResultResponseDTO.fromEntity(fresh);
@@ -123,7 +123,7 @@ public class SessionResultServiceImpl implements SessionResultService {
                 SessionResultResponseDTO result = calculateSessionResult(student.getId(), session);
                 results.add(result);
             } catch (Exception e) {
-                log.error("Error calculating session result for student {}: {}", student.getId(), e.getMessage());
+                log.error("Error calculating session result for student {}: {}", student.getId(), e.getMessage(), e);
             }
         }
 
@@ -136,8 +136,6 @@ public class SessionResultServiceImpl implements SessionResultService {
         log.info("Calculating class arm session results for class: {} arm: {} session: {}", className, arm, session);
 
         List<Student> students = studentRepository.findByStudentClassAndClassArmNormalized(className, arm);
-
-        log.info("Found {} students for normalized class lookup: class='{}', arm='{}'", students.size(), className, arm);
 
         if (students.isEmpty()) {
             return Collections.emptyList();
@@ -162,7 +160,6 @@ public class SessionResultServiceImpl implements SessionResultService {
         }
 
         calculateAllPositions(session);
-
         return results;
     }
 
@@ -172,7 +169,7 @@ public class SessionResultServiceImpl implements SessionResultService {
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found"));
 
-        SessionResult result = sessionResultRepository.findByStudentAndSession(student, session)
+        SessionResult result = sessionResultRepository.findDetailedByStudentAndSession(student, session)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Session result not found for student ID " + studentId + " in session " + session
                 ));
@@ -183,7 +180,7 @@ public class SessionResultServiceImpl implements SessionResultService {
     @Override
     @Transactional(readOnly = true)
     public List<SessionResultResponseDTO> getClassSessionResults(String className, String session) {
-        return sessionResultRepository.findByClassAndSessionOrderByAnnualAverageDesc(className, session)
+        return sessionResultRepository.findDetailedByClassAndSessionOrderByAnnualAverageDesc(className, session)
                 .stream()
                 .map(SessionResultResponseDTO::fromEntity)
                 .toList();
@@ -192,7 +189,7 @@ public class SessionResultServiceImpl implements SessionResultService {
     @Override
     @Transactional(readOnly = true)
     public List<SessionResultResponseDTO> getArmSessionResults(String className, String arm, String session) {
-        return sessionResultRepository.findByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session)
+        return sessionResultRepository.findDetailedByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session)
                 .stream()
                 .map(SessionResultResponseDTO::fromEntity)
                 .toList();
@@ -200,7 +197,7 @@ public class SessionResultServiceImpl implements SessionResultService {
 
     @Override
     public Map<String, Object> getSchoolSessionRankings(String session) {
-        List<SessionResult> rankings = sessionResultRepository.findBySessionOrderByAnnualAverageDesc(session);
+        List<SessionResult> rankings = sessionResultRepository.findDetailedBySessionOrderByAnnualAverageDesc(session);
 
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (int i = 0; i < rankings.size(); i++) {
@@ -239,16 +236,15 @@ public class SessionResultServiceImpl implements SessionResultService {
         Map<String, Object> stats = new HashMap<>();
         stats.put("promoted", promoted);
         stats.put("retained", retained);
-        stats.put("promotionRate", resultList.size() > 0 ? (promoted * 100.0 / resultList.size()) : 0.0);
+        stats.put("promotionRate", resultList.isEmpty() ? 0.0 : (promoted * 100.0 / resultList.size()));
 
         response.put("statistics", stats);
-
         return response;
     }
 
     @Override
     public Map<String, Object> getClassRankings(String className, String session) {
-        List<SessionResult> rankings = sessionResultRepository.findByClassAndSessionOrderByAnnualAverageDesc(className, session);
+        List<SessionResult> rankings = sessionResultRepository.findDetailedByClassAndSessionOrderByAnnualAverageDesc(className, session);
 
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (int i = 0; i < rankings.size(); i++) {
@@ -280,7 +276,7 @@ public class SessionResultServiceImpl implements SessionResultService {
 
     @Override
     public Map<String, Object> getArmRankings(String className, String arm, String session) {
-        List<SessionResult> rankings = sessionResultRepository.findByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session);
+        List<SessionResult> rankings = sessionResultRepository.findDetailedByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session);
 
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (int i = 0; i < rankings.size(); i++) {
@@ -318,12 +314,12 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         calculateSessionResult(studentId, session);
 
-        SessionResult sessionResult = sessionResultRepository.findByStudentAndSession(student, session)
+        SessionResult sessionResult = sessionResultRepository.findDetailedByStudentAndSession(student, session)
                 .orElseThrow(() -> new RuntimeException("Session result not found"));
 
-        TermResult firstTerm = termResultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.FIRST).orElse(null);
-        TermResult secondTerm = termResultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.SECOND).orElse(null);
-        TermResult thirdTerm = termResultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.THIRD).orElse(null);
+        TermResult firstTerm = termResultRepository.findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.FIRST).orElse(null);
+        TermResult secondTerm = termResultRepository.findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.SECOND).orElse(null);
+        TermResult thirdTerm = termResultRepository.findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.THIRD).orElse(null);
 
         Map<String, Object> report = new HashMap<>();
 
@@ -377,15 +373,15 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         List<Result> firstTermResults = firstTerm == null
                 ? List.of()
-                : resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.FIRST);
+                : resultRepository.findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.FIRST);
 
         List<Result> secondTermResults = secondTerm == null
                 ? List.of()
-                : resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.SECOND);
+                : resultRepository.findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.SECOND);
 
         List<Result> thirdTermResults = thirdTerm == null
                 ? List.of()
-                : resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.THIRD);
+                : resultRepository.findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.THIRD);
 
         List<Map<String, Object>> subjectPerformance = new ArrayList<>();
 
@@ -463,7 +459,7 @@ public class SessionResultServiceImpl implements SessionResultService {
 
     @Override
     public Map<String, Object> getSessionStatistics(String session) {
-        List<SessionResult> allResults = sessionResultRepository.findBySessionOrderByAnnualAverageDesc(session);
+        List<SessionResult> allResults = sessionResultRepository.findDetailedBySessionOrderByAnnualAverageDesc(session);
 
         if (allResults.isEmpty()) {
             return Map.of("message", "No session results found for " + session);
@@ -503,6 +499,7 @@ public class SessionResultServiceImpl implements SessionResultService {
         for (int i = 0; i < Math.min(3, allResults.size()); i++) {
             SessionResult sr = allResults.get(i);
             Student student = sr.getStudent();
+
             Map<String, Object> performer = new HashMap<>();
             performer.put("studentName", student.getFirstName() + " " + student.getLastName());
             performer.put("admissionNumber", student.getAdmissionNumber());
@@ -533,7 +530,7 @@ public class SessionResultServiceImpl implements SessionResultService {
     public Map<String, Object> promoteStudents(String session) {
         log.info("Promoting students based on session results: {}", session);
 
-        List<SessionResult> allResults = sessionResultRepository.findBySessionOrderByAnnualAverageDesc(session);
+        List<SessionResult> allResults = sessionResultRepository.findDetailedBySessionOrderByAnnualAverageDesc(session);
 
         int promoted = 0;
         int retained = 0;
@@ -593,7 +590,7 @@ public class SessionResultServiceImpl implements SessionResultService {
 
     @Override
     public List<Map<String, Object>> getGraduationList(String session) {
-        List<SessionResult> allResults = sessionResultRepository.findBySessionOrderByAnnualAverageDesc(session);
+        List<SessionResult> allResults = sessionResultRepository.findDetailedBySessionOrderByAnnualAverageDesc(session);
 
         List<Map<String, Object>> graduates = new ArrayList<>();
 
@@ -704,9 +701,9 @@ public class SessionResultServiceImpl implements SessionResultService {
     }
 
     private void populateSubjectPerformance(SessionResult sessionResult, Student student, String session) {
-        List<Result> first = resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.FIRST);
-        List<Result> second = resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.SECOND);
-        List<Result> third = resultRepository.findByStudentAndSessionAndTerm(student, session, Result.Term.THIRD);
+        List<Result> first = resultRepository.findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.FIRST);
+        List<Result> second = resultRepository.findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.SECOND);
+        List<Result> third = resultRepository.findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.THIRD);
 
         Map<String, Double> subjectAnnualTotals = new HashMap<>();
         Map<String, Integer> subjectCount = new HashMap<>();
@@ -763,6 +760,7 @@ public class SessionResultServiceImpl implements SessionResultService {
         sessionResult.setSecondTermSubjectScores(secondTermSubjectScores);
         sessionResult.setThirdTermSubjectScores(thirdTermSubjectScores);
     }
+
     private void populateAnnualSummary(SessionResult sessionResult,
                                        TermResult firstTerm,
                                        TermResult secondTerm,
@@ -800,7 +798,8 @@ public class SessionResultServiceImpl implements SessionResultService {
         String arm = sessionResult.getStudent().getClassArm();
         String session = sessionResult.getSession();
 
-        List<SessionResult> classResults = sessionResultRepository.findByClassAndSessionOrderByAnnualAverageDesc(className, session);
+        List<SessionResult> classResults = sessionResultRepository
+                .findDetailedByClassAndSessionOrderByAnnualAverageDesc(className, session);
 
         for (int i = 0; i < classResults.size(); i++) {
             SessionResult sr = classResults.get(i);
@@ -811,7 +810,8 @@ public class SessionResultServiceImpl implements SessionResultService {
         }
 
         if (arm != null && !arm.isEmpty()) {
-            List<SessionResult> armResults = sessionResultRepository.findByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session);
+            List<SessionResult> armResults = sessionResultRepository
+                    .findDetailedByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session);
 
             for (int i = 0; i < armResults.size(); i++) {
                 SessionResult sr = armResults.get(i);
@@ -824,7 +824,8 @@ public class SessionResultServiceImpl implements SessionResultService {
             sessionResultRepository.saveAll(armResults);
         }
 
-        List<SessionResult> schoolResults = sessionResultRepository.findBySessionOrderByAnnualAverageDesc(session);
+        List<SessionResult> schoolResults = sessionResultRepository
+                .findDetailedBySessionOrderByAnnualAverageDesc(session);
 
         for (int i = 0; i < schoolResults.size(); i++) {
             SessionResult sr = schoolResults.get(i);
@@ -840,7 +841,7 @@ public class SessionResultServiceImpl implements SessionResultService {
     }
 
     private void calculateAllPositions(String session) {
-        List<SessionResult> schoolResults = sessionResultRepository.findBySessionOrderByAnnualAverageDesc(session);
+        List<SessionResult> schoolResults = sessionResultRepository.findDetailedBySessionOrderByAnnualAverageDesc(session);
 
         for (int i = 0; i < schoolResults.size(); i++) {
             schoolResults.get(i).setAnnualPositionInSchool(i + 1);

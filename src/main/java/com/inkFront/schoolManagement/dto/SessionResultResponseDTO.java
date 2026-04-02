@@ -59,12 +59,18 @@ public class SessionResultResponseDTO {
     private Map<String, Double> thirdTermSubjectScores = new HashMap<>();
 
     public static SessionResultResponseDTO fromEntity(SessionResult sr) {
+        if (sr == null) {
+            return null;
+        }
+
         Student student = sr.getStudent();
 
         SessionResultResponseDTO dto = new SessionResultResponseDTO();
         dto.setId(sr.getId());
         dto.setStudentId(student != null ? student.getId() : null);
-        dto.setStudentName(student != null ? (student.getFirstName() + " " + student.getLastName()).trim() : null);
+        dto.setStudentName(student != null
+                ? (safe(student.getFirstName()) + " " + safe(student.getLastName())).trim()
+                : null);
         dto.setAdmissionNumber(student != null ? student.getAdmissionNumber() : null);
         dto.setStudentClass(student != null ? student.getStudentClass() : null);
         dto.setClassArm(student != null ? student.getClassArm() : null);
@@ -97,40 +103,29 @@ public class SessionResultResponseDTO {
         dto.setPromoted(sr.isPromoted());
         dto.setPromotionRemark(sr.getPromotionRemark());
 
-        // keep these fields for frontend compatibility even if SessionResult does not have them yet
         dto.setClassTeacherRemark(null);
         dto.setPrincipalRemark(null);
 
         dto.setSubjectAnnualTotals(
-                sr.getSubjectAnnualTotals() != null
-                        ? new HashMap<>(sr.getSubjectAnnualTotals())
-                        : new HashMap<>()
+                sr.getSubjectAnnualTotals() != null ? new HashMap<>(sr.getSubjectAnnualTotals()) : new HashMap<>()
         );
-
         dto.setSubjectAverages(
-                sr.getSubjectAverages() != null
-                        ? new HashMap<>(sr.getSubjectAverages())
-                        : new HashMap<>()
+                sr.getSubjectAverages() != null ? new HashMap<>(sr.getSubjectAverages()) : new HashMap<>()
         );
-
         dto.setFirstTermSubjectScores(
-                sr.getFirstTermSubjectScores() != null
-                        ? new HashMap<>(sr.getFirstTermSubjectScores())
-                        : new HashMap<>()
+                sr.getFirstTermSubjectScores() != null ? new HashMap<>(sr.getFirstTermSubjectScores()) : new HashMap<>()
         );
-
         dto.setSecondTermSubjectScores(
-                sr.getSecondTermSubjectScores() != null
-                        ? new HashMap<>(sr.getSecondTermSubjectScores())
-                        : new HashMap<>()
+                sr.getSecondTermSubjectScores() != null ? new HashMap<>(sr.getSecondTermSubjectScores()) : new HashMap<>()
         );
-
         dto.setThirdTermSubjectScores(
-                sr.getThirdTermSubjectScores() != null
-                        ? new HashMap<>(sr.getThirdTermSubjectScores())
-                        : new HashMap<>()
+                sr.getThirdTermSubjectScores() != null ? new HashMap<>(sr.getThirdTermSubjectScores()) : new HashMap<>()
         );
 
         return dto;
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 }

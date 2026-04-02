@@ -17,16 +17,27 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/classes")
-@CrossOrigin(origins = "https://localhost:3000")
+
 @RequiredArgsConstructor
 public class ClassController {
 
     private final ClassService classService;
 
     @PostMapping
-    public ResponseEntity<ClassDTO> createClass(@Valid @RequestBody ClassDTO classDTO) {
+    public ResponseEntity<ClassDTO> createClass(@RequestBody ClassDTO classDTO) {
+
+        if (classDTO.getClassName() == null || classDTO.getClassName().isBlank()) {
+            throw new IllegalArgumentException("Class name is required");
+        }
+
         SchoolClass schoolClass = classService.createClass(classDTO);
-        return new ResponseEntity<>(ClassDTO.fromEntity(schoolClass), HttpStatus.CREATED);
+
+        if (schoolClass == null) {
+            throw new IllegalArgumentException("Invalid class data");
+        }
+
+        return ResponseEntity.status(201)
+                .body(ClassDTO.fromEntity(schoolClass));
     }
 
     @PutMapping("/{id}")
@@ -37,7 +48,13 @@ public class ClassController {
 
     @GetMapping("/{id}")
     public ResponseEntity<ClassDTO> getClass(@PathVariable Long id) {
+
         SchoolClass schoolClass = classService.getClassWithTeacher(id);
+
+        if (schoolClass == null) {
+            throw new RuntimeException("Class not found");
+        }
+
         return ResponseEntity.ok(ClassDTO.fromEntity(schoolClass));
     }
 

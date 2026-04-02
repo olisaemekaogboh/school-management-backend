@@ -35,11 +35,14 @@ public class AuthController {
 
     private final AuthService authService;
     private final SecurityUtils securityUtils;
-
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-        LoginResponse response = authService.login(request);
-        return buildAuthResponse(response);
+    public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request) {
+        try {
+            LoginResponse response = authService.login(request);
+            return buildAuthResponse(response);
+        } catch (RuntimeException ex) {
+            throw new RuntimeException("Invalid credentials");
+        }
     }
 
     @PostMapping("/register")

@@ -127,7 +127,52 @@ public class GlobalExceptionHandler {
                 .build();
         return new ResponseEntity<>(errorResponse, HttpStatus.FORBIDDEN);
     }
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
+            IllegalArgumentException ex, WebRequest request) {
+        log.error("Illegal argument: {}", ex.getMessage());
 
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Bad Request")
+                .message(ex.getMessage())
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<ErrorResponse> handleRuntimeException(
+            RuntimeException ex, WebRequest request) {
+        log.error("Runtime exception: {}", ex.getMessage());
+
+        HttpStatus status = HttpStatus.BAD_REQUEST;
+        String message = ex.getMessage();
+
+        if (message != null) {
+            String lower = message.toLowerCase();
+
+            if (lower.contains("not found")) {
+                status = HttpStatus.NOT_FOUND;
+            } else if (lower.contains("invalid credentials")) {
+                status = HttpStatus.UNAUTHORIZED;
+            } else if (lower.contains("already exists")) {
+                status = HttpStatus.CONFLICT;
+            }
+        }
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(status.value())
+                .error(status.getReasonPhrase())
+                .message(message)
+                .path(request.getDescription(false).replace("uri=", ""))
+                .build();
+
+        return new ResponseEntity<>(errorResponse, status);
+    }
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(
             Exception ex, WebRequest request) {

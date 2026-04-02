@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/dto/StudentResponseDTO.java
 package com.inkFront.schoolManagement.dto;
 
 import com.inkFront.schoolManagement.model.SchoolClass;
@@ -70,20 +69,20 @@ public class StudentResponseDTO {
             return null;
         }
 
-        String fullName = (
-                (student.getFirstName() != null ? student.getFirstName() : "") + " " +
-                        (student.getMiddleName() != null ? student.getMiddleName() + " " : "") +
-                        (student.getLastName() != null ? student.getLastName() : "")
-        ).trim().replaceAll("\\s+", " ");
-
         SchoolClass schoolClass = student.getSchoolClass();
+
+        String fullName = (
+                safe(student.getFirstName()) + " " +
+                        safe(student.getMiddleName()) + " " +
+                        safe(student.getLastName())
+        ).trim().replaceAll("\\s+", " ");
 
         return StudentResponseDTO.builder()
                 .id(student.getId())
                 .firstName(student.getFirstName())
                 .lastName(student.getLastName())
                 .middleName(student.getMiddleName())
-                .fullName(fullName)
+                .fullName(fullName.isBlank() ? null : fullName)
                 .gender(student.getGender() != null ? student.getGender().name() : null)
                 .dateOfBirth(student.getDateOfBirth())
                 .religion(student.getReligion())
@@ -111,5 +110,9 @@ public class StudentResponseDTO {
                 .createdAt(student.getCreatedAt())
                 .updatedAt(student.getUpdatedAt())
                 .build();
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 }

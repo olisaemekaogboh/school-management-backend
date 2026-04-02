@@ -56,9 +56,9 @@ public class ResultResponseDTO {
         String studentFullName = student == null
                 ? null
                 : (
-                (student.getFirstName() != null ? student.getFirstName() : "") + " " +
-                        (student.getMiddleName() != null ? student.getMiddleName() + " " : "") +
-                        (student.getLastName() != null ? student.getLastName() : "")
+                safe(student.getFirstName()) + " " +
+                        safe(student.getMiddleName()) + " " +
+                        safe(student.getLastName())
         ).replaceAll("\\s+", " ").trim();
 
         return ResultResponseDTO.builder()
@@ -68,9 +68,7 @@ public class ResultResponseDTO {
                 .admissionNumber(student != null ? student.getAdmissionNumber() : null)
                 .studentClass(student != null ? student.getStudentClass() : null)
                 .classArm(student != null ? student.getClassArm() : null)
-                .classCode(student != null && student.getSchoolClass() != null
-                        ? student.getSchoolClass().getClassCode()
-                        : null)
+                .classCode(student != null ? student.getClassCode() : null)
                 .subject(result.getSubject() != null ? result.getSubject().getName() : null)
                 .session(result.getSession())
                 .term(result.getTerm() != null ? result.getTerm().name() : null)
@@ -90,5 +88,9 @@ public class ResultResponseDTO {
                 .createdAt(result.getCreatedAt())
                 .updatedAt(result.getUpdatedAt())
                 .build();
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 }

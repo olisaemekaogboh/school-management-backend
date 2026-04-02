@@ -2,6 +2,7 @@ package com.inkFront.schoolManagement.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.inkFront.schoolManagement.model.AcademicSession;
+import com.inkFront.schoolManagement.model.Result;
 import com.inkFront.schoolManagement.model.Term;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -39,4 +40,6 @@ public class SessionResponseDTO {
                 entity.getUpdatedAt()
         );
     }
+
+
 }

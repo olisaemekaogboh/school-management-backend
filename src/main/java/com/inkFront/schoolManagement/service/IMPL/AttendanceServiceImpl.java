@@ -456,7 +456,57 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         return initializedRecords;
     }
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> getSchoolAttendanceStatisticsForDate(
+            LocalDate date,
+            String session,
+            Result.Term term
+    ) {
+        validateFetchInputs(date, session, term);
 
+        String normalizedSession = normalizeSession(session);
+
+        long totalPresent = attendanceRepository.countByDateAndSessionAndTermAndStatus(
+                date, normalizedSession, term, Attendance.AttendanceStatus.PRESENT
+        );
+
+        long totalAbsent = attendanceRepository.countByDateAndSessionAndTermAndStatus(
+                date, normalizedSession, term, Attendance.AttendanceStatus.ABSENT
+        );
+
+        long totalLate = attendanceRepository.countByDateAndSessionAndTermAndStatus(
+                date, normalizedSession, term, Attendance.AttendanceStatus.LATE
+        );
+
+        long totalExcused = attendanceRepository.countByDateAndSessionAndTermAndStatus(
+                date, normalizedSession, term, Attendance.AttendanceStatus.EXCUSED
+        );
+
+        long totalStudentsMarked =
+                attendanceRepository.countDistinctStudentsMarkedByDateAndSessionAndTerm(
+                        date, normalizedSession, term
+                );
+
+        long attended = totalPresent + totalLate + totalExcused;
+
+        double attendancePercentage = totalStudentsMarked > 0
+                ? (attended * 100.0 / totalStudentsMarked)
+                : 0.0;
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("date", date);
+        response.put("session", normalizedSession);
+        response.put("term", term.name());
+        response.put("presentCount", totalPresent);
+        response.put("absentCount", totalAbsent);
+        response.put("lateCount", totalLate);
+        response.put("excusedCount", totalExcused);
+        response.put("totalStudentsMarked", totalStudentsMarked);
+        response.put("attendancePercentage", attendancePercentage);
+
+        return response;
+    }
     @Override
     public void calculateAllTermSummaries(String session, Result.Term term) {
         validateSessionTerm(session, term);

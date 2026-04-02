@@ -135,7 +135,16 @@ public class AttendanceController {
 
         return response;
     }
-
+    @GetMapping("/school/daily-statistics")
+    public ResponseEntity<?> getSchoolDailyStatistics(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam String session,
+            @RequestParam Result.Term term
+    ) {
+        return ResponseEntity.ok(
+                attendanceService.getSchoolAttendanceStatisticsForDate(date, session, term)
+        );
+    }
     @PostMapping("/student/{studentId}")
     public ResponseEntity<?> markAttendance(
             @PathVariable Long studentId,

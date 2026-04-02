@@ -18,7 +18,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/timetable")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "https://localhost:3000")
 public class TimetableController {
 
     private final TimetableService timetableService;
@@ -193,9 +192,10 @@ public class TimetableController {
     ) {
         try {
             accessControlService.requireAdmin(currentUser());
-            return ResponseEntity.ok(
-                    timetableService.checkAvailability(teacherId, day, startTime, endTime, session, term)
+            boolean available = timetableService.checkAvailability(
+                    teacherId, day, startTime, endTime, session, term
             );
+            return ResponseEntity.ok(Map.of("available", available));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }

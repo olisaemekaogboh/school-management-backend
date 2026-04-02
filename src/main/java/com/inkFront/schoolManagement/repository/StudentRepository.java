@@ -19,10 +19,13 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
 
     List<Student> findByEmergencyContactPhone(String emergencyContactPhone);
 
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findByStateOfOriginOrderByLastNameAscFirstNameAsc(String stateOfOrigin);
 
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findByLocalGovtAreaOrderByLastNameAscFirstNameAsc(String localGovtArea);
 
+    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findByStatusOrderByLastNameAscFirstNameAsc(Student.StudentStatus status);
 
     long countByStatus(Student.StudentStatus status);
@@ -37,9 +40,20 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
     List<Student> findAll(Sort sort);
 
-    @Override
-    @EntityGraph(attributePaths = {"schoolClass", "parent", "busRoute"})
-    Page<Student> findAll(Pageable pageable);
+    @Query(
+            value = """
+                SELECT s
+                FROM Student s
+                LEFT JOIN FETCH s.schoolClass
+                LEFT JOIN FETCH s.parent
+                LEFT JOIN FETCH s.busRoute
+                """,
+            countQuery = """
+                SELECT COUNT(s)
+                FROM Student s
+                """
+    )
+    Page<Student> findAllWithDetails(Pageable pageable);
 
     @Query("""
         SELECT s
@@ -187,6 +201,7 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
             @Param("studentClass") String studentClass,
             @Param("classArm") String classArm
     );
+
     default List<Student> findByStudentClassAndClassArmNormalized(String studentClass, String classArm) {
         return findByClassScopeNormalized(studentClass, classArm);
     }

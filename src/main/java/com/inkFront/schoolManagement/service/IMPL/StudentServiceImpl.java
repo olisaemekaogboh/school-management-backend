@@ -8,7 +8,6 @@ import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.ParentRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.service.StudentService;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -181,6 +180,7 @@ public class StudentServiceImpl implements StudentService {
     private Long getStudentClassId(Student student) {
         return student.getSchoolClass() != null ? student.getSchoolClass().getId() : null;
     }
+
     private SchoolClass resolveNextClass(Long currentClassId) {
         if (currentClassId == null) {
             return null;
@@ -298,9 +298,8 @@ public class StudentServiceImpl implements StudentService {
     @Override
     @Transactional(readOnly = true)
     public Page<Student> getAllStudentsPaginated(Pageable pageable) {
-        return studentRepository.findAll(pageable);
+        return studentRepository.findAllWithDetails(pageable);
     }
-
     @Override
     public void deleteStudent(Long id) {
         Student student = studentRepository.findById(id)
@@ -602,7 +601,11 @@ public class StudentServiceImpl implements StudentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Map<String, Object> promoteClass(Long classId) {
+        SchoolClass currentClass = classRepository.findById(classId)
+                .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + classId));
+
         List<Student> students = studentRepository.findBySchoolClassIdOrderByLastNameAscFirstNameAsc(classId);
 
         int promoted = 0;
@@ -617,6 +620,7 @@ public class StudentServiceImpl implements StudentService {
 
             if (student.isExcludeFromPromotion()) {
                 excluded++;
+                details.add(student.getFirstName() + " " + student.getLastName() + " => EXCLUDED");
                 continue;
             }
 
@@ -635,6 +639,9 @@ public class StudentServiceImpl implements StudentService {
         }
 
         Map<String, Object> response = new HashMap<>();
+        response.put("classId", currentClass.getId());
+        response.put("className", currentClass.getClassName());
+        response.put("classArm", currentClass.getArm());
         response.put("promotedCount", promoted);
         response.put("graduatedCount", graduated);
         response.put("excludedCount", excluded);
@@ -644,19 +651,19 @@ public class StudentServiceImpl implements StudentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<Student> getExcludedStudents() {
+        return studentRepository.findByExcludeFromPromotionTrueOrderByLastNameAscFirstNameAsc();
+    }
+
+    @Override
     public Student togglePromotionExclusion(Long studentId, boolean exclude, String reason) {
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
         student.setExcludeFromPromotion(exclude);
-        student.setPromotionHoldReason(exclude ? reason : null);
+        student.setPromotionHoldReason(exclude ? normalize(reason) : null);
 
         return studentRepository.save(student);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<Student> getExcludedStudents() {
-        return studentRepository.findByExcludeFromPromotionTrueOrderByLastNameAscFirstNameAsc();
     }
 }

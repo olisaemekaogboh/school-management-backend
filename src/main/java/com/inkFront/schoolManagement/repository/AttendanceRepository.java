@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Repository
@@ -61,6 +62,50 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
             String session,
             Result.Term term
     );
+    @Query("""
+    SELECT COUNT(a)
+    FROM Attendance a
+    WHERE a.student.schoolClass.id = :classId
+      AND a.date = :date
+      AND a.session = :session
+      AND a.term = :term
+      AND a.status = :status
+""")
+    long countByClassIdAndDateAndSessionAndTermAndStatus(
+            @Param("classId") Long classId,
+            @Param("date") LocalDate date,
+            @Param("session") String session,
+            @Param("term") Result.Term term,
+            @Param("status") Attendance.AttendanceStatus status
+    );
+
+    @Query("""
+    SELECT COUNT(a)
+    FROM Attendance a
+    WHERE a.date = :date
+      AND a.session = :session
+      AND a.term = :term
+      AND a.status = :status
+""")
+    long countByDateAndSessionAndTermAndStatus(
+            @Param("date") LocalDate date,
+            @Param("session") String session,
+            @Param("term") Result.Term term,
+            @Param("status") Attendance.AttendanceStatus status
+    );
+    @Query("""
+    SELECT COUNT(DISTINCT a.student.id)
+    FROM Attendance a
+    WHERE a.date = :date
+      AND a.session = :session
+      AND a.term = :term
+""")
+    long countDistinctStudentsMarkedByDateAndSessionAndTerm(
+            @Param("date") LocalDate date,
+            @Param("session") String session,
+            @Param("term") Result.Term term
+    );
+
 
     @EntityGraph(attributePaths = {"student", "student.schoolClass"})
     List<Attendance> findByStudent_SchoolClass_IdAndSessionAndTermOrderByDateAscStudent_LastNameAscStudent_FirstNameAsc(

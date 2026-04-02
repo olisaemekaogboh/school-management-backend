@@ -16,6 +16,7 @@ public interface SessionResultRepository extends JpaRepository<SessionResult, Lo
 
     @EntityGraph(attributePaths = {
             "student",
+            "student.schoolClass",
             "subjectAnnualTotals",
             "subjectAverages",
             "firstTermSubjectScores",
@@ -26,6 +27,7 @@ public interface SessionResultRepository extends JpaRepository<SessionResult, Lo
 
     @EntityGraph(attributePaths = {
             "student",
+            "student.schoolClass",
             "subjectAnnualTotals",
             "subjectAverages",
             "firstTermSubjectScores",
@@ -39,6 +41,7 @@ public interface SessionResultRepository extends JpaRepository<SessionResult, Lo
 
     @EntityGraph(attributePaths = {
             "student",
+            "student.schoolClass",
             "subjectAnnualTotals",
             "subjectAverages",
             "firstTermSubjectScores",
@@ -60,6 +63,7 @@ public interface SessionResultRepository extends JpaRepository<SessionResult, Lo
 
     @EntityGraph(attributePaths = {
             "student",
+            "student.schoolClass",
             "subjectAnnualTotals",
             "subjectAverages",
             "firstTermSubjectScores",
@@ -84,6 +88,7 @@ public interface SessionResultRepository extends JpaRepository<SessionResult, Lo
 
     @EntityGraph(attributePaths = {
             "student",
+            "student.schoolClass",
             "subjectAnnualTotals",
             "subjectAverages",
             "firstTermSubjectScores",
@@ -97,6 +102,87 @@ public interface SessionResultRepository extends JpaRepository<SessionResult, Lo
         ORDER BY sr.annualAverage DESC
     """)
     List<SessionResult> findBySessionOrderByAnnualAverageDesc(@Param("session") String session);
+
+    @Query("""
+        SELECT sr
+        FROM SessionResult sr
+        JOIN FETCH sr.student s
+        LEFT JOIN FETCH s.schoolClass
+        WHERE sr.student = :student
+          AND sr.session = :session
+    """)
+    Optional<SessionResult> findDetailedByStudentAndSession(
+            @Param("student") Student student,
+            @Param("session") String session
+    );
+
+    @Query("""
+        SELECT sr
+        FROM SessionResult sr
+        JOIN FETCH sr.student s
+        LEFT JOIN FETCH s.schoolClass
+        WHERE s.schoolClass.id = :classId
+          AND sr.session = :session
+        ORDER BY sr.annualAverage DESC
+    """)
+    List<SessionResult> findDetailedByStudent_SchoolClass_IdAndSessionOrderByAnnualAverageDesc(
+            @Param("classId") Long classId,
+            @Param("session") String session
+    );
+
+    @Query("""
+        SELECT sr
+        FROM SessionResult sr
+        JOIN FETCH sr.student s
+        LEFT JOIN FETCH s.schoolClass sc
+        WHERE UPPER(REPLACE(TRIM(sc.className), ' ', '')) =
+              UPPER(REPLACE(TRIM(:className), ' ', ''))
+          AND sr.session = :session
+        ORDER BY sr.annualAverage DESC
+    """)
+    List<SessionResult> findDetailedByClassAndSessionOrderByAnnualAverageDesc(
+            @Param("className") String className,
+            @Param("session") String session
+    );
+
+    @Query("""
+        SELECT sr
+        FROM SessionResult sr
+        JOIN FETCH sr.student s
+        LEFT JOIN FETCH s.schoolClass sc
+        WHERE UPPER(REPLACE(TRIM(sc.className), ' ', '')) =
+              UPPER(REPLACE(TRIM(:className), ' ', ''))
+          AND UPPER(REPLACE(TRIM(sc.arm), ' ', '')) =
+              UPPER(REPLACE(TRIM(:arm), ' ', ''))
+          AND sr.session = :session
+        ORDER BY sr.annualAverage DESC
+    """)
+    List<SessionResult> findDetailedByClassAndArmAndSessionOrderByAnnualAverageDesc(
+            @Param("className") String className,
+            @Param("arm") String arm,
+            @Param("session") String session
+    );
+
+    @Query("""
+        SELECT sr
+        FROM SessionResult sr
+        JOIN FETCH sr.student s
+        LEFT JOIN FETCH s.schoolClass
+        WHERE sr.session = :session
+        ORDER BY sr.annualAverage DESC
+    """)
+    List<SessionResult> findDetailedBySessionOrderByAnnualAverageDesc(
+            @Param("session") String session
+    );
+
+    @Query("""
+        SELECT sr
+        FROM SessionResult sr
+        JOIN FETCH sr.student s
+        LEFT JOIN FETCH s.schoolClass
+        WHERE sr.id = :id
+    """)
+    Optional<SessionResult> findDetailedById(@Param("id") Long id);
 
     @Query("""
         SELECT sr.student.schoolClass.className, AVG(sr.annualAverage)

@@ -13,7 +13,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/email-queue")
-@CrossOrigin(origins = "https://localhost:3000")
 @RequiredArgsConstructor
 public class EmailQueueController {
 
@@ -31,7 +30,12 @@ public class EmailQueueController {
 
     @GetMapping("/status/{status}")
     public ResponseEntity<List<EmailQueueDTO>> getByStatus(@PathVariable String status) {
-        EmailQueueStatus queueStatus = EmailQueueStatus.valueOf(status.toUpperCase());
+        final EmailQueueStatus queueStatus;
+        try {
+            queueStatus = EmailQueueStatus.valueOf(status);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("Invalid status");
+        }
 
         List<EmailQueueDTO> data = emailQueueService.getQueuedEmailsByStatus(queueStatus)
                 .stream()

@@ -31,6 +31,8 @@ public interface AttendanceService {
 
     Map<String, Object> getSchoolAttendanceStatistics(String session, Result.Term term);
 
+    Map<String, Object> getSchoolAttendanceStatisticsForDate(LocalDate date, String session, Result.Term term);
+
     List<Attendance> initializeSchoolDays(List<LocalDate> dates, String session, Result.Term term);
 
     void calculateAllTermSummaries(String session, Result.Term term);

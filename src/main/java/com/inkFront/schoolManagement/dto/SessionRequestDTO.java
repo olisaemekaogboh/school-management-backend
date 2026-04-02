@@ -1,6 +1,7 @@
 package com.inkFront.schoolManagement.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import com.inkFront.schoolManagement.model.Result;
 import com.inkFront.schoolManagement.model.Term;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -24,4 +25,5 @@ public class SessionRequestDTO {
     private Term currentTerm = Term.FIRST;
 
     private boolean active = false;
+
 }

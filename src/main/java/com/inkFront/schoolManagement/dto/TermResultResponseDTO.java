@@ -1,6 +1,6 @@
-// src/main/java/com/inkFront/schoolManagement/dto/TermResultResponseDTO.java
 package com.inkFront.schoolManagement.dto;
 
+import com.inkFront.schoolManagement.model.Student;
 import com.inkFront.schoolManagement.model.TermResult;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -33,7 +33,6 @@ public class TermResultResponseDTO {
     private Integer positionInArm;
     private Integer positionInSchool;
 
-    // Attendance fields
     private int totalSchoolDays;
     private int daysPresent;
     private int daysAbsent;
@@ -52,24 +51,31 @@ public class TermResultResponseDTO {
             return null;
         }
 
-        List<ResultResponseDTO> subjectResults = termResult.getSubjectResults() != null ?
-                termResult.getSubjectResults().stream()
-                        .map(ResultResponseDTO::fromResult)
-                        .collect(Collectors.toList()) : null;
+        Student student = termResult.getStudent();
 
-        String studentFullName = termResult.getStudent().getFirstName() + " " +
-                (termResult.getStudent().getMiddleName() != null ? termResult.getStudent().getMiddleName() + " " : "") +
-                termResult.getStudent().getLastName();
+        List<ResultResponseDTO> subjectResults = termResult.getSubjectResults() != null
+                ? termResult.getSubjectResults().stream()
+                .map(ResultResponseDTO::fromResult)
+                .collect(Collectors.toList())
+                : null;
+
+        String studentFullName = student == null
+                ? null
+                : (
+                safe(student.getFirstName()) + " " +
+                        safe(student.getMiddleName()) + " " +
+                        safe(student.getLastName())
+        ).replaceAll("\\s+", " ").trim();
 
         return TermResultResponseDTO.builder()
                 .id(termResult.getId())
-                .studentId(termResult.getStudent().getId())
+                .studentId(student != null ? student.getId() : null)
                 .studentName(studentFullName)
-                .admissionNumber(termResult.getStudent().getAdmissionNumber())
-                .studentClass(termResult.getStudent().getStudentClass())
-                .classArm(termResult.getStudent().getClassArm())
+                .admissionNumber(student != null ? student.getAdmissionNumber() : null)
+                .studentClass(student != null ? student.getStudentClass() : null)
+                .classArm(student != null ? student.getClassArm() : null)
                 .session(termResult.getSession())
-                .term(termResult.getTerm() != null ? termResult.getTerm().toString() : null)
+                .term(termResult.getTerm() != null ? termResult.getTerm().name() : null)
                 .totalScore(termResult.getTotalScore())
                 .average(termResult.getAverage())
                 .positionInClass(termResult.getPositionInClass())
@@ -85,5 +91,9 @@ public class TermResultResponseDTO {
                 .createdAt(termResult.getCreatedAt())
                 .updatedAt(termResult.getUpdatedAt())
                 .build();
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 }

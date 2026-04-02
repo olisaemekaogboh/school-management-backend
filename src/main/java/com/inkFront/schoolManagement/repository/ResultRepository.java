@@ -22,11 +22,49 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
             Result.Term term
     );
 
+    @EntityGraph(attributePaths = {"student", "student.schoolClass", "subject", "termResult"})
     Optional<Result> findByStudentAndSubjectAndSessionAndTerm(
             Student student,
             Subject subject,
             String session,
             Result.Term term
+    );
+
+    @Query("""
+        SELECT r
+        FROM Result r
+        JOIN FETCH r.student s
+        LEFT JOIN FETCH s.schoolClass
+        JOIN FETCH r.subject
+        LEFT JOIN FETCH r.termResult
+        WHERE r.student = :student
+          AND r.session = :session
+          AND r.term = :term
+        ORDER BY r.subject.name ASC
+    """)
+    List<Result> findDetailedByStudentAndSessionAndTerm(
+            @Param("student") Student student,
+            @Param("session") String session,
+            @Param("term") Result.Term term
+    );
+
+    @Query("""
+        SELECT r
+        FROM Result r
+        JOIN FETCH r.student s
+        LEFT JOIN FETCH s.schoolClass
+        JOIN FETCH r.subject
+        LEFT JOIN FETCH r.termResult
+        WHERE r.student = :student
+          AND r.subject = :subject
+          AND r.session = :session
+          AND r.term = :term
+    """)
+    Optional<Result> findDetailedByStudentAndSubjectAndSessionAndTerm(
+            @Param("student") Student student,
+            @Param("subject") Subject subject,
+            @Param("session") String session,
+            @Param("term") Result.Term term
     );
 
     @EntityGraph(attributePaths = {"student", "student.schoolClass", "subject", "termResult"})
@@ -57,17 +95,15 @@ public interface ResultRepository extends JpaRepository<Result, Long> {
             @Param("term") Result.Term term
     );
 
-
-
     @Query("""
-    SELECT r.student, AVG(r.total)
-    FROM Result r
-    WHERE r.student.schoolClass.id = :classId
-    AND r.session = :session
-    AND r.term = :term
-    GROUP BY r.student
-    ORDER BY AVG(r.total) DESC
-""")
+        SELECT r.student, AVG(r.total)
+        FROM Result r
+        WHERE r.student.schoolClass.id = :classId
+          AND r.session = :session
+          AND r.term = :term
+        GROUP BY r.student
+        ORDER BY AVG(r.total) DESC
+    """)
     List<Object[]> getClassRankingByClassId(
             @Param("classId") Long classId,
             @Param("session") String session,
