@@ -54,7 +54,7 @@ public class SecurityConfig {
 
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // Public auth + static/public resources
+                        // Public auth + public resources
                         .requestMatchers(
                                 "/api/auth/login",
                                 "/api/auth/register",
@@ -63,7 +63,6 @@ public class SecurityConfig {
                                 "/api/auth/refresh-token",
                                 "/api/auth/verify-email",
                                 "/api/public/**",
-                                "/uploads/**",
                                 "/webjars/**",
                                 "/error"
                         ).permitAll()
@@ -227,7 +226,11 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        List<String> allowedOrigins = Stream.of(frontendUrl, "http://localhost:3000", "https://localhost:3000")
+        List<String> allowedOrigins = Stream.of(
+                        frontendUrl,
+                        "http://localhost:3000",
+                        "https://localhost:3000"
+                )
                 .filter(origin -> origin != null && !origin.isBlank())
                 .distinct()
                 .collect(Collectors.toList());
@@ -246,8 +249,7 @@ public class SecurityConfig {
         ));
         configuration.setExposedHeaders(Arrays.asList(
                 "Authorization",
-                "Content-Disposition",
-                "Set-Cookie"
+                "Content-Disposition"
         ));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);

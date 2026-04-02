@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/service/IMPL/AuthServiceImpl.java
 package com.inkFront.schoolManagement.service.IMPL;
 
 import com.inkFront.schoolManagement.dto.auth.ChangePasswordRequest;
@@ -19,6 +18,7 @@ import com.inkFront.schoolManagement.repository.UserRepository;
 import com.inkFront.schoolManagement.security.JwtService;
 import com.inkFront.schoolManagement.service.AuthService;
 import com.inkFront.schoolManagement.service.EmailService;
+import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -30,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 
@@ -48,7 +49,7 @@ public class AuthServiceImpl implements AuthService {
     private final TeacherRepository teacherRepository;
     private final ParentRepository parentRepository;
 
-    // In-memory token storage (use Redis in production)
+    // Interim storage only. Move to DB/Redis for real production.
     private final Map<String, String> refreshTokens = new HashMap<>();
     private final Map<String, String> passwordResetTokens = new HashMap<>();
     private final Map<String, String> emailVerificationTokens = new HashMap<>();
@@ -70,6 +71,8 @@ public class AuthServiceImpl implements AuthService {
 
         user.setLastLogin(LocalDateTime.now());
         userRepository.save(user);
+
+        revokeUserRefreshTokens(user.getUsername());
 
         String accessToken = jwtService.generateToken(user);
         String refreshToken = jwtService.generateRefreshToken(user);
@@ -139,7 +142,7 @@ public class AuthServiceImpl implements AuthService {
         String refreshToken = request.getRefreshToken();
         String username = refreshTokens.get(refreshToken);
 
-        if (username == null) {
+        if (refreshToken == null || refreshToken.isBlank() || username == null) {
             throw new BusinessException("Invalid refresh token");
         }
 
@@ -162,7 +165,20 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void logout(String token) {
+        if (token == null || token.isBlank()) {
+            return;
+        }
+
         blacklistedTokens.put(token, true);
+
+        try {
+            String username = jwtService.extractUsername(token);
+            if (username != null && !username.isBlank()) {
+                revokeUserRefreshTokens(username);
+            }
+        } catch (JwtException | IllegalArgumentException ex) {
+            log.warn("Could not extract username during logout: {}", ex.getMessage());
+        }
     }
 
     @Override
@@ -176,7 +192,10 @@ public class AuthServiceImpl implements AuthService {
         }
 
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
+
+        revokeUserRefreshTokens(user.getUsername());
 
         log.info("Password changed for user: {}", user.getUsername());
     }
@@ -204,9 +223,12 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         user.setPassword(passwordEncoder.encode(newPassword));
+        user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
 
         passwordResetTokens.remove(token);
+        revokeUserRefreshTokens(user.getUsername());
+
         log.info("Password reset successful for: {}", email);
     }
 
@@ -221,10 +243,21 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         user.setEmailVerified(true);
+        user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
 
         emailVerificationTokens.remove(token);
         log.info("Email verified for: {}", email);
+    }
+
+    private void revokeUserRefreshTokens(String username) {
+        Iterator<Map.Entry<String, String>> iterator = refreshTokens.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, String> entry = iterator.next();
+            if (username.equals(entry.getValue())) {
+                iterator.remove();
+            }
+        }
     }
 
     private LoginResponse buildLoginResponse(User user, String accessToken, String refreshToken) {

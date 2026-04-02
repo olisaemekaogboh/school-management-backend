@@ -1,25 +1,67 @@
+# =========================
+# Java / Maven
+# =========================
 HELP.md
 target/
-.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-### STS ###
+.mvn/wrapper/maven-wrapper.jar
+
+# Logs
+*.log
+/build.log
+
+# =========================
+# Spring / Local config
+# =========================
+src/main/resources/application-local.properties
+src/main/resources/application-dev.properties
+src/main/resources/application-prod.properties
+
+# Environment files
+.env
+.env.*
+*.env
+!.env.example
+
+# Secrets / certificates
+*.p12
+*.jks
+*.pem
+*.key
+*.crt
+keystore.p12
+
+# Uploads / generated files
+/uploads/
+/uploads/**
+/tmp/
+/temp/
+
+# =========================
+# STS
+# =========================
 .apt_generated
 .classpath
 .factorypath
 .project
-.settings
+.settings/
 .springBeans
 .sts4-cache
 
-### IntelliJ IDEA ###
-.idea
+# =========================
+# IntelliJ IDEA
+# =========================
+.idea/
 *.iws
 *.iml
 *.ipr
+out/
 
-### NetBeans ###
+# =========================
+# NetBeans
+# =========================
 /nbproject/private/
 /nbbuild/
 /dist/
@@ -29,14 +71,13 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
-### VS Code ###
+# =========================
+# VS Code
+# =========================
 .vscode/
-/uploads/
-/build.log
-/target/
 
-.env
-*.env
-src/main/resources/application-local.properties
-
-/keystore.p12
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db

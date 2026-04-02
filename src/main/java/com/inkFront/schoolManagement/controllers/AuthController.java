@@ -23,10 +23,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(
-        origins = {"https://localhost:3000", "https://127.0.0.1:3000"},
-        allowCredentials = "true"
-)
 @RequiredArgsConstructor
 public class AuthController {
 
@@ -35,14 +31,11 @@ public class AuthController {
 
     private final AuthService authService;
     private final SecurityUtils securityUtils;
+
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request) {
-        try {
-            LoginResponse response = authService.login(request);
-            return buildAuthResponse(response);
-        } catch (RuntimeException ex) {
-            throw new RuntimeException("Invalid credentials");
-        }
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+        LoginResponse response = authService.login(request);
+        return buildAuthResponse(response);
     }
 
     @PostMapping("/register")
@@ -70,28 +63,26 @@ public class AuthController {
         refreshTokenRequest.setRefreshToken(refreshToken);
 
         LoginResponse response = authService.refreshToken(refreshTokenRequest);
-
         return buildAuthResponse(response);
     }
 
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(HttpServletRequest request) {
-        String token = extractCookieValue(request, ACCESS_COOKIE_NAME);
-
-        if (token == null || token.isBlank()) {
-            String authHeader = request.getHeader("Authorization");
-            if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                token = authHeader.substring(7);
-            }
+        String accessToken = extractBearerToken(request);
+        if (accessToken == null || accessToken.isBlank()) {
+            accessToken = extractCookieValue(request, ACCESS_COOKIE_NAME);
         }
 
-        if (token != null && !token.isBlank()) {
-            authService.logout(token);
+        if (accessToken != null && !accessToken.isBlank()) {
+            authService.logout(accessToken);
         }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.SET_COOKIE, clearAccessCookie().toString());
+        headers.add(HttpHeaders.SET_COOKIE, clearRefreshCookie().toString());
 
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, clearAccessCookie().toString())
-                .header(HttpHeaders.SET_COOKIE, clearRefreshCookie().toString())
+                .headers(headers)
                 .build();
     }
 
@@ -152,19 +143,8 @@ public class AuthController {
 
     private ResponseEntity<LoginResponse> buildAuthResponse(LoginResponse response, HttpStatus status) {
         return ResponseEntity.status(status)
-                .header(HttpHeaders.SET_COOKIE, buildAccessCookie(response.getAccessToken()).toString())
                 .header(HttpHeaders.SET_COOKIE, buildRefreshCookie(response.getRefreshToken()).toString())
                 .body(response);
-    }
-
-    private ResponseCookie buildAccessCookie(String token) {
-        return ResponseCookie.from(ACCESS_COOKIE_NAME, token)
-                .httpOnly(true)
-                .secure(true)
-                .sameSite("Lax")
-                .path("/")
-                .maxAge(Duration.ofHours(24))
-                .build();
     }
 
     private ResponseCookie buildRefreshCookie(String token) {
@@ -195,6 +175,14 @@ public class AuthController {
                 .path("/api/auth")
                 .maxAge(0)
                 .build();
+    }
+
+    private String extractBearerToken(HttpServletRequest request) {
+        String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            return authHeader.substring(7).trim();
+        }
+        return null;
     }
 
     private String extractCookieValue(HttpServletRequest request, String cookieName) {
