@@ -169,14 +169,16 @@ public class ResultController {
         try {
             accessControlService.requireAdmin(currentUser());
 
+            resultService.setTermResultPrintableStatus(
+                    studentId,
+                    session,
+                    term,
+                    Boolean.TRUE.equals(dto.getPrintable()),
+                    dto.getPrintLockMessage()
+            );
+
             return ResponseEntity.ok(
-                    resultService.setTermResultPrintableStatus(
-                            studentId,
-                            session,
-                            term,
-                            Boolean.TRUE.equals(dto.getPrintable()),
-                            dto.getPrintLockMessage()
-                    )
+                    resultService.generateResultSheet(studentId, session, term)
             );
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
