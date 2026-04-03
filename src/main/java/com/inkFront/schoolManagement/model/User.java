@@ -1,4 +1,3 @@
-// src/main/java/com/inkFront/schoolManagement/model/User.java
 package com.inkFront.schoolManagement.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -66,6 +65,9 @@ public class User implements UserDetails {
     private boolean isEmailVerified;
 
     private String profilePictureUrl;
+
+    @Column(length = 500)
+    private String signatureUrl;
 
     private LocalDateTime lastLogin;
 

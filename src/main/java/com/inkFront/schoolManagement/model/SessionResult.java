@@ -56,7 +56,12 @@ public class SessionResult {
 
     @Column(length = 500)
     private String promotionRemark;
+    @Column(nullable = false)
+    private boolean printable = false;
 
+    @Column(length = 300)
+    private String printLockMessage =
+            "Printable result is locked. The admin will unlock it when the result is ready.";
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
             name = "session_result_subject_averages",

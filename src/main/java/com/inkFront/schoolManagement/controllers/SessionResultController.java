@@ -1,5 +1,6 @@
 package com.inkFront.schoolManagement.controllers;
 
+import com.inkFront.schoolManagement.dto.PrintableStatusUpdateDTO;
 import com.inkFront.schoolManagement.dto.SessionResultResponseDTO;
 import com.inkFront.schoolManagement.model.User;
 import com.inkFront.schoolManagement.security.AccessControlService;
@@ -155,12 +156,54 @@ public class SessionResultController {
             @PathVariable Long studentId,
             @RequestParam String session) {
         try {
-            accessControlService.requireStudentResultAccess(currentUser(), studentId);
-            return ResponseEntity.ok(sessionResultService.generateSessionReport(studentId, session));
+            User user = currentUser();
+            accessControlService.requireStudentResultAccess(user, studentId);
+
+            SessionResultResponseDTO result =
+                    sessionResultService.getSessionResult(studentId, session);
+
+            boolean isStudent = user.getRole().name().equals("STUDENT");
+            boolean isParent = user.getRole().name().equals("PARENT");
+
+            if ((isStudent || isParent) && !result.isPrintable()) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                        "message",
+                        result.getPrintLockMessage() != null
+                                ? result.getPrintLockMessage()
+                                : "Printable result is locked. Admin will unlock it."
+                ));
+            }
+
+            return ResponseEntity.ok(
+                    sessionResultService.generateSessionReport(studentId, session)
+            );
+
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to generate session report", e);
+        }
+    }
+    @PatchMapping("/student/{studentId}/printable")
+    public ResponseEntity<?> setSessionPrintable(
+            @PathVariable Long studentId,
+            @RequestParam String session,
+            @RequestBody PrintableStatusUpdateDTO dto) {
+        try {
+            accessControlService.requireAdmin(currentUser());
+
+            return ResponseEntity.ok(
+                    sessionResultService.setSessionResultPrintableStatus(
+                            studentId,
+                            session,
+                            Boolean.TRUE.equals(dto.getPrintable()),
+                            dto.getPrintLockMessage()
+                    )
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to update printable session result status", e);
         }
     }
 

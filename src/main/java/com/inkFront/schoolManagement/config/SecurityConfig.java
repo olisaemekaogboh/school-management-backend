@@ -66,6 +66,7 @@ public class SecurityConfig {
                                 "/webjars/**",
                                 "/error"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
 
                         // Public read-only endpoints
                         .requestMatchers(HttpMethod.GET, "/api/events/**").permitAll()

@@ -62,7 +62,13 @@ public class AccessControlService {
             );
         }
     }
-
+    public void requireTermAssessmentModification(User user, Long studentId) {
+        if (!canModifyStudentResult(user, studentId, null)) {
+            throw new AccessDeniedException(
+                    "You are not allowed to update this student's term assessment. Only admin or the form teacher can do this."
+            );
+        }
+    }
     public void requireAttendanceAccess(User user, Long studentId) {
         if (!canViewStudentAttendance(user, studentId)) {
             throw new AccessDeniedException("You are not allowed to view this student's attendance");

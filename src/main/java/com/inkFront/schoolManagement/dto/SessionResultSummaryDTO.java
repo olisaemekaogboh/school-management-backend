@@ -24,6 +24,9 @@ public class SessionResultSummaryDTO {
     private boolean promoted;
     private Integer position;
 
+    private boolean printable;
+    private String printLockMessage;
+
     public static SessionResultSummaryDTO fromSessionResult(SessionResult sessionResult) {
         if (sessionResult == null) {
             return null;
@@ -40,10 +43,12 @@ public class SessionResultSummaryDTO {
                 .studentClass(student != null ? student.getStudentClass() : null)
                 .classArm(student != null ? student.getClassArm() : null)
                 .session(sessionResult.getSession())
-                .annualAverage(sessionResult.getAnnualAverage())
-                .attendancePercentage(sessionResult.getAttendancePercentage())
+                .annualAverage(sessionResult.getAnnualAverage() != null ? sessionResult.getAnnualAverage() : 0.0)
+                .attendancePercentage(sessionResult.getAttendancePercentage() != null ? sessionResult.getAttendancePercentage() : 0.0)
                 .promoted(sessionResult.isPromoted())
                 .position(sessionResult.getAnnualPositionInClass())
+                .printable(sessionResult.isPrintable())
+                .printLockMessage(sessionResult.getPrintLockMessage())
                 .build();
     }
 

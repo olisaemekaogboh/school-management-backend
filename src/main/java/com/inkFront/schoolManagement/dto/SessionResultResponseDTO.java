@@ -51,6 +51,9 @@ public class SessionResultResponseDTO {
     private boolean promoted;
     private String promotionRemark;
 
+    private boolean printable;
+    private String printLockMessage;
+
     private Map<String, Double> subjectAnnualTotals = new HashMap<>();
     private Map<String, Double> subjectAverages = new HashMap<>();
 
@@ -77,31 +80,34 @@ public class SessionResultResponseDTO {
 
         dto.setSession(sr.getSession());
 
-        dto.setFirstTermTotal(sr.getFirstTermTotal());
-        dto.setSecondTermTotal(sr.getSecondTermTotal());
-        dto.setThirdTermTotal(sr.getThirdTermTotal());
+        dto.setFirstTermTotal(sr.getFirstTermTotal() != null ? sr.getFirstTermTotal() : 0.0);
+        dto.setSecondTermTotal(sr.getSecondTermTotal() != null ? sr.getSecondTermTotal() : 0.0);
+        dto.setThirdTermTotal(sr.getThirdTermTotal() != null ? sr.getThirdTermTotal() : 0.0);
 
-        dto.setFirstTermAverage(sr.getFirstTermAverage());
-        dto.setSecondTermAverage(sr.getSecondTermAverage());
-        dto.setThirdTermAverage(sr.getThirdTermAverage());
+        dto.setFirstTermAverage(sr.getFirstTermAverage() != null ? sr.getFirstTermAverage() : 0.0);
+        dto.setSecondTermAverage(sr.getSecondTermAverage() != null ? sr.getSecondTermAverage() : 0.0);
+        dto.setThirdTermAverage(sr.getThirdTermAverage() != null ? sr.getThirdTermAverage() : 0.0);
 
         dto.setFirstTermPosition(sr.getFirstTermPosition());
         dto.setSecondTermPosition(sr.getSecondTermPosition());
         dto.setThirdTermPosition(sr.getThirdTermPosition());
 
-        dto.setAnnualTotal(sr.getAnnualTotal());
-        dto.setAnnualAverage(sr.getAnnualAverage());
+        dto.setAnnualTotal(sr.getAnnualTotal() != null ? sr.getAnnualTotal() : 0.0);
+        dto.setAnnualAverage(sr.getAnnualAverage() != null ? sr.getAnnualAverage() : 0.0);
         dto.setAnnualPositionInClass(sr.getAnnualPositionInClass());
         dto.setAnnualPositionInArm(sr.getAnnualPositionInArm());
         dto.setAnnualPositionInSchool(sr.getAnnualPositionInSchool());
 
-        dto.setTotalSchoolDays(sr.getTotalSchoolDays());
-        dto.setTotalDaysPresent(sr.getTotalDaysPresent());
-        dto.setTotalDaysAbsent(sr.getTotalDaysAbsent());
-        dto.setAttendancePercentage(sr.getAttendancePercentage());
+        dto.setTotalSchoolDays(sr.getTotalSchoolDays() != null ? sr.getTotalSchoolDays() : 0);
+        dto.setTotalDaysPresent(sr.getTotalDaysPresent() != null ? sr.getTotalDaysPresent() : 0);
+        dto.setTotalDaysAbsent(sr.getTotalDaysAbsent() != null ? sr.getTotalDaysAbsent() : 0);
+        dto.setAttendancePercentage(sr.getAttendancePercentage() != null ? sr.getAttendancePercentage() : 0.0);
 
         dto.setPromoted(sr.isPromoted());
         dto.setPromotionRemark(sr.getPromotionRemark());
+
+        dto.setPrintable(sr.isPrintable());
+        dto.setPrintLockMessage(sr.getPrintLockMessage());
 
         dto.setClassTeacherRemark(null);
         dto.setPrincipalRemark(null);

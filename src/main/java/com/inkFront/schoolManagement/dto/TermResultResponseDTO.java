@@ -7,6 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -41,12 +42,23 @@ public class TermResultResponseDTO {
     private String classTeacherComment;
     private String principalComment;
 
+    private List<AssessmentItemDTO> characterTraits;
+    private List<AssessmentItemDTO> psychomotorTraits;
+    private LocalDate nextTermBegins;
+
+    private boolean printable;
+    private String printLockMessage;
+
     private List<ResultResponseDTO> subjectResults;
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
-    public static TermResultResponseDTO fromTermResult(TermResult termResult) {
+    public static TermResultResponseDTO fromTermResult(
+            TermResult termResult,
+            List<AssessmentItemDTO> characterTraits,
+            List<AssessmentItemDTO> psychomotorTraits
+    ) {
         if (termResult == null) {
             return null;
         }
@@ -87,6 +99,11 @@ public class TermResultResponseDTO {
                 .attendancePercentage(termResult.getAttendancePercentage())
                 .classTeacherComment(termResult.getClassTeacherComment())
                 .principalComment(termResult.getPrincipalComment())
+                .characterTraits(characterTraits)
+                .psychomotorTraits(psychomotorTraits)
+                .nextTermBegins(termResult.getNextTermBegins())
+                .printable(termResult.isPrintable())
+                .printLockMessage(termResult.getPrintLockMessage())
                 .subjectResults(subjectResults)
                 .createdAt(termResult.getCreatedAt())
                 .updatedAt(termResult.getUpdatedAt())

@@ -1,11 +1,10 @@
 package com.inkFront.schoolManagement.controllers;
 
+import com.inkFront.schoolManagement.dto.PrintableStatusUpdateDTO;
 import com.inkFront.schoolManagement.dto.ResultRequestDTO;
 import com.inkFront.schoolManagement.dto.ResultResponseDTO;
-import com.inkFront.schoolManagement.model.Result;
-import com.inkFront.schoolManagement.model.SchoolClass;
-import com.inkFront.schoolManagement.model.TermResult;
-import com.inkFront.schoolManagement.model.User;
+import com.inkFront.schoolManagement.dto.TermAssessmentUpdateDTO;
+import com.inkFront.schoolManagement.model.*;
 import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.TermResultRepository;
 import com.inkFront.schoolManagement.security.AccessControlService;
@@ -124,7 +123,6 @@ public class ResultController {
             return serverError("Unable to fetch student results", e);
         }
     }
-
     @GetMapping("/student/{studentId}/term")
     public ResponseEntity<?> getTermResult(
             @PathVariable Long studentId,
@@ -135,11 +133,55 @@ public class ResultController {
             accessControlService.requireStudentResultAccess(user, studentId);
 
             Map<String, Object> resultSheet = resultService.generateResultSheet(studentId, session, term);
+
+            boolean isStudent = user != null && user.getRole() != null
+                    && "STUDENT".equalsIgnoreCase(user.getRole().name());
+            boolean isParent = user != null && user.getRole() != null
+                    && "PARENT".equalsIgnoreCase(user.getRole().name());
+
+            if (isStudent || isParent) {
+                Object printableObj = resultSheet.get("printable");
+                boolean printable = printableObj instanceof Boolean && (Boolean) printableObj;
+
+                if (!printable) {
+                    String message = resultSheet.get("printLockMessage") != null
+                            ? String.valueOf(resultSheet.get("printLockMessage"))
+                            : "Printable result is locked. The admin will unlock it when the result is ready.";
+
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                            .body(Map.of("message", message));
+                }
+            }
+
             return ResponseEntity.ok(resultSheet);
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to fetch term result", e);
+        }
+    }
+    @PatchMapping("/student/{studentId}/term/printable")
+    public ResponseEntity<?> setTermPrintable(
+            @PathVariable Long studentId,
+            @RequestParam String session,
+            @RequestParam Result.Term term,
+            @RequestBody PrintableStatusUpdateDTO dto) {
+        try {
+            accessControlService.requireAdmin(currentUser());
+
+            return ResponseEntity.ok(
+                    resultService.setTermResultPrintableStatus(
+                            studentId,
+                            session,
+                            term,
+                            Boolean.TRUE.equals(dto.getPrintable()),
+                            dto.getPrintLockMessage()
+                    )
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to update printable term result status", e);
         }
     }
 
@@ -261,6 +303,77 @@ public class ResultController {
             return serverError("Unable to calculate all term results", e);
         }
     }
+    @PutMapping("/student/{studentId}/term/assessment")
+    public ResponseEntity<?> updateTermAssessment(
+            @PathVariable Long studentId,
+            @RequestParam String session,
+            @RequestParam Result.Term term,
+            @Valid @RequestBody TermAssessmentUpdateDTO dto) {
+        try {
+            User user = currentUser();
+            accessControlService.requireTermAssessmentModification(user, studentId);
+
+            resultService.updateTermAssessment(studentId, session, term, dto);
+
+            return ResponseEntity.ok(
+                    resultService.generateResultSheet(studentId, session, term)
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to update term assessment", e);
+        }
+    }
+    // ================= SIGNATURE ENDPOINTS =================
+
+    @PatchMapping("/student/{studentId}/term/sign/class-teacher")
+    public ResponseEntity<?> signByClassTeacher(
+            @PathVariable Long studentId,
+            @RequestParam String session,
+            @RequestParam Result.Term term) {
+        try {
+            User user = currentUser();
+
+            accessControlService.requireTermAssessmentModification(user, studentId);
+
+            String signatureUrl = user.getSignatureUrl(); // from profile
+
+            resultService.signByClassTeacher(studentId, session, term, signatureUrl);
+
+            return ResponseEntity.ok(
+                    resultService.generateResultSheet(studentId, session, term)
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to sign result as class teacher", e);
+        }
+    }
+
+    @PatchMapping("/student/{studentId}/term/sign/admin")
+    public ResponseEntity<?> signByAdmin(
+            @PathVariable Long studentId,
+            @RequestParam String session,
+            @RequestParam Result.Term term) {
+        try {
+            User user = currentUser();
+
+            accessControlService.requireAdmin(user);
+
+            String signatureUrl = user.getSignatureUrl(); // from profile
+
+            resultService.signByAdmin(studentId, session, term, signatureUrl);
+
+            return ResponseEntity.ok(
+                    resultService.generateResultSheet(studentId, session, term)
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to approve result", e);
+        }
+    }
+
 
     @PostMapping("/calculate/annual")
     public ResponseEntity<?> calculateAllSessionResults(@RequestParam String session) {

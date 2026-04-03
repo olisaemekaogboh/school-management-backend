@@ -1,6 +1,10 @@
 package com.inkFront.schoolManagement.service.IMPL;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.inkFront.schoolManagement.dto.AssessmentItemDTO;
 import com.inkFront.schoolManagement.dto.ResultRequestDTO;
+import com.inkFront.schoolManagement.dto.TermAssessmentUpdateDTO;
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
 import com.inkFront.schoolManagement.model.Attendance;
 import com.inkFront.schoolManagement.model.Result;
@@ -23,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
@@ -38,6 +43,7 @@ public class ResultServiceImpl implements ResultService {
     private final AttendanceRepository attendanceRepository;
     private final SubjectRepository subjectRepository;
     private final ClassRepository classRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -62,6 +68,9 @@ public class ResultServiceImpl implements ResultService {
                     newTermResult.setStudent(student);
                     newTermResult.setSession(request.getSession());
                     newTermResult.setTerm(request.getTerm());
+                    newTermResult.setPrintable(false);
+                    newTermResult.setPrintLockMessage("Printable result is locked until admin approves");
+                    resetApprovalState(newTermResult, "Result modified. Requires re-approval.");
                     return termResultRepository.save(newTermResult);
                 });
 
@@ -95,13 +104,50 @@ public class ResultServiceImpl implements ResultService {
 
         if (!termResult.getSubjectResults().contains(savedResult)) {
             termResult.addResult(savedResult);
-            termResultRepository.save(termResult);
         }
+
+        resetApprovalState(termResult, "Result modified. Requires re-approval.");
+        termResultRepository.save(termResult);
 
         updateTermAverages(termResult);
 
         log.info("Result saved successfully with ID: {}", savedResult.getId());
         return savedResult;
+    }
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> generateAnnualResultSheet(Long studentId, String session) {
+        SessionResult sessionResult = calculateSessionResult(studentId, session);
+
+        Map<String, Object> report = new HashMap<>();
+        report.put("studentId", sessionResult.getStudent() != null ? sessionResult.getStudent().getId() : null);
+        report.put("session", sessionResult.getSession());
+        report.put("firstTermTotal", sessionResult.getFirstTermTotal());
+        report.put("secondTermTotal", sessionResult.getSecondTermTotal());
+        report.put("thirdTermTotal", sessionResult.getThirdTermTotal());
+        report.put("firstTermAverage", sessionResult.getFirstTermAverage());
+        report.put("secondTermAverage", sessionResult.getSecondTermAverage());
+        report.put("thirdTermAverage", sessionResult.getThirdTermAverage());
+        report.put("annualTotal", sessionResult.getAnnualTotal());
+        report.put("annualAverage", sessionResult.getAnnualAverage());
+        report.put("annualPositionInClass", sessionResult.getAnnualPositionInClass());
+        report.put("annualPositionInArm", sessionResult.getAnnualPositionInArm());
+        report.put("annualPositionInSchool", sessionResult.getAnnualPositionInSchool());
+        report.put("totalSchoolDays", sessionResult.getTotalSchoolDays());
+        report.put("totalDaysPresent", sessionResult.getTotalDaysPresent());
+        report.put("totalDaysAbsent", sessionResult.getTotalDaysAbsent());
+        report.put("attendancePercentage", sessionResult.getAttendancePercentage());
+        report.put("promoted", sessionResult.isPromoted());
+        report.put("promotionRemark", sessionResult.getPromotionRemark());
+        report.put("firstTermSubjectScores", sessionResult.getFirstTermSubjectScores());
+        report.put("secondTermSubjectScores", sessionResult.getSecondTermSubjectScores());
+        report.put("thirdTermSubjectScores", sessionResult.getThirdTermSubjectScores());
+        report.put("subjectAnnualTotals", sessionResult.getSubjectAnnualTotals());
+        report.put("subjectAverages", sessionResult.getSubjectAverages());
+        report.put("printable", sessionResult.isPrintable());
+        report.put("printLockMessage", sessionResult.getPrintLockMessage());
+
+        return report;
     }
 
     @Override
@@ -124,6 +170,9 @@ public class ResultServiceImpl implements ResultService {
                     newTermResult.setStudent(student);
                     newTermResult.setSession(session);
                     newTermResult.setTerm(term);
+                    newTermResult.setPrintable(false);
+                    newTermResult.setPrintLockMessage("Printable result is locked until admin approves");
+                    resetApprovalState(newTermResult, "Result modified. Requires re-approval.");
                     return termResultRepository.save(newTermResult);
                 });
 
@@ -152,8 +201,10 @@ public class ResultServiceImpl implements ResultService {
 
         if (!termResult.getSubjectResults().contains(savedResult)) {
             termResult.addResult(savedResult);
-            termResultRepository.save(termResult);
         }
+
+        resetApprovalState(termResult, "Result modified. Requires re-approval.");
+        termResultRepository.save(termResult);
 
         updateTermAverages(termResult);
 
@@ -216,7 +267,12 @@ public class ResultServiceImpl implements ResultService {
 
         TermResult termResult = termResultRepository
                 .findDetailedByStudentAndSessionAndTerm(student, session, term)
-                .orElse(new TermResult());
+                .orElseGet(() -> {
+                    TermResult tr = new TermResult();
+                    tr.setPrintable(false);
+                    tr.setPrintLockMessage("Printable result is locked until admin approves");
+                    return tr;
+                });
 
         termResult.setStudent(student);
         termResult.setSession(session);
@@ -316,7 +372,12 @@ public class ResultServiceImpl implements ResultService {
 
         SessionResult sessionResult = sessionResultRepository
                 .findDetailedByStudentAndSession(student, session)
-                .orElse(new SessionResult());
+                .orElseGet(() -> {
+                    SessionResult sr = new SessionResult();
+                    sr.setPrintable(false);
+                    sr.setPrintLockMessage("Printable result is locked until admin approves");
+                    return sr;
+                });
 
         sessionResult.setStudent(student);
         sessionResult.setSession(session);
@@ -620,332 +681,39 @@ public class ResultServiceImpl implements ResultService {
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public Map<String, Object> generateResultSheet(Long studentId, String session, Result.Term term) {
-        log.info("Generating term result sheet for student: {}, session: {}, term: {}", studentId, session, term);
-
+    public TermResult setTermResultPrintableStatus(
+            Long studentId,
+            String session,
+            Result.Term term,
+            boolean printable,
+            String printLockMessage
+    ) {
         Student student = studentRepository.findById(studentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
         TermResult termResult = termResultRepository
                 .findDetailedByStudentAndSessionAndTerm(student, session, term)
-                .orElseGet(() -> calculateTermResult(studentId, session, term));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Term result not found for student ID " + studentId +
+                                " in session " + session + " and term " + term
+                ));
 
-        List<Result> subjectResults = resultRepository.findDetailedByStudentAndSessionAndTerm(student, session, term);
+        boolean completed = Boolean.TRUE.equals(termResult.isCompleted());
 
-        Map<String, Object> report = new HashMap<>();
-
-        Map<String, Object> studentInfo = new HashMap<>();
-        studentInfo.put("id", student.getId());
-        studentInfo.put("firstName", student.getFirstName());
-        studentInfo.put("middleName", student.getMiddleName());
-        studentInfo.put("lastName", student.getLastName());
-        studentInfo.put("fullName", (
-                (student.getFirstName() != null ? student.getFirstName() : "") + " " +
-                        (student.getMiddleName() != null ? student.getMiddleName() + " " : "") +
-                        (student.getLastName() != null ? student.getLastName() : "")
-        ).replaceAll("\\s+", " ").trim());
-        studentInfo.put("admissionNumber", student.getAdmissionNumber());
-        studentInfo.put("studentClass", student.getStudentClass());
-        studentInfo.put("classArm", student.getClassArm());
-        studentInfo.put("classCode", student.getSchoolClass() != null ? student.getSchoolClass().getClassCode() : null);
-        studentInfo.put("session", session);
-        studentInfo.put("term", term.name());
-        studentInfo.put("profilePictureUrl", student.getProfilePictureUrl());
-        studentInfo.put("dateOfBirth", student.getDateOfBirth());
-        studentInfo.put("parentName", student.getParentName());
-        studentInfo.put("parentPhone", student.getParentPhone());
-        studentInfo.put("address", student.getAddress());
-        report.put("studentInfo", studentInfo);
-
-        List<Map<String, Object>> subjects = subjectResults.stream()
-                .map(r -> {
-                    Map<String, Object> item = new HashMap<>();
-                    item.put("id", r.getId());
-                    item.put("subject", r.getSubject() != null ? r.getSubject().getName() : "-");
-                    item.put("resumptionTest", safeDouble(r.getResumptionTest()));
-                    item.put("assignments", safeDouble(r.getAssignments()));
-                    item.put("project", safeDouble(r.getProject()));
-                    item.put("midtermTest", safeDouble(r.getMidtermTest()));
-                    item.put("secondTest", safeDouble(r.getSecondTest()));
-                    item.put("continuousAssessment", safeDouble(r.getContinuousAssessment()));
-                    item.put("examination", safeDouble(r.getExamination()));
-                    item.put("total", safeDouble(r.getTotal()));
-                    item.put("grade", r.getGrade());
-                    item.put("remarks", r.getRemarks());
-                    return item;
-                })
-                .toList();
-
-        report.put("subjects", subjects);
-
-        Map<String, Object> summary = new HashMap<>();
-        summary.put("totalScore", safeDouble(termResult.getTotalScore()));
-        summary.put("average", safeDouble(termResult.getAverage()));
-        summary.put("positionInClass", termResult.getPositionInClass());
-        summary.put("positionInArm", termResult.getPositionInArm());
-        summary.put("positionInSchool", termResult.getPositionInSchool());
-        summary.put("totalSchoolDays", termResult.getTotalSchoolDays());
-        summary.put("daysPresent", termResult.getDaysPresent());
-        summary.put("daysAbsent", termResult.getDaysAbsent());
-        summary.put("attendancePercentage", safeDouble(termResult.getAttendancePercentage()));
-        summary.put("classTeacherComment", termResult.getClassTeacherComment());
-        summary.put("principalComment", termResult.getPrincipalComment());
-        report.put("summary", summary);
-
-        return report;
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public Map<String, Object> generateAnnualResultSheet(Long studentId, String session) {
-        log.info("Generating annual result sheet for student: {}, session: {}", studentId, session);
-
-        Student student = studentRepository.findById(studentId)
-                .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
-
-        SessionResult sessionResult = sessionResultRepository.findDetailedByStudentAndSession(student, session)
-                .orElseGet(() -> calculateSessionResult(studentId, session));
-
-        TermResult firstTerm = termResultRepository
-                .findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.FIRST)
-                .orElse(null);
-
-        TermResult secondTerm = termResultRepository
-                .findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.SECOND)
-                .orElse(null);
-
-        TermResult thirdTerm = termResultRepository
-                .findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.THIRD)
-                .orElse(null);
-
-        List<Result> firstTermResults = firstTerm == null
-                ? List.of()
-                : resultRepository.findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.FIRST);
-
-        List<Result> secondTermResults = secondTerm == null
-                ? List.of()
-                : resultRepository.findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.SECOND);
-
-        List<Result> thirdTermResults = thirdTerm == null
-                ? List.of()
-                : resultRepository.findDetailedByStudentAndSessionAndTerm(student, session, Result.Term.THIRD);
-
-        Map<String, Object> resultSheet = new HashMap<>();
-
-        Map<String, Object> studentInfo = new HashMap<>();
-        studentInfo.put("id", student.getId());
-        studentInfo.put("name", (student.getFirstName() + " " + student.getLastName()).trim());
-        studentInfo.put("firstName", student.getFirstName());
-        studentInfo.put("lastName", student.getLastName());
-        studentInfo.put("admissionNumber", student.getAdmissionNumber());
-        studentInfo.put("class", student.getStudentClass());
-        studentInfo.put("arm", student.getClassArm());
-        studentInfo.put("session", session);
-        studentInfo.put("profilePictureUrl", student.getProfilePictureUrl());
-        studentInfo.put("dateOfBirth", student.getDateOfBirth());
-        studentInfo.put("parentName", student.getParentName());
-        studentInfo.put("parentPhone", student.getParentPhone());
-        studentInfo.put("address", student.getAddress());
-        resultSheet.put("studentInfo", studentInfo);
-
-        Map<String, Object> termSummaries = new HashMap<>();
-
-        if (firstTerm != null) {
-            Map<String, Object> first = new HashMap<>();
-            first.put("total", safeDouble(firstTerm.getTotalScore()));
-            first.put("average", safeDouble(firstTerm.getAverage()));
-            first.put("position", firstTerm.getPositionInClass());
-            first.put("attendance", safeDouble(firstTerm.getAttendancePercentage()));
-            first.put("subjects", firstTermResults.stream().map(this::toAnnualTermSubjectRow).toList());
-            termSummaries.put("FIRST", first);
+        if (printable && !completed) {
+            throw new RuntimeException("Result is incomplete. Required signatures are missing.");
         }
 
-        if (secondTerm != null) {
-            Map<String, Object> second = new HashMap<>();
-            second.put("total", safeDouble(secondTerm.getTotalScore()));
-            second.put("average", safeDouble(secondTerm.getAverage()));
-            second.put("position", secondTerm.getPositionInClass());
-            second.put("attendance", safeDouble(secondTerm.getAttendancePercentage()));
-            second.put("subjects", secondTermResults.stream().map(this::toAnnualTermSubjectRow).toList());
-            termSummaries.put("SECOND", second);
-        }
+        termResult.setPrintable(printable);
+        termResult.setPrintLockMessage(
+                printLockMessage != null && !printLockMessage.trim().isEmpty()
+                        ? printLockMessage.trim()
+                        : (printable
+                        ? "Printable result is available."
+                        : "Printable result is locked. The admin will unlock it when the result is ready.")
+        );
 
-        if (thirdTerm != null) {
-            Map<String, Object> third = new HashMap<>();
-            third.put("total", safeDouble(thirdTerm.getTotalScore()));
-            third.put("average", safeDouble(thirdTerm.getAverage()));
-            third.put("position", thirdTerm.getPositionInClass());
-            third.put("attendance", safeDouble(thirdTerm.getAttendancePercentage()));
-            third.put("subjects", thirdTermResults.stream().map(this::toAnnualTermSubjectRow).toList());
-            termSummaries.put("THIRD", third);
-        }
-
-        resultSheet.put("termSummaries", termSummaries);
-        resultSheet.put("termResults", termSummaries);
-
-        Map<String, Object> annualSummary = new HashMap<>();
-        annualSummary.put("firstTermTotal", safeDouble(sessionResult.getFirstTermTotal()));
-        annualSummary.put("secondTermTotal", safeDouble(sessionResult.getSecondTermTotal()));
-        annualSummary.put("thirdTermTotal", safeDouble(sessionResult.getThirdTermTotal()));
-        annualSummary.put("annualTotal", safeDouble(sessionResult.getAnnualTotal()));
-        annualSummary.put("annualAverage", safeDouble(sessionResult.getAnnualAverage()));
-        annualSummary.put("positionInClass", sessionResult.getAnnualPositionInClass() != null ? sessionResult.getAnnualPositionInClass() : 0);
-        annualSummary.put("positionInArm", sessionResult.getAnnualPositionInArm() != null ? sessionResult.getAnnualPositionInArm() : 0);
-        annualSummary.put("positionInSchool", sessionResult.getAnnualPositionInSchool() != null ? sessionResult.getAnnualPositionInSchool() : 0);
-        annualSummary.put("promoted", sessionResult.isPromoted());
-        annualSummary.put("remark", sessionResult.getPromotionRemark());
-        annualSummary.put("subjectAverages", sessionResult.getSubjectAverages() != null
-                ? sessionResult.getSubjectAverages()
-                : Collections.emptyMap());
-        resultSheet.put("annualSummary", annualSummary);
-
-        Map<String, Object> attendance = new HashMap<>();
-        attendance.put("totalSchoolDays", sessionResult.getTotalSchoolDays());
-        attendance.put("daysPresent", sessionResult.getTotalDaysPresent());
-        attendance.put("daysAbsent", sessionResult.getTotalDaysAbsent());
-        attendance.put("attendancePercentage", sessionResult.getAttendancePercentage());
-        resultSheet.put("attendance", attendance);
-
-        Map<String, Object> promotion = new HashMap<>();
-        promotion.put("promoted", sessionResult.isPromoted());
-        promotion.put("remark", sessionResult.getPromotionRemark());
-        resultSheet.put("promotion", promotion);
-
-        Map<String, Double> firstScores = sessionResult.getFirstTermSubjectScores() != null
-                ? sessionResult.getFirstTermSubjectScores()
-                : Collections.emptyMap();
-        Map<String, Double> secondScores = sessionResult.getSecondTermSubjectScores() != null
-                ? sessionResult.getSecondTermSubjectScores()
-                : Collections.emptyMap();
-        Map<String, Double> thirdScores = sessionResult.getThirdTermSubjectScores() != null
-                ? sessionResult.getThirdTermSubjectScores()
-                : Collections.emptyMap();
-        Map<String, Double> annualTotals = sessionResult.getSubjectAnnualTotals() != null
-                ? sessionResult.getSubjectAnnualTotals()
-                : Collections.emptyMap();
-        Map<String, Double> subjectAverages = sessionResult.getSubjectAverages() != null
-                ? sessionResult.getSubjectAverages()
-                : Collections.emptyMap();
-
-        Set<String> subjectNames = new TreeSet<>();
-        subjectNames.addAll(firstScores.keySet());
-        subjectNames.addAll(secondScores.keySet());
-        subjectNames.addAll(thirdScores.keySet());
-        subjectNames.addAll(annualTotals.keySet());
-        subjectNames.addAll(subjectAverages.keySet());
-
-        List<Map<String, Object>> annualSubjects = new ArrayList<>();
-        for (String subject : subjectNames) {
-            double first = safeDouble(firstScores.get(subject));
-            double second = safeDouble(secondScores.get(subject));
-            double third = safeDouble(thirdScores.get(subject));
-            double total = annualTotals.containsKey(subject)
-                    ? safeDouble(annualTotals.get(subject))
-                    : (first + second + third);
-
-            double average = subjectAverages.containsKey(subject)
-                    ? safeDouble(subjectAverages.get(subject))
-                    : computeAverageFromAvailableTerms(
-                    firstScores.containsKey(subject),
-                    secondScores.containsKey(subject),
-                    thirdScores.containsKey(subject),
-                    first, second, third
-            );
-
-            Map<String, Object> item = new HashMap<>();
-            item.put("subject", subject);
-            item.put("firstTerm", first);
-            item.put("secondTerm", second);
-            item.put("thirdTerm", third);
-            item.put("total", total);
-            item.put("annualTotal", total);
-            item.put("average", average);
-            item.put("annualAverage", average);
-            item.put("grade", gradeFromScore(average));
-            item.put("remark", remarkFromScore(average));
-
-            Map<String, Double> termScores = new HashMap<>();
-            termScores.put("FIRST", first);
-            termScores.put("SECOND", second);
-            termScores.put("THIRD", third);
-            item.put("termScores", termScores);
-
-            annualSubjects.add(item);
-        }
-
-        resultSheet.put("subjectPerformance", annualSubjects);
-        resultSheet.put("subjects", annualSubjects);
-        resultSheet.put("annualSubjects", annualSubjects);
-        resultSheet.put("subjectAverages", subjectAverages);
-        resultSheet.put("subjectAnnualTotals", annualTotals);
-
-        log.info("Annual result sheet generated successfully for student: {}", studentId);
-        return resultSheet;
-    }
-
-    private Map<String, Object> toAnnualTermSubjectRow(Result result) {
-        Map<String, Object> row = new HashMap<>();
-        row.put("id", result.getId());
-        row.put("subject", result.getSubject() != null ? result.getSubject().getName() : "-");
-        row.put("subjectName", result.getSubject() != null ? result.getSubject().getName() : "-");
-        row.put("resumptionTest", safeDouble(result.getResumptionTest()));
-        row.put("assignments", safeDouble(result.getAssignments()));
-        row.put("project", safeDouble(result.getProject()));
-        row.put("midtermTest", safeDouble(result.getMidtermTest()));
-        row.put("secondTest", safeDouble(result.getSecondTest()));
-        row.put("continuousAssessment", safeDouble(result.getContinuousAssessment()));
-        row.put("examination", safeDouble(result.getExamination()));
-        row.put("total", safeDouble(result.getTotal()));
-        row.put("totalScore", safeDouble(result.getTotal()));
-        row.put("grade", result.getGrade());
-        row.put("remarks", result.getRemarks());
-        return row;
-    }
-
-    private double computeAverageFromAvailableTerms(
-            boolean hasFirst,
-            boolean hasSecond,
-            boolean hasThird,
-            double first,
-            double second,
-            double third
-    ) {
-        int count = 0;
-        double sum = 0.0;
-
-        if (hasFirst) {
-            sum += first;
-            count++;
-        }
-        if (hasSecond) {
-            sum += second;
-            count++;
-        }
-        if (hasThird) {
-            sum += third;
-            count++;
-        }
-
-        return count > 0 ? sum / count : 0.0;
-    }
-
-    private String gradeFromScore(double score) {
-        if (score >= 70) return "A";
-        if (score >= 60) return "B";
-        if (score >= 50) return "C";
-        if (score >= 45) return "D";
-        if (score >= 40) return "E";
-        return "F";
-    }
-
-    private String remarkFromScore(double score) {
-        if (score >= 70) return "Excellent";
-        if (score >= 60) return "Very Good";
-        if (score >= 50) return "Good";
-        if (score >= 45) return "Pass";
-        if (score >= 40) return "Fair";
-        return "Fail";
+        return termResultRepository.save(termResult);
     }
 
     private void calculateTermAttendance(TermResult termResult) {
@@ -989,5 +757,326 @@ public class ResultServiceImpl implements ResultService {
         termResult.setAttendancePercentage(
                 totalSchoolDays > 0 ? (presentEquivalent * 100.0 / totalSchoolDays) : 0
         );
+    }
+
+    @Override
+    @Transactional
+    public TermResult updateTermAssessment(
+            Long studentId,
+            String session,
+            Result.Term term,
+            TermAssessmentUpdateDTO request
+    ) {
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
+
+        TermResult termResult = termResultRepository
+                .findDetailedByStudentAndSessionAndTerm(student, session, term)
+                .orElseGet(() -> {
+                    TermResult newTermResult = new TermResult();
+                    newTermResult.setStudent(student);
+                    newTermResult.setSession(session);
+                    newTermResult.setTerm(term);
+                    newTermResult.setPrintable(false);
+                    newTermResult.setPrintLockMessage("Printable result is locked until admin approves");
+                    resetApprovalState(newTermResult, "Result modified. Requires re-approval.");
+                    return newTermResult;
+                });
+
+        List<AssessmentItemDTO> characterTraits = sanitizeAssessmentItems(request.getCharacterTraits());
+        List<AssessmentItemDTO> psychomotorTraits = sanitizeAssessmentItems(request.getPsychomotorTraits());
+
+        termResult.setCharacterTraitsJson(toJson(
+                characterTraits.isEmpty() ? defaultCharacterTraits() : characterTraits
+        ));
+        termResult.setPsychomotorTraitsJson(toJson(
+                psychomotorTraits.isEmpty() ? defaultPsychomotorTraits() : psychomotorTraits
+        ));
+
+        if (request.getClassTeacherComment() != null) {
+            termResult.setClassTeacherComment(request.getClassTeacherComment().trim());
+        }
+
+        if (request.getPrincipalComment() != null) {
+            termResult.setPrincipalComment(request.getPrincipalComment().trim());
+        }
+
+        termResult.setNextTermBegins(request.getNextTermBegins());
+
+        resetApprovalState(termResult, "Result modified. Requires re-approval.");
+
+        return termResultRepository.save(termResult);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> generateResultSheet(Long studentId, String session, Result.Term term) {
+        log.info("Generating term result sheet for student: {}, session: {}, term: {}", studentId, session, term);
+
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
+
+        TermResult termResult = termResultRepository
+                .findDetailedByStudentAndSessionAndTerm(student, session, term)
+                .orElseGet(() -> calculateTermResult(studentId, session, term));
+
+        List<Result> subjectResults = resultRepository.findDetailedByStudentAndSessionAndTerm(student, session, term);
+
+        Map<String, Object> report = new HashMap<>();
+
+        Map<String, Object> studentInfo = new HashMap<>();
+        studentInfo.put("id", student.getId());
+        studentInfo.put("firstName", student.getFirstName());
+        studentInfo.put("middleName", student.getMiddleName());
+        studentInfo.put("lastName", student.getLastName());
+        studentInfo.put("fullName", (
+                (student.getFirstName() != null ? student.getFirstName() : "") + " " +
+                        (student.getMiddleName() != null ? student.getMiddleName() + " " : "") +
+                        (student.getLastName() != null ? student.getLastName() : "")
+        ).replaceAll("\\s+", " ").trim());
+        studentInfo.put("admissionNumber", student.getAdmissionNumber());
+        studentInfo.put("studentClass", student.getStudentClass());
+        studentInfo.put("classArm", student.getClassArm());
+        studentInfo.put("classCode", student.getSchoolClass() != null ? student.getSchoolClass().getClassCode() : null);
+        studentInfo.put("session", session);
+        studentInfo.put("term", term.name());
+        studentInfo.put("profilePictureUrl", student.getProfilePictureUrl());
+        studentInfo.put("dateOfBirth", student.getDateOfBirth());
+        studentInfo.put("parentName", student.getParentName());
+        studentInfo.put("parentPhone", student.getParentPhone());
+        studentInfo.put("address", student.getAddress());
+        report.put("studentInfo", studentInfo);
+
+        List<Map<String, Object>> subjects = subjectResults.stream()
+                .map(this::buildSubjectRow)
+                .toList();
+
+        report.put("subjects", subjects);
+
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("totalScore", termResult.getTotalScore());
+        summary.put("average", termResult.getAverage());
+        summary.put("positionInClass", termResult.getPositionInClass());
+        summary.put("positionInArm", termResult.getPositionInArm());
+        summary.put("positionInSchool", termResult.getPositionInSchool());
+        summary.put("totalSchoolDays", termResult.getTotalSchoolDays());
+        summary.put("daysPresent", termResult.getDaysPresent());
+        summary.put("daysAbsent", termResult.getDaysAbsent());
+        summary.put("attendancePercentage", termResult.getAttendancePercentage());
+        summary.put("teacherComment", termResult.getClassTeacherComment());
+        summary.put("principalComment", termResult.getPrincipalComment());
+        summary.put("nextTermBegins", termResult.getNextTermBegins());
+        report.put("summary", summary);
+
+        report.put("characterTraits",
+                fromJson(termResult.getCharacterTraitsJson()).isEmpty()
+                        ? defaultCharacterTraits()
+                        : fromJson(termResult.getCharacterTraitsJson()));
+
+        report.put("psychomotorTraits",
+                fromJson(termResult.getPsychomotorTraitsJson()).isEmpty()
+                        ? defaultPsychomotorTraits()
+                        : fromJson(termResult.getPsychomotorTraitsJson()));
+
+        report.put("gradingScale", List.of(
+                Map.of("grade", "A", "min", 70, "max", 100, "remark", "Excellent"),
+                Map.of("grade", "B", "min", 60, "max", 69, "remark", "Very Good"),
+                Map.of("grade", "C", "min", 50, "max", 59, "remark", "Good"),
+                Map.of("grade", "D", "min", 45, "max", 49, "remark", "Pass"),
+                Map.of("grade", "E", "min", 40, "max", 44, "remark", "Fair"),
+                Map.of("grade", "F", "min", 0, "max", 39, "remark", "Fail")
+        ));
+
+        Map<String, Object> signatures = new HashMap<>();
+        signatures.put("classTeacherSigned", safeBoolean(termResult.isClassTeacherSigned()));
+        signatures.put("adminSigned", safeBoolean(termResult.isAdminSigned()));
+        signatures.put("completed", safeBoolean(termResult.isCompleted()));
+        signatures.put("classTeacherSignedAt", termResult.getClassTeacherSignedAt());
+        signatures.put("adminSignedAt", termResult.getAdminSignedAt());
+        signatures.put("classTeacherSignature", termResult.getClassTeacherSignatureUrl());
+        signatures.put("adminSignature", termResult.getAdminSignatureUrl());
+        report.put("signatures", signatures);
+
+        report.put("completed", safeBoolean(termResult.isCompleted()));
+        report.put("printable", termResult.isPrintable());
+        report.put("printLockMessage", termResult.getPrintLockMessage());
+
+        return report;
+    }
+
+    private Map<String, Object> buildSubjectRow(Result result) {
+        Map<String, Object> row = new HashMap<>();
+        row.put("id", result.getId());
+        row.put("subject", result.getSubject() != null ? result.getSubject().getName() : "-");
+        row.put("resumptionTest", safeDouble(result.getResumptionTest()));
+        row.put("assignments", safeDouble(result.getAssignments()));
+        row.put("project", safeDouble(result.getProject()));
+        row.put("midtermTest", safeDouble(result.getMidtermTest()));
+        row.put("secondTest", safeDouble(result.getSecondTest()));
+        row.put("continuousAssessment", safeDouble(result.getContinuousAssessment()));
+        row.put("examination", safeDouble(result.getExamination()));
+        row.put("total", safeDouble(result.getTotal()));
+        row.put("totalScore", safeDouble(result.getTotal()));
+        row.put("grade", result.getGrade());
+        row.put("remarks", result.getRemarks());
+        row.put("positionInClass", result.getPositionInClass());
+        row.put("positionInArm", result.getPositionInArm());
+        row.put("positionInSchool", result.getPositionInSchool());
+        return row;
+    }
+
+    private String toJson(List<AssessmentItemDTO> items) {
+        try {
+            return objectMapper.writeValueAsString(items != null ? items : List.of());
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize assessment items", e);
+        }
+    }
+
+    private List<AssessmentItemDTO> fromJson(String json) {
+        try {
+            if (json == null || json.isBlank()) {
+                return new ArrayList<>();
+            }
+            return objectMapper.readValue(json, new TypeReference<List<AssessmentItemDTO>>() {});
+        } catch (Exception e) {
+            log.error("Failed to deserialize assessment items json: {}", json, e);
+            return new ArrayList<>();
+        }
+    }
+
+    private List<AssessmentItemDTO> defaultCharacterTraits() {
+        return List.of(
+                new AssessmentItemDTO("Punctuality", 1),
+                new AssessmentItemDTO("Attendance", 1),
+                new AssessmentItemDTO("Neatness", 1),
+                new AssessmentItemDTO("Politeness", 1),
+                new AssessmentItemDTO("Honesty", 1),
+                new AssessmentItemDTO("Relationship With Others", 1),
+                new AssessmentItemDTO("Leadership", 1),
+                new AssessmentItemDTO("Emotional Stability", 1)
+        );
+    }
+
+    private List<AssessmentItemDTO> defaultPsychomotorTraits() {
+        return List.of(
+                new AssessmentItemDTO("Handwriting", 1),
+                new AssessmentItemDTO("Verbal Fluency", 1),
+                new AssessmentItemDTO("Sports", 1),
+                new AssessmentItemDTO("Drawing / Creativity", 1),
+                new AssessmentItemDTO("Craft", 1),
+                new AssessmentItemDTO("Musical Skills", 1)
+        );
+    }
+
+    private List<AssessmentItemDTO> sanitizeAssessmentItems(List<AssessmentItemDTO> items) {
+        if (items == null) return new ArrayList<>();
+
+        return items.stream()
+                .filter(item -> item != null && item.getLabel() != null && !item.getLabel().trim().isEmpty())
+                .map(item -> AssessmentItemDTO.builder()
+                        .label(item.getLabel().trim())
+                        .score(Math.max(1, Math.min(5, item.getScore() == null ? 1 : item.getScore())))
+                        .build())
+                .toList();
+    }
+
+    private boolean safeBoolean(Boolean value) {
+        return value != null && value;
+    }
+
+    private void resetApprovalState(TermResult termResult, String lockMessage) {
+        termResult.setClassTeacherSigned(false);
+        termResult.setAdminSigned(false);
+        termResult.setCompleted(false);
+
+        termResult.setClassTeacherSignedAt(null);
+        termResult.setAdminSignedAt(null);
+
+        termResult.setClassTeacherSignatureUrl(null);
+        termResult.setAdminSignatureUrl(null);
+
+        termResult.setPrintable(false);
+        termResult.setPrintLockMessage(
+                lockMessage != null && !lockMessage.isBlank()
+                        ? lockMessage
+                        : "Result modified. Requires re-approval."
+        );
+    }
+
+    private void refreshCompletionStatus(TermResult termResult) {
+        boolean completed =
+                safeBoolean(termResult.isClassTeacherSigned()) &&
+                        safeBoolean(termResult.isAdminSigned());
+
+        termResult.setCompleted(completed);
+
+        if (!completed) {
+            termResult.setPrintable(false);
+            if (termResult.getPrintLockMessage() == null || termResult.getPrintLockMessage().isBlank()) {
+                termResult.setPrintLockMessage("Result is incomplete. Awaiting required signatures.");
+            }
+        }
+    }
+
+    public TermResult signByClassTeacher(
+            Long studentId,
+            String session,
+            Result.Term term,
+            String signatureUrl
+    ) {
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
+
+        TermResult termResult = termResultRepository
+                .findDetailedByStudentAndSessionAndTerm(student, session, term)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Term result not found for student ID " + studentId +
+                                " in session " + session + " and term " + term
+                ));
+
+        termResult.setClassTeacherSigned(true);
+        termResult.setClassTeacherSignedAt(LocalDateTime.now());
+        termResult.setClassTeacherSignatureUrl(signatureUrl);
+
+        refreshCompletionStatus(termResult);
+
+        if (!safeBoolean(termResult.isCompleted())) {
+            termResult.setPrintLockMessage("Result is incomplete. Awaiting admin approval.");
+        }
+
+        return termResultRepository.save(termResult);
+    }
+
+    public TermResult signByAdmin(
+            Long studentId,
+            String session,
+            Result.Term term,
+            String signatureUrl
+    ) {
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
+
+        TermResult termResult = termResultRepository
+                .findDetailedByStudentAndSessionAndTerm(student, session, term)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Term result not found for student ID " + studentId +
+                                " in session " + session + " and term " + term
+                ));
+
+        termResult.setAdminSigned(true);
+        termResult.setAdminSignedAt(LocalDateTime.now());
+        termResult.setAdminSignatureUrl(signatureUrl);
+
+        refreshCompletionStatus(termResult);
+
+        if (safeBoolean(termResult.isCompleted())) {
+            termResult.setPrintLockMessage("Result fully approved.");
+        } else {
+            termResult.setPrintable(false);
+            termResult.setPrintLockMessage("Result is incomplete. Awaiting class teacher signature.");
+        }
+
+        return termResultRepository.save(termResult);
     }
 }
