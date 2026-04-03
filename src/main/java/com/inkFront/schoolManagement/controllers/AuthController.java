@@ -56,7 +56,8 @@ public class AuthController {
         }
 
         if (refreshToken == null || refreshToken.isBlank()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(null);
         }
 
         RefreshTokenRequest refreshTokenRequest = new RefreshTokenRequest();
@@ -142,13 +143,27 @@ public class AuthController {
     }
 
     private ResponseEntity<LoginResponse> buildAuthResponse(LoginResponse response, HttpStatus status) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.SET_COOKIE, buildAccessCookie(response.getAccessToken()).toString());
+        headers.add(HttpHeaders.SET_COOKIE, buildRefreshCookie(response.getRefreshToken()).toString());
+
         return ResponseEntity.status(status)
-                .header(HttpHeaders.SET_COOKIE, buildRefreshCookie(response.getRefreshToken()).toString())
+                .headers(headers)
                 .body(response);
     }
 
+    private ResponseCookie buildAccessCookie(String token) {
+        return ResponseCookie.from(ACCESS_COOKIE_NAME, token == null ? "" : token)
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("Lax")
+                .path("/")
+                .maxAge(Duration.ofDays(1))
+                .build();
+    }
+
     private ResponseCookie buildRefreshCookie(String token) {
-        return ResponseCookie.from(REFRESH_COOKIE_NAME, token)
+        return ResponseCookie.from(REFRESH_COOKIE_NAME, token == null ? "" : token)
                 .httpOnly(true)
                 .secure(true)
                 .sameSite("Lax")
@@ -179,21 +194,30 @@ public class AuthController {
 
     private String extractBearerToken(HttpServletRequest request) {
         String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
+
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             return authHeader.substring(7).trim();
         }
+
         return null;
     }
 
     private String extractCookieValue(HttpServletRequest request, String cookieName) {
         Cookie[] cookies = request.getCookies();
-        if (cookies == null) return null;
+
+        if (cookies == null || cookies.length == 0) {
+            return null;
+        }
 
         for (Cookie cookie : cookies) {
             if (cookieName.equals(cookie.getName())) {
-                return cookie.getValue();
+                String value = cookie.getValue();
+                if (value != null && !value.isBlank()) {
+                    return value.trim();
+                }
             }
         }
+
         return null;
     }
 }

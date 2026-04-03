@@ -3,6 +3,7 @@ package com.inkFront.schoolManagement.security;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ import java.io.IOException;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
+    private static final String ACCESS_COOKIE_NAME = "accessToken";
 
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
@@ -56,7 +58,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         try {
-            String jwt = extractJwtFromAuthorizationHeader(request);
+            String jwt = extractJwt(request);
 
             if (jwt == null || jwt.isBlank()) {
                 filterChain.doFilter(request, response);
@@ -102,11 +104,39 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
+    private String extractJwt(HttpServletRequest request) {
+        String headerJwt = extractJwtFromAuthorizationHeader(request);
+        if (headerJwt != null && !headerJwt.isBlank()) {
+            return headerJwt;
+        }
+
+        return extractJwtFromCookie(request, ACCESS_COOKIE_NAME);
+    }
+
     private String extractJwtFromAuthorizationHeader(HttpServletRequest request) {
         String authHeader = request.getHeader("Authorization");
 
         if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
             return authHeader.substring(BEARER_PREFIX.length()).trim();
+        }
+
+        return null;
+    }
+
+    private String extractJwtFromCookie(HttpServletRequest request, String cookieName) {
+        Cookie[] cookies = request.getCookies();
+
+        if (cookies == null || cookies.length == 0) {
+            return null;
+        }
+
+        for (Cookie cookie : cookies) {
+            if (cookieName.equals(cookie.getName())) {
+                String value = cookie.getValue();
+                if (value != null && !value.isBlank()) {
+                    return value.trim();
+                }
+            }
         }
 
         return null;
