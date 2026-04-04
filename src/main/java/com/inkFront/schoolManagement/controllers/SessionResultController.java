@@ -1,8 +1,12 @@
 package com.inkFront.schoolManagement.controllers;
 
 import com.inkFront.schoolManagement.dto.PrintableStatusUpdateDTO;
+import com.inkFront.schoolManagement.dto.ResultVisibilityUpdateDTO;
 import com.inkFront.schoolManagement.dto.SessionResultResponseDTO;
+import com.inkFront.schoolManagement.model.SessionResult;
 import com.inkFront.schoolManagement.model.User;
+import com.inkFront.schoolManagement.repository.SessionResultRepository;
+import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.security.AccessControlService;
 import com.inkFront.schoolManagement.security.SecurityUtils;
 import com.inkFront.schoolManagement.service.SessionResultService;
@@ -17,13 +21,14 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/session-results")
-
 @RequiredArgsConstructor
 public class SessionResultController {
 
     private final SessionResultService sessionResultService;
     private final AccessControlService accessControlService;
     private final SecurityUtils securityUtils;
+    private final StudentRepository studentRepository;
+    private final SessionResultRepository sessionResultRepository;
 
     private User currentUser() {
         return securityUtils.getCurrentUser();
@@ -40,6 +45,32 @@ public class SessionResultController {
                         "message", message,
                         "error", e.getMessage()
                 ));
+    }
+
+    private SessionResult findSessionResult(Long studentId, String session) {
+        return sessionResultRepository.findDetailedByStudentAndSession(
+                        studentRepository.findById(studentId)
+                                .orElseThrow(() -> new RuntimeException("Student not found with id: " + studentId)),
+                        session
+                )
+                .orElseThrow(() -> new RuntimeException(
+                        "Session result not found for student ID " + studentId + " in session " + session
+                ));
+    }
+
+    private String resolvePublisherName(User user) {
+        if (user == null) {
+            return null;
+        }
+
+        String fullName = ((user.getFirstName() != null ? user.getFirstName() : "") + " " +
+                (user.getLastName() != null ? user.getLastName() : "")).replaceAll("\\s+", " ").trim();
+
+        if (!fullName.isBlank()) {
+            return fullName;
+        }
+
+        return user.getUsername();
     }
 
     @PostMapping("/calculate/student/{studentId}")
@@ -142,7 +173,9 @@ public class SessionResultController {
             @PathVariable Long studentId,
             @RequestParam String session) {
         try {
-            accessControlService.requireStudentResultAccess(currentUser(), studentId);
+            User user = currentUser();
+            SessionResult sessionResult = findSessionResult(studentId, session);
+            accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
             return ResponseEntity.ok(sessionResultService.getSessionResult(studentId, session));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
@@ -157,22 +190,8 @@ public class SessionResultController {
             @RequestParam String session) {
         try {
             User user = currentUser();
-            accessControlService.requireStudentResultAccess(user, studentId);
-
-            SessionResultResponseDTO result =
-                    sessionResultService.getSessionResult(studentId, session);
-
-            boolean isStudent = user.getRole().name().equals("STUDENT");
-            boolean isParent = user.getRole().name().equals("PARENT");
-
-            if ((isStudent || isParent) && !result.isPrintable()) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                        "message",
-                        result.getPrintLockMessage() != null
-                                ? result.getPrintLockMessage()
-                                : "Printable result is locked. Admin will unlock it."
-                ));
-            }
+            SessionResult sessionResult = findSessionResult(studentId, session);
+            accessControlService.requireStudentSessionResultPrintAccess(user, sessionResult);
 
             return ResponseEntity.ok(
                     sessionResultService.generateSessionReport(studentId, session)
@@ -184,6 +203,7 @@ public class SessionResultController {
             return serverError("Unable to generate session report", e);
         }
     }
+
     @PatchMapping("/student/{studentId}/printable")
     public ResponseEntity<?> setSessionPrintable(
             @PathVariable Long studentId,
@@ -207,6 +227,30 @@ public class SessionResultController {
         }
     }
 
+    @PatchMapping("/student/{studentId}/visibility")
+    public ResponseEntity<?> updateSessionVisibility(
+            @PathVariable Long studentId,
+            @RequestParam String session,
+            @RequestBody ResultVisibilityUpdateDTO dto) {
+        try {
+            User user = currentUser();
+            accessControlService.requireAdmin(user);
+
+            return ResponseEntity.ok(
+                    sessionResultService.updateSessionVisibility(
+                            studentId,
+                            session,
+                            dto,
+                            resolvePublisherName(user)
+                    )
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to update session result visibility", e);
+        }
+    }
+
     @GetMapping("/me")
     public ResponseEntity<?> getMySessionResult(@RequestParam String session) {
         try {
@@ -214,7 +258,14 @@ public class SessionResultController {
             if (user.getStudent() == null) {
                 return forbidden("This account is not linked to a student");
             }
-            return ResponseEntity.ok(sessionResultService.getSessionResult(user.getStudent().getId(), session));
+
+            Long studentId = user.getStudent().getId();
+            SessionResult sessionResult = findSessionResult(studentId, session);
+            accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
+
+            return ResponseEntity.ok(sessionResultService.getSessionResult(studentId, session));
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to fetch your session result", e);
         }

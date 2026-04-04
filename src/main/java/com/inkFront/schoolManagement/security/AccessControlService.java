@@ -1,10 +1,6 @@
 package com.inkFront.schoolManagement.security;
 
-import com.inkFront.schoolManagement.model.Parent;
-import com.inkFront.schoolManagement.model.SchoolClass;
-import com.inkFront.schoolManagement.model.Student;
-import com.inkFront.schoolManagement.model.TeacherSubject;
-import com.inkFront.schoolManagement.model.User;
+import com.inkFront.schoolManagement.model.*;
 import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.repository.TeacherSubjectRepository;
@@ -49,6 +45,30 @@ public class AccessControlService {
         }
     }
 
+    public void requireStudentTermResultViewAccess(User user, TermResult termResult) {
+        if (!canViewTermResult(user, termResult)) {
+            throw new AccessDeniedException(resolveTermViewMessage(user, termResult));
+        }
+    }
+
+    public void requireStudentTermResultPrintAccess(User user, TermResult termResult) {
+        if (!canPrintTermResult(user, termResult)) {
+            throw new AccessDeniedException(resolveTermPrintMessage(termResult));
+        }
+    }
+
+    public void requireStudentSessionResultViewAccess(User user, SessionResult sessionResult) {
+        if (!canViewSessionResult(user, sessionResult)) {
+            throw new AccessDeniedException(resolveSessionViewMessage(user, sessionResult));
+        }
+    }
+
+    public void requireStudentSessionResultPrintAccess(User user, SessionResult sessionResult) {
+        if (!canPrintSessionResult(user, sessionResult)) {
+            throw new AccessDeniedException(resolveSessionPrintMessage(sessionResult));
+        }
+    }
+
     public void requireStudentResultModification(User user, Long studentId) {
         if (!canModifyStudentResult(user, studentId, null)) {
             throw new AccessDeniedException("You are not allowed to modify this student's result");
@@ -62,6 +82,7 @@ public class AccessControlService {
             );
         }
     }
+
     public void requireTermAssessmentModification(User user, Long studentId) {
         if (!canModifyStudentResult(user, studentId, null)) {
             throw new AccessDeniedException(
@@ -69,6 +90,7 @@ public class AccessControlService {
             );
         }
     }
+
     public void requireAttendanceAccess(User user, Long studentId) {
         if (!canViewStudentAttendance(user, studentId)) {
             throw new AccessDeniedException("You are not allowed to view this student's attendance");
@@ -165,16 +187,85 @@ public class AccessControlService {
             return false;
         }
 
-        log.info("Student scope => classId={}, className='{}', arm='{}'",
-                getStudentClassId(student),
-                getStudentClassName(student),
-                getStudentClassArm(student));
-
         boolean formTeacher = isFormTeacherOfStudent(user, student);
 
         log.info("Result access check => formTeacher={}", formTeacher);
 
         return formTeacher;
+    }
+
+    public boolean canViewTermResult(User user, TermResult termResult) {
+        if (termResult == null || termResult.getStudent() == null) {
+            return false;
+        }
+
+        Long studentId = termResult.getStudent().getId();
+
+        if (isAdmin(user)) {
+            return true;
+        }
+
+        if (isTeacher(user)) {
+            return isFormTeacherOfStudent(user, studentId)
+                    || canAccessClass(user, termResult.getStudent().getSchoolClass());
+        }
+
+        if (isOwnerStudent(user, studentId) || isParentOfStudent(user, studentId)) {
+            return termResult.isVisibleToStudentOrParent();
+        }
+
+        return false;
+    }
+
+    public boolean canPrintTermResult(User user, TermResult termResult) {
+        if (!canViewTermResult(user, termResult)) {
+            return false;
+        }
+
+        if (isAdmin(user) || isTeacher(user)) {
+            return true;
+        }
+
+        return termResult != null
+                && termResult.getVisibilityStatus() == TermResult.VisibilityStatus.PRINTABLE
+                && termResult.isPrintable();
+    }
+
+    public boolean canViewSessionResult(User user, SessionResult sessionResult) {
+        if (sessionResult == null || sessionResult.getStudent() == null) {
+            return false;
+        }
+
+        Long studentId = sessionResult.getStudent().getId();
+
+        if (isAdmin(user)) {
+            return true;
+        }
+
+        if (isTeacher(user)) {
+            return isFormTeacherOfStudent(user, studentId)
+                    || canAccessClass(user, sessionResult.getStudent().getSchoolClass());
+        }
+
+        if (isOwnerStudent(user, studentId) || isParentOfStudent(user, studentId)) {
+            return sessionResult.isVisibleToStudentOrParent();
+        }
+
+        return false;
+    }
+
+    public boolean canPrintSessionResult(User user, SessionResult sessionResult) {
+        if (!canViewSessionResult(user, sessionResult)) {
+            return false;
+        }
+
+        if (isAdmin(user) || isTeacher(user)) {
+            return true;
+        }
+
+        return sessionResult != null
+                && sessionResult.getResultVisibilityStatus() == ResultVisibilityStatus.PRINTABLE
+                && sessionResult.isPrintable();
     }
 
     public boolean canModifyStudentResult(User user, Long studentId) {
@@ -275,38 +366,22 @@ public class AccessControlService {
 
     private boolean isFormTeacherOfStudent(User user, Student student) {
         if (!isTeacher(user) || user.getTeacher() == null || student == null) {
-            log.warn("Form teacher check failed: user is not teacher or teacher profile is null");
             return false;
         }
 
         SchoolClass schoolClass = student.getSchoolClass();
         if (schoolClass == null || schoolClass.getId() == null) {
-            log.warn("Form teacher check failed: student has no schoolClass");
             return false;
         }
 
         SchoolClass resolvedClass = classRepository.findByIdWithTeacher(schoolClass.getId())
                 .orElse(null);
 
-        if (resolvedClass == null) {
-            log.warn("Form teacher check failed: no SchoolClass found for classId={}", schoolClass.getId());
+        if (resolvedClass == null || resolvedClass.getClassTeacher() == null) {
             return false;
         }
 
-        if (resolvedClass.getClassTeacher() == null) {
-            log.warn("Form teacher check failed: class has no class teacher");
-            return false;
-        }
-
-        boolean match = Objects.equals(resolvedClass.getClassTeacher().getId(), user.getTeacher().getId());
-
-        log.info("Form teacher check => classId={}, classTeacherId={}, currentTeacherId={}, match={}",
-                resolvedClass.getId(),
-                resolvedClass.getClassTeacher().getId(),
-                user.getTeacher().getId(),
-                match);
-
-        return match;
+        return Objects.equals(resolvedClass.getClassTeacher().getId(), user.getTeacher().getId());
     }
 
     private boolean isTeacherAssignedToStudentSubject(User user, Student student, Long subjectId) {
@@ -315,7 +390,6 @@ public class AccessControlService {
         }
 
         if (subjectId == null) {
-            log.warn("Subject assignment check denied: subjectId is null");
             return false;
         }
 
@@ -329,15 +403,6 @@ public class AccessControlService {
         List<TeacherSubject> assignments =
                 teacherSubjectRepository.findByTeacher_IdOrderByClassNameAscClassArmAsc(user.getTeacher().getId());
 
-        log.info("Checking teacher subject assignments => teacherId={}, subjectId={}, classId={}, studentClass={}, studentArm={}, assignmentsCount={}",
-                user.getTeacher().getId(),
-                subjectId,
-                getStudentClassId(student),
-                studentClassName,
-                studentClassArm,
-                assignments.size()
-        );
-
         for (TeacherSubject assignment : assignments) {
             Long assignedSubjectId = assignment.getSubject() != null ? assignment.getSubject().getId() : null;
 
@@ -346,14 +411,6 @@ public class AccessControlService {
                             && normalizeCompact(studentClassArm).equals(normalizeCompact(assignment.getClassArm()));
 
             boolean subjectMatch = assignedSubjectId != null && Objects.equals(assignedSubjectId, subjectId);
-
-            log.info("Assignment candidate => className={}, classArm={}, assignedSubjectId={}, sameScope={}, subjectMatch={}",
-                    assignment.getClassName(),
-                    assignment.getClassArm(),
-                    assignedSubjectId,
-                    sameScope,
-                    subjectMatch
-            );
 
             if (sameScope && subjectMatch) {
                 return true;
@@ -421,33 +478,56 @@ public class AccessControlService {
     }
 
     private Long getStudentClassId(Student student) {
-        return student != null && student.getSchoolClass() != null
-                ? student.getSchoolClass().getId()
-                : null;
+        return student != null && student.getSchoolClass() != null ? student.getSchoolClass().getId() : null;
     }
 
     private String getStudentClassName(Student student) {
-        return student != null && student.getSchoolClass() != null
-                ? student.getSchoolClass().getClassName()
-                : null;
+        return student != null ? student.getStudentClass() : null;
     }
 
     private String getStudentClassArm(Student student) {
-        return student != null && student.getSchoolClass() != null
-                ? student.getSchoolClass().getArm()
-                : null;
+        return student != null ? student.getClassArm() : null;
     }
 
     private String normalizeCompact(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.trim()
-                .replaceAll("\\s+", "")
-                .toUpperCase();
+        return value == null ? "" : value.trim().replaceAll("\\s+", "").toLowerCase();
     }
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private String resolveTermViewMessage(User user, TermResult termResult) {
+        if (isOwnerStudent(user, termResult.getStudent().getId()) || isParentOfStudent(user, termResult.getStudent().getId())) {
+            return hasText(termResult.getVisibilityMessage())
+                    ? termResult.getVisibilityMessage()
+                    : "Result is not yet available for student or parent viewing.";
+        }
+        return "You are not allowed to view this student's result";
+    }
+
+    private String resolveTermPrintMessage(TermResult termResult) {
+        return hasText(termResult.getPrintLockMessage())
+                ? termResult.getPrintLockMessage()
+                : "Printable result is locked. The admin will unlock it when the result is ready.";
+    }
+
+    private String resolveSessionViewMessage(User user, SessionResult sessionResult) {
+        if (isOwnerStudent(user, sessionResult.getStudent().getId()) || isParentOfStudent(user, sessionResult.getStudent().getId())) {
+            return hasText(sessionResult.getVisibilityMessage())
+                    ? sessionResult.getVisibilityMessage()
+                    : "Session result is not yet available for student or parent viewing.";
+        }
+        return "You are not allowed to view this student's session result";
+    }
+
+    private String resolveSessionPrintMessage(SessionResult sessionResult) {
+        return hasText(sessionResult.getPrintLockMessage())
+                ? sessionResult.getPrintLockMessage()
+                : "Printable result is locked. The admin will unlock it when the result is ready.";
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 }

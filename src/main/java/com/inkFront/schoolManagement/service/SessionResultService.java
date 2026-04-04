@@ -1,5 +1,6 @@
 package com.inkFront.schoolManagement.service;
 
+import com.inkFront.schoolManagement.dto.ResultVisibilityUpdateDTO;
 import com.inkFront.schoolManagement.dto.SessionResultResponseDTO;
 
 import java.util.List;
@@ -16,6 +17,13 @@ public interface SessionResultService {
             String session,
             boolean printable,
             String printLockMessage
+    );
+
+    SessionResultResponseDTO updateSessionVisibility(
+            Long studentId,
+            String session,
+            ResultVisibilityUpdateDTO request,
+            String publishedByName
     );
 
     SessionResultResponseDTO getSessionResult(Long studentId, String session);
@@ -37,5 +45,6 @@ public interface SessionResultService {
     Map<String, Object> promoteStudents(String session);
 
     List<Map<String, Object>> getGraduationList(String session);
+
     List<SessionResultResponseDTO> calculateClassArmSessionResults(String className, String arm, String session);
 }

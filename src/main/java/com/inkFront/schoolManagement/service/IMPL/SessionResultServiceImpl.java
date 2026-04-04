@@ -1,9 +1,11 @@
 package com.inkFront.schoolManagement.service.IMPL;
 
+import com.inkFront.schoolManagement.dto.ResultVisibilityUpdateDTO;
 import com.inkFront.schoolManagement.dto.SessionResultResponseDTO;
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
 import com.inkFront.schoolManagement.model.Attendance;
 import com.inkFront.schoolManagement.model.Result;
+import com.inkFront.schoolManagement.model.ResultVisibilityStatus;
 import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.model.SessionResult;
 import com.inkFront.schoolManagement.model.Student;
@@ -21,7 +23,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -100,6 +101,7 @@ public class SessionResultServiceImpl implements SessionResultService {
         populateSubjectPerformance(sessionResult, student, session);
         populateAnnualSummary(sessionResult, firstTerm, secondTerm, thirdTerm);
         applyPromotionDecision(sessionResult);
+        syncVisibilityFromTerms(sessionResult, firstTerm, secondTerm, thirdTerm);
 
         SessionResult savedResult = sessionResultRepository.save(sessionResult);
 
@@ -110,6 +112,7 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         return SessionResultResponseDTO.fromEntity(fresh);
     }
+
     @Override
     public SessionResultResponseDTO setSessionResultPrintableStatus(
             Long studentId,
@@ -126,16 +129,61 @@ public class SessionResultServiceImpl implements SessionResultService {
                         "Session result not found for student ID " + studentId + " in session " + session
                 ));
 
-        sessionResult.setPrintable(printable);
-        sessionResult.setPrintLockMessage(
-                printLockMessage != null && !printLockMessage.trim().isEmpty()
-                        ? printLockMessage.trim()
-                        : "Printable result is locked. The admin will unlock it when the result is ready."
-        );
+        if (printable) {
+            sessionResult.markPrintable(
+                    printLockMessage,
+                    sessionResult.getPublishedByName()
+            );
+        } else {
+            if (sessionResult.getResultVisibilityStatus() == ResultVisibilityStatus.PRINTABLE) {
+                sessionResult.markPublished(
+                        sessionResult.getVisibilityMessage(),
+                        sessionResult.getPublishedByName()
+                );
+            }
+            sessionResult.setPrintable(false);
+            sessionResult.setPrintLockMessage(
+                    hasText(printLockMessage)
+                            ? printLockMessage.trim()
+                            : "Printable result is locked. The admin will unlock it when the result is ready."
+            );
+        }
 
         SessionResult saved = sessionResultRepository.save(sessionResult);
         return SessionResultResponseDTO.fromEntity(saved);
     }
+
+    @Override
+    public SessionResultResponseDTO updateSessionVisibility(
+            Long studentId,
+            String session,
+            ResultVisibilityUpdateDTO request,
+            String publishedByName
+    ) {
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
+
+        SessionResult sessionResult = sessionResultRepository
+                .findDetailedByStudentAndSession(student, session)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Session result not found for student ID " + studentId + " in session " + session
+                ));
+
+        if (request == null || request.getVisibilityStatus() == null) {
+            throw new RuntimeException("Visibility status is required");
+        }
+
+        switch (request.getVisibilityStatus()) {
+            case HIDDEN -> sessionResult.markHidden(request.getVisibilityMessage());
+            case STAFF_ONLY -> sessionResult.markStaffOnly(request.getVisibilityMessage());
+            case PUBLISHED -> sessionResult.markPublished(request.getVisibilityMessage(), publishedByName);
+            case PRINTABLE -> sessionResult.markPrintable(request.getVisibilityMessage(), publishedByName);
+        }
+
+        SessionResult saved = sessionResultRepository.save(sessionResult);
+        return SessionResultResponseDTO.fromEntity(saved);
+    }
+
     @Override
     public List<SessionResultResponseDTO> calculateAllSessionResults(String session) {
         log.info("Calculating session results for all students in session: {}", session);
@@ -373,6 +421,7 @@ public class SessionResultServiceImpl implements SessionResultService {
             first.put("average", firstTerm.getAverage());
             first.put("position", firstTerm.getPositionInClass());
             first.put("attendance", firstTerm.getAttendancePercentage());
+            first.put("visibilityStatus", firstTerm.getVisibilityStatus() != null ? firstTerm.getVisibilityStatus().name() : null);
             termSummaries.put("firstTerm", first);
         }
 
@@ -382,6 +431,7 @@ public class SessionResultServiceImpl implements SessionResultService {
             second.put("average", secondTerm.getAverage());
             second.put("position", secondTerm.getPositionInClass());
             second.put("attendance", secondTerm.getAttendancePercentage());
+            second.put("visibilityStatus", secondTerm.getVisibilityStatus() != null ? secondTerm.getVisibilityStatus().name() : null);
             termSummaries.put("secondTerm", second);
         }
 
@@ -391,6 +441,7 @@ public class SessionResultServiceImpl implements SessionResultService {
             third.put("average", thirdTerm.getAverage());
             third.put("position", thirdTerm.getPositionInClass());
             third.put("attendance", thirdTerm.getAttendancePercentage());
+            third.put("visibilityStatus", thirdTerm.getVisibilityStatus() != null ? thirdTerm.getVisibilityStatus().name() : null);
             termSummaries.put("thirdTerm", third);
         }
 
@@ -462,6 +513,9 @@ public class SessionResultServiceImpl implements SessionResultService {
         annualSummary.put("promoted", sessionResult.isPromoted());
         annualSummary.put("remark", sessionResult.getPromotionRemark());
         annualSummary.put("subjectAverages", sessionResult.getSubjectAverages());
+        annualSummary.put("resultVisibilityStatus", sessionResult.getResultVisibilityStatus() != null ? sessionResult.getResultVisibilityStatus().name() : null);
+        annualSummary.put("visibilityMessage", sessionResult.getVisibilityMessage());
+        annualSummary.put("printable", sessionResult.isPrintable());
         report.put("annualSummary", annualSummary);
 
         Map<String, Object> attendanceSummary = new HashMap<>();
@@ -478,6 +532,12 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         report.put("subjectAverages", sessionResult.getSubjectAverages());
         report.put("subjectAnnualTotals", sessionResult.getSubjectAnnualTotals());
+        report.put("resultVisibilityStatus", sessionResult.getResultVisibilityStatus() != null ? sessionResult.getResultVisibilityStatus().name() : null);
+        report.put("visibilityMessage", sessionResult.getVisibilityMessage());
+        report.put("printable", sessionResult.isPrintable());
+        report.put("printLockMessage", sessionResult.getPrintLockMessage());
+        report.put("publishedAt", sessionResult.getPublishedAt());
+        report.put("publishedByName", sessionResult.getPublishedByName());
 
         return report;
     }
@@ -774,183 +834,225 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         Map<String, Double> subjectAverages = new HashMap<>();
         for (Map.Entry<String, Double> entry : subjectAnnualTotals.entrySet()) {
-            String subject = entry.getKey();
-            int count = subjectCount.getOrDefault(subject, 0);
-            subjectAverages.put(subject, count > 0 ? (entry.getValue() / count) : 0.0);
+            String subjectName = entry.getKey();
+            int count = subjectCount.getOrDefault(subjectName, 1);
+            subjectAverages.put(subjectName, entry.getValue() / count);
         }
 
-        sessionResult.setSubjectAnnualTotals(subjectAnnualTotals);
-        sessionResult.setSubjectAverages(subjectAverages);
         sessionResult.setFirstTermSubjectScores(firstTermSubjectScores);
         sessionResult.setSecondTermSubjectScores(secondTermSubjectScores);
         sessionResult.setThirdTermSubjectScores(thirdTermSubjectScores);
+        sessionResult.setSubjectAnnualTotals(subjectAnnualTotals);
+        sessionResult.setSubjectAverages(subjectAverages);
     }
 
-    private void populateAnnualSummary(SessionResult sessionResult,
-                                       TermResult firstTerm,
-                                       TermResult secondTerm,
-                                       TermResult thirdTerm) {
+    private void populateAnnualSummary(
+            SessionResult sessionResult,
+            TermResult firstTerm,
+            TermResult secondTerm,
+            TermResult thirdTerm
+    ) {
+        double firstTotal = firstTerm != null ? safeDouble(firstTerm.getTotalScore()) : 0.0;
+        double secondTotal = secondTerm != null ? safeDouble(secondTerm.getTotalScore()) : 0.0;
+        double thirdTotal = thirdTerm != null ? safeDouble(thirdTerm.getTotalScore()) : 0.0;
 
         double firstAverage = firstTerm != null ? safeDouble(firstTerm.getAverage()) : 0.0;
         double secondAverage = secondTerm != null ? safeDouble(secondTerm.getAverage()) : 0.0;
         double thirdAverage = thirdTerm != null ? safeDouble(thirdTerm.getAverage()) : 0.0;
 
-        double firstTotal = firstTerm != null ? safeDouble(firstTerm.getTotalScore()) : 0.0;
-        double secondTotal = secondTerm != null ? safeDouble(secondTerm.getTotalScore()) : 0.0;
-        double thirdTotal = thirdTerm != null ? safeDouble(thirdTerm.getTotalScore()) : 0.0;
-
         sessionResult.setAnnualTotal(firstTotal + secondTotal + thirdTotal);
-        sessionResult.setAnnualAverage((firstAverage + secondAverage + thirdAverage) / 3.0);
+
+        int divisor = 0;
+        if (firstTerm != null) divisor++;
+        if (secondTerm != null) divisor++;
+        if (thirdTerm != null) divisor++;
+
+        sessionResult.setAnnualAverage(divisor == 0 ? 0.0 : (firstAverage + secondAverage + thirdAverage) / divisor);
     }
 
     private void applyPromotionDecision(SessionResult sessionResult) {
-        boolean promoted = sessionResult.getAnnualAverage() >= 40.0
-                && sessionResult.getAttendancePercentage() >= 40.0;
-
+        boolean promoted = safeDouble(sessionResult.getAnnualAverage()) >= 40.0;
         sessionResult.setPromoted(promoted);
-
-        if (promoted) {
-            sessionResult.setPromotionRemark("Promoted");
-        } else if (sessionResult.getAnnualAverage() < 40.0) {
-            sessionResult.setPromotionRemark("Retained due to low academic performance");
-        } else {
-            sessionResult.setPromotionRemark("Retained due to poor attendance");
-        }
+        sessionResult.setPromotionRemark(promoted ? "Promoted to next class" : "Not promoted");
     }
 
     private void calculateAnnualPositions(SessionResult sessionResult) {
-        String className = sessionResult.getStudent().getStudentClass();
-        String arm = sessionResult.getStudent().getClassArm();
+        Student student = sessionResult.getStudent();
         String session = sessionResult.getSession();
 
-        List<SessionResult> classResults = sessionResultRepository
-                .findDetailedByClassAndSessionOrderByAnnualAverageDesc(className, session);
-
-        for (int i = 0; i < classResults.size(); i++) {
-            SessionResult sr = classResults.get(i);
-            sr.setAnnualPositionInClass(i + 1);
-            if (sr.getId().equals(sessionResult.getId())) {
-                sessionResult.setAnnualPositionInClass(i + 1);
-            }
+        if (student == null || student.getSchoolClass() == null) {
+            sessionResult.setAnnualPositionInClass(1);
+            sessionResult.setAnnualPositionInArm(1);
+            sessionResult.setAnnualPositionInSchool(1);
+            sessionResultRepository.save(sessionResult);
+            return;
         }
 
-        if (arm != null && !arm.isEmpty()) {
-            List<SessionResult> armResults = sessionResultRepository
-                    .findDetailedByClassAndArmAndSessionOrderByAnnualAverageDesc(className, arm, session);
+        Long classId = student.getSchoolClass().getId();
 
-            for (int i = 0; i < armResults.size(); i++) {
-                SessionResult sr = armResults.get(i);
-                sr.setAnnualPositionInArm(i + 1);
-                if (sr.getId().equals(sessionResult.getId())) {
-                    sessionResult.setAnnualPositionInArm(i + 1);
+        try {
+            List<SessionResult> classResults = sessionResultRepository
+                    .findDetailedByStudent_SchoolClass_IdAndSessionOrderByAnnualAverageDesc(classId, session);
+
+            for (int i = 0; i < classResults.size(); i++) {
+                SessionResult sr = classResults.get(i);
+                int position = i + 1;
+                sr.setAnnualPositionInClass(position);
+                sr.setAnnualPositionInArm(position);
+
+                if (sr.getId() != null && sr.getId().equals(sessionResult.getId())) {
+                    sessionResult.setAnnualPositionInClass(position);
+                    sessionResult.setAnnualPositionInArm(position);
                 }
             }
 
-            sessionResultRepository.saveAll(armResults);
-        }
+            List<SessionResult> schoolResults = sessionResultRepository
+                    .findDetailedBySessionOrderByAnnualAverageDesc(session);
 
-        List<SessionResult> schoolResults = sessionResultRepository
-                .findDetailedBySessionOrderByAnnualAverageDesc(session);
+            for (int i = 0; i < schoolResults.size(); i++) {
+                SessionResult sr = schoolResults.get(i);
+                int position = i + 1;
+                sr.setAnnualPositionInSchool(position);
 
-        for (int i = 0; i < schoolResults.size(); i++) {
-            SessionResult sr = schoolResults.get(i);
-            sr.setAnnualPositionInSchool(i + 1);
-            if (sr.getId().equals(sessionResult.getId())) {
-                sessionResult.setAnnualPositionInSchool(i + 1);
+                if (sr.getStudent() != null && sr.getStudent().getId().equals(student.getId())) {
+                    sessionResult.setAnnualPositionInSchool(position);
+                }
             }
-        }
 
-        sessionResultRepository.saveAll(classResults);
-        sessionResultRepository.saveAll(schoolResults);
-        sessionResultRepository.save(sessionResult);
+            sessionResultRepository.saveAll(classResults);
+            sessionResultRepository.saveAll(schoolResults);
+            sessionResultRepository.save(sessionResult);
+
+        } catch (Exception e) {
+            log.error("Error calculating annual positions: {}", e.getMessage(), e);
+            sessionResult.setAnnualPositionInClass(1);
+            sessionResult.setAnnualPositionInArm(1);
+            sessionResult.setAnnualPositionInSchool(1);
+            sessionResultRepository.save(sessionResult);
+        }
     }
 
     private void calculateAllPositions(String session) {
         List<SessionResult> schoolResults = sessionResultRepository.findDetailedBySessionOrderByAnnualAverageDesc(session);
 
         for (int i = 0; i < schoolResults.size(); i++) {
-            schoolResults.get(i).setAnnualPositionInSchool(i + 1);
-        }
-
-        Map<String, List<SessionResult>> byClass = schoolResults.stream()
-                .collect(Collectors.groupingBy(sr -> sr.getStudent().getStudentClass()));
-
-        for (Map.Entry<String, List<SessionResult>> entry : byClass.entrySet()) {
-            List<SessionResult> classResults = entry.getValue();
-            classResults.sort((a, b) -> Double.compare(b.getAnnualAverage(), a.getAnnualAverage()));
-
-            for (int i = 0; i < classResults.size(); i++) {
-                classResults.get(i).setAnnualPositionInClass(i + 1);
-            }
-        }
-
-        Map<String, List<SessionResult>> byArm = schoolResults.stream()
-                .filter(sr -> sr.getStudent().getClassArm() != null)
-                .collect(Collectors.groupingBy(
-                        sr -> sr.getStudent().getStudentClass() + "_" + sr.getStudent().getClassArm()
-                ));
-
-        for (Map.Entry<String, List<SessionResult>> entry : byArm.entrySet()) {
-            List<SessionResult> armResults = entry.getValue();
-            armResults.sort((a, b) -> Double.compare(b.getAnnualAverage(), a.getAnnualAverage()));
-
-            for (int i = 0; i < armResults.size(); i++) {
-                armResults.get(i).setAnnualPositionInArm(i + 1);
-            }
+            SessionResult sr = schoolResults.get(i);
+            sr.setAnnualPositionInSchool(i + 1);
         }
 
         sessionResultRepository.saveAll(schoolResults);
-    }
 
-    private String getGradeFromAverage(double average) {
-        if (average >= 70) return "A";
-        if (average >= 60) return "B";
-        if (average >= 50) return "C";
-        if (average >= 45) return "D";
-        if (average >= 40) return "E";
-        return "F";
-    }
-
-    private String getNextClass(String currentClass) {
-        if (currentClass == null) {
-            return null;
+        Map<Long, List<SessionResult>> byClassId = new HashMap<>();
+        for (SessionResult sr : schoolResults) {
+            if (sr.getStudent() != null && sr.getStudent().getSchoolClass() != null) {
+                Long classId = sr.getStudent().getSchoolClass().getId();
+                byClassId.computeIfAbsent(classId, ignored -> new ArrayList<>()).add(sr);
+            }
         }
 
-        String normalized = currentClass.trim().replaceAll("\\s+", "").toLowerCase();
-
-        Map<String, String> progression = new HashMap<>();
-        progression.put("nursery1", "nursery2");
-        progression.put("nursery2", "kindergarten1");
-        progression.put("kindergarten1", "kindergarten2");
-        progression.put("kindergarten2", "primary1");
-        progression.put("primary1", "primary2");
-        progression.put("primary2", "primary3");
-        progression.put("primary3", "primary4");
-        progression.put("primary4", "primary5");
-        progression.put("primary5", "primary6");
-        progression.put("primary6", "jss1");
-        progression.put("jss1", "jss2");
-        progression.put("jss2", "jss3");
-        progression.put("jss3", "ss1");
-        progression.put("sss1", "ss2");
-        progression.put("ss1", "ss2");
-        progression.put("sss2", "ss3");
-        progression.put("ss2", "ss3");
-        progression.put("sss3", "GRADUATED");
-        progression.put("ss3", "GRADUATED");
-
-        return progression.getOrDefault(normalized, currentClass);
+        for (List<SessionResult> classResults : byClassId.values()) {
+            classResults.sort(Comparator.comparingDouble(SessionResult::getAnnualAverage).reversed());
+            for (int i = 0; i < classResults.size(); i++) {
+                SessionResult sr = classResults.get(i);
+                sr.setAnnualPositionInClass(i + 1);
+                sr.setAnnualPositionInArm(i + 1);
+            }
+            sessionResultRepository.saveAll(classResults);
+        }
     }
 
-    private boolean isSeniorFinalClass(String currentClass) {
-        if (currentClass == null) {
-            return false;
+    private void syncVisibilityFromTerms(
+            SessionResult sessionResult,
+            TermResult firstTerm,
+            TermResult secondTerm,
+            TermResult thirdTerm
+    ) {
+        List<TermResult> terms = new ArrayList<>();
+        if (firstTerm != null) terms.add(firstTerm);
+        if (secondTerm != null) terms.add(secondTerm);
+        if (thirdTerm != null) terms.add(thirdTerm);
+
+        if (terms.isEmpty()) {
+            sessionResult.resetPublicationState("Session result is awaiting term result preparation.");
+            return;
         }
-        String normalized = currentClass.trim().replaceAll("\\s+", "").toLowerCase();
-        return normalized.equals("sss3") || normalized.equals("ss3");
+
+        boolean allPrintable = terms.stream()
+                .allMatch(term -> term.getVisibilityStatus() == TermResult.VisibilityStatus.PRINTABLE && term.isPrintable());
+
+        boolean anyFamilyVisible = terms.stream()
+                .anyMatch(term -> term.getVisibilityStatus() == TermResult.VisibilityStatus.PUBLISHED
+                        || term.getVisibilityStatus() == TermResult.VisibilityStatus.PRINTABLE);
+
+        if (allPrintable) {
+            String publisher = terms.stream()
+                    .map(TermResult::getPublishedByName)
+                    .filter(this::hasText)
+                    .findFirst()
+                    .orElse(null);
+            sessionResult.markPrintable(
+                    "Session result is printable because all term results are printable.",
+                    publisher
+            );
+            return;
+        }
+
+        if (anyFamilyVisible) {
+            String publisher = terms.stream()
+                    .map(TermResult::getPublishedByName)
+                    .filter(this::hasText)
+                    .findFirst()
+                    .orElse(null);
+            sessionResult.markPublished(
+                    "Session result is viewable because one or more term results have been released.",
+                    publisher
+            );
+            return;
+        }
+
+        sessionResult.markStaffOnly("Session result is available to staff only until admin releases it.");
     }
 
     private double safeDouble(Number value) {
         return value == null ? 0.0 : value.doubleValue();
+    }
+
+    private String getGradeFromAverage(Double average) {
+        double value = safeDouble(average);
+        if (value >= 70) return "A";
+        if (value >= 60) return "B";
+        if (value >= 50) return "C";
+        if (value >= 45) return "D";
+        if (value >= 40) return "E";
+        return "F";
+    }
+
+    private String getNextClass(String currentClass) {
+        if (currentClass == null) return null;
+
+        return switch (currentClass.trim().toUpperCase()) {
+            case "NURSERY" -> "Primary 1";
+            case "PRIMARY 1" -> "Primary 2";
+            case "PRIMARY 2" -> "Primary 3";
+            case "PRIMARY 3" -> "Primary 4";
+            case "PRIMARY 4" -> "Primary 5";
+            case "PRIMARY 5" -> "Primary 6";
+            case "PRIMARY 6" -> "JSS 1";
+            case "JSS 1" -> "JSS 2";
+            case "JSS 2" -> "JSS 3";
+            case "JSS 3" -> "SSS 1";
+            case "SSS 1" -> "SSS 2";
+            case "SSS 2" -> "SSS 3";
+            case "SSS 3" -> "GRADUATED";
+            default -> currentClass;
+        };
+    }
+
+    private boolean isSeniorFinalClass(String studentClass) {
+        return studentClass != null && "SSS 3".equalsIgnoreCase(studentClass.trim());
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 }

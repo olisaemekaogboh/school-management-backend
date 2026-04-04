@@ -3,9 +3,16 @@ package com.inkFront.schoolManagement.controllers;
 import com.inkFront.schoolManagement.dto.PrintableStatusUpdateDTO;
 import com.inkFront.schoolManagement.dto.ResultRequestDTO;
 import com.inkFront.schoolManagement.dto.ResultResponseDTO;
+import com.inkFront.schoolManagement.dto.ResultVisibilityUpdateDTO;
 import com.inkFront.schoolManagement.dto.TermAssessmentUpdateDTO;
-import com.inkFront.schoolManagement.model.*;
+import com.inkFront.schoolManagement.model.Result;
+import com.inkFront.schoolManagement.model.SchoolClass;
+import com.inkFront.schoolManagement.model.SessionResult;
+import com.inkFront.schoolManagement.model.TermResult;
+import com.inkFront.schoolManagement.model.User;
 import com.inkFront.schoolManagement.repository.ClassRepository;
+import com.inkFront.schoolManagement.repository.SessionResultRepository;
+import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.repository.TermResultRepository;
 import com.inkFront.schoolManagement.security.AccessControlService;
 import com.inkFront.schoolManagement.security.SecurityUtils;
@@ -26,7 +33,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/results")
-
 @RequiredArgsConstructor
 public class ResultController {
 
@@ -35,6 +41,8 @@ public class ResultController {
     private final ResultService resultService;
     private final SessionResultService sessionResultService;
     private final TermResultRepository termResultRepository;
+    private final SessionResultRepository sessionResultRepository;
+    private final StudentRepository studentRepository;
     private final ClassRepository classRepository;
     private final AccessControlService accessControlService;
     private final SecurityUtils securityUtils;
@@ -62,21 +70,46 @@ public class ResultController {
                 .orElseThrow(() -> new RuntimeException("Class not found"));
     }
 
+    private String resolvePublisherName(User user) {
+        if (user == null) {
+            return null;
+        }
+
+        String fullName = ((user.getFirstName() != null ? user.getFirstName() : "") + " " +
+                (user.getLastName() != null ? user.getLastName() : "")).replaceAll("\\s+", " ").trim();
+
+        if (!fullName.isBlank()) {
+            return fullName;
+        }
+
+        return user.getUsername();
+    }
+
+    private TermResult findTermResult(Long studentId, String session, Result.Term term) {
+        return termResultRepository.findByStudentIdAndSessionAndTerm(studentId, session, term)
+                .orElseThrow(() -> new RuntimeException(
+                        "Term result not found for student ID " + studentId +
+                                " in session " + session + " and term " + term
+                ));
+    }
+
+    private SessionResult findSessionResult(Long studentId, String session) {
+        return sessionResultRepository.findDetailedByStudentAndSession(
+                        studentRepository.findById(studentId)
+                                .orElseThrow(() -> new RuntimeException("Student not found with id: " + studentId)),
+                        session
+                )
+                .orElseThrow(() -> new RuntimeException(
+                        "Session result not found for student ID " + studentId + " in session " + session
+                ));
+    }
+
     @PostMapping("/student/{studentId}")
     public ResponseEntity<?> addOrUpdateResult(
             @PathVariable Long studentId,
             @Valid @RequestBody ResultRequestDTO resultRequest) {
         try {
             User user = currentUser();
-
-            log.info("POST /api/results/student/{} => userId={}, role={}, requestStudentId={}, subjectId={}, session={}, term={}",
-                    studentId,
-                    user != null ? user.getId() : null,
-                    user != null ? user.getRole() : null,
-                    resultRequest.getStudentId(),
-                    resultRequest.getSubjectId(),
-                    resultRequest.getSession(),
-                    resultRequest.getTerm());
 
             accessControlService.requireStudentResultModification(
                     user,
@@ -86,18 +119,12 @@ public class ResultController {
 
             resultRequest.setStudentId(studentId);
 
-            Result result = resultService.addOrUpdateResult(resultRequest);
-
-            log.info("Result saved successfully => studentId={}, subjectId={}, resultId={}",
-                    studentId, resultRequest.getSubjectId(), result.getId());
-
-            return ResponseEntity.ok(ResultResponseDTO.fromResult(result));
+            return ResponseEntity.ok(
+                    ResultResponseDTO.fromResult(resultService.addOrUpdateResult(resultRequest))
+            );
         } catch (AccessDeniedException e) {
-            log.warn("Result save denied => studentId={}, subjectId={}, reason={}",
-                    studentId, resultRequest.getSubjectId(), e.getMessage());
             return forbidden(e.getMessage());
         } catch (Exception e) {
-            log.error("Result save failed => studentId={}, subjectId={}", studentId, resultRequest.getSubjectId(), e);
             return serverError("Unable to add or update result", e);
         }
     }
@@ -123,6 +150,7 @@ public class ResultController {
             return serverError("Unable to fetch student results", e);
         }
     }
+
     @GetMapping("/student/{studentId}/term")
     public ResponseEntity<?> getTermResult(
             @PathVariable Long studentId,
@@ -130,36 +158,18 @@ public class ResultController {
             @RequestParam Result.Term term) {
         try {
             User user = currentUser();
-            accessControlService.requireStudentResultAccess(user, studentId);
+            TermResult termResult = findTermResult(studentId, session, term);
 
-            Map<String, Object> resultSheet = resultService.generateResultSheet(studentId, session, term);
+            accessControlService.requireStudentTermResultViewAccess(user, termResult);
 
-            boolean isStudent = user != null && user.getRole() != null
-                    && "STUDENT".equalsIgnoreCase(user.getRole().name());
-            boolean isParent = user != null && user.getRole() != null
-                    && "PARENT".equalsIgnoreCase(user.getRole().name());
-
-            if (isStudent || isParent) {
-                Object printableObj = resultSheet.get("printable");
-                boolean printable = printableObj instanceof Boolean && (Boolean) printableObj;
-
-                if (!printable) {
-                    String message = resultSheet.get("printLockMessage") != null
-                            ? String.valueOf(resultSheet.get("printLockMessage"))
-                            : "Printable result is locked. The admin will unlock it when the result is ready.";
-
-                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                            .body(Map.of("message", message));
-                }
-            }
-
-            return ResponseEntity.ok(resultSheet);
+            return ResponseEntity.ok(resultService.generateResultSheet(studentId, session, term));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to fetch term result", e);
         }
     }
+
     @PatchMapping("/student/{studentId}/term/printable")
     public ResponseEntity<?> setTermPrintable(
             @PathVariable Long studentId,
@@ -187,14 +197,45 @@ public class ResultController {
         }
     }
 
+    @PatchMapping("/student/{studentId}/term/visibility")
+    public ResponseEntity<?> updateTermVisibility(
+            @PathVariable Long studentId,
+            @RequestParam String session,
+            @RequestParam Result.Term term,
+            @Valid @RequestBody ResultVisibilityUpdateDTO dto) {
+        try {
+            User user = currentUser();
+            accessControlService.requireAdmin(user);
+
+            resultService.updateTermVisibility(
+                    studentId,
+                    session,
+                    term,
+                    dto,
+                    resolvePublisherName(user)
+            );
+
+            return ResponseEntity.ok(
+                    resultService.generateResultSheet(studentId, session, term)
+            );
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (Exception e) {
+            return serverError("Unable to update term result visibility", e);
+        }
+    }
+
     @GetMapping("/student/{studentId}/annual")
     public ResponseEntity<?> getAnnualResult(
             @PathVariable Long studentId,
             @RequestParam String session) {
         try {
             User user = currentUser();
-            accessControlService.requireStudentResultAccess(user, studentId);
-            return ResponseEntity.ok(sessionResultService.calculateSessionResult(studentId, session));
+            SessionResult sessionResult = findSessionResult(studentId, session);
+
+            accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
+
+            return ResponseEntity.ok(sessionResultService.getSessionResult(studentId, session));
         } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
@@ -214,7 +255,12 @@ public class ResultController {
             }
 
             Long studentId = user.getStudent().getId();
+            TermResult termResult = findTermResult(studentId, session, term);
+            accessControlService.requireStudentTermResultViewAccess(user, termResult);
+
             return ResponseEntity.ok(resultService.generateResultSheet(studentId, session, term));
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to fetch your term result", e);
         }
@@ -230,7 +276,12 @@ public class ResultController {
             }
 
             Long studentId = user.getStudent().getId();
-            return ResponseEntity.ok(sessionResultService.calculateSessionResult(studentId, session));
+            SessionResult sessionResult = findSessionResult(studentId, session);
+            accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
+
+            return ResponseEntity.ok(sessionResultService.getSessionResult(studentId, session));
+        } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to fetch your annual result", e);
         }
@@ -305,6 +356,7 @@ public class ResultController {
             return serverError("Unable to calculate all term results", e);
         }
     }
+
     @PutMapping("/student/{studentId}/term/assessment")
     public ResponseEntity<?> updateTermAssessment(
             @PathVariable Long studentId,
@@ -326,7 +378,6 @@ public class ResultController {
             return serverError("Unable to update term assessment", e);
         }
     }
-    // ================= SIGNATURE ENDPOINTS =================
 
     @PatchMapping("/student/{studentId}/term/sign/class-teacher")
     public ResponseEntity<?> signByClassTeacher(
@@ -338,7 +389,7 @@ public class ResultController {
 
             accessControlService.requireTermAssessmentModification(user, studentId);
 
-            String signatureUrl = user.getSignatureUrl(); // from profile
+            String signatureUrl = user.getSignatureUrl();
 
             resultService.signByClassTeacher(studentId, session, term, signatureUrl);
 
@@ -362,7 +413,7 @@ public class ResultController {
 
             accessControlService.requireAdmin(user);
 
-            String signatureUrl = user.getSignatureUrl(); // from profile
+            String signatureUrl = user.getSignatureUrl();
 
             resultService.signByAdmin(studentId, session, term, signatureUrl);
 
@@ -375,7 +426,6 @@ public class ResultController {
             return serverError("Unable to approve result", e);
         }
     }
-
 
     @PostMapping("/calculate/annual")
     public ResponseEntity<?> calculateAllSessionResults(@RequestParam String session) {

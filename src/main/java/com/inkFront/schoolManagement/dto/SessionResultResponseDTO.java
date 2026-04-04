@@ -6,6 +6,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -51,8 +52,12 @@ public class SessionResultResponseDTO {
     private boolean promoted;
     private String promotionRemark;
 
+    private String resultVisibilityStatus;
+    private String visibilityMessage;
     private boolean printable;
     private String printLockMessage;
+    private LocalDateTime publishedAt;
+    private String publishedByName;
 
     private Map<String, Double> subjectAnnualTotals = new HashMap<>();
     private Map<String, Double> subjectAverages = new HashMap<>();
@@ -106,8 +111,14 @@ public class SessionResultResponseDTO {
         dto.setPromoted(sr.isPromoted());
         dto.setPromotionRemark(sr.getPromotionRemark());
 
+        dto.setResultVisibilityStatus(
+                sr.getResultVisibilityStatus() != null ? sr.getResultVisibilityStatus().name() : null
+        );
+        dto.setVisibilityMessage(sr.getVisibilityMessage());
         dto.setPrintable(sr.isPrintable());
         dto.setPrintLockMessage(sr.getPrintLockMessage());
+        dto.setPublishedAt(sr.getPublishedAt());
+        dto.setPublishedByName(sr.getPublishedByName());
 
         dto.setClassTeacherRemark(null);
         dto.setPrincipalRemark(null);
