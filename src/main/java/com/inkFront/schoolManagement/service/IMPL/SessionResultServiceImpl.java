@@ -152,7 +152,6 @@ public class SessionResultServiceImpl implements SessionResultService {
         SessionResult saved = sessionResultRepository.save(sessionResult);
         return SessionResultResponseDTO.fromEntity(saved);
     }
-
     @Override
     public SessionResultResponseDTO updateSessionVisibility(
             Long studentId,
@@ -161,7 +160,9 @@ public class SessionResultServiceImpl implements SessionResultService {
             String publishedByName
     ) {
         Student student = studentRepository.findById(studentId)
-                .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Student not found with id: " + studentId
+                ));
 
         SessionResult sessionResult = sessionResultRepository
                 .findDetailedByStudentAndSession(student, session)
@@ -173,11 +174,20 @@ public class SessionResultServiceImpl implements SessionResultService {
             throw new RuntimeException("Visibility status is required");
         }
 
-        switch (request.getVisibilityStatus()) {
+        ResultVisibilityStatus visibilityStatus = request.getVisibilityStatus();
+
+        switch (visibilityStatus) {
             case HIDDEN -> sessionResult.markHidden(request.getVisibilityMessage());
             case STAFF_ONLY -> sessionResult.markStaffOnly(request.getVisibilityMessage());
-            case PUBLISHED -> sessionResult.markPublished(request.getVisibilityMessage(), publishedByName);
-            case PRINTABLE -> sessionResult.markPrintable(request.getVisibilityMessage(), publishedByName);
+            case PUBLISHED -> sessionResult.markPublished(
+                    request.getVisibilityMessage(),
+                    publishedByName
+            );
+            case PRINTABLE -> sessionResult.markPrintable(
+                    request.getVisibilityMessage(),
+                    publishedByName
+            );
+            default -> throw new RuntimeException("Unsupported visibility status: " + visibilityStatus);
         }
 
         SessionResult saved = sessionResultRepository.save(sessionResult);
@@ -960,7 +970,6 @@ public class SessionResultServiceImpl implements SessionResultService {
             sessionResultRepository.saveAll(classResults);
         }
     }
-
     private void syncVisibilityFromTerms(
             SessionResult sessionResult,
             TermResult firstTerm,
@@ -978,11 +987,16 @@ public class SessionResultServiceImpl implements SessionResultService {
         }
 
         boolean allPrintable = terms.stream()
-                .allMatch(term -> term.getVisibilityStatus() == TermResult.VisibilityStatus.PRINTABLE && term.isPrintable());
+                .allMatch(term ->
+                        term.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE
+                                && term.isPrintable()
+                );
 
         boolean anyFamilyVisible = terms.stream()
-                .anyMatch(term -> term.getVisibilityStatus() == TermResult.VisibilityStatus.PUBLISHED
-                        || term.getVisibilityStatus() == TermResult.VisibilityStatus.PRINTABLE);
+                .anyMatch(term ->
+                        term.getVisibilityStatus() == ResultVisibilityStatus.PUBLISHED
+                                || term.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE
+                );
 
         if (allPrintable) {
             String publisher = terms.stream()
@@ -990,6 +1004,7 @@ public class SessionResultServiceImpl implements SessionResultService {
                     .filter(this::hasText)
                     .findFirst()
                     .orElse(null);
+
             sessionResult.markPrintable(
                     "Session result is printable because all term results are printable.",
                     publisher
@@ -1003,6 +1018,7 @@ public class SessionResultServiceImpl implements SessionResultService {
                     .filter(this::hasText)
                     .findFirst()
                     .orElse(null);
+
             sessionResult.markPublished(
                     "Session result is viewable because one or more term results have been released.",
                     publisher

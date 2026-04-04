@@ -30,7 +30,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 
@@ -39,6 +38,8 @@ import java.util.UUID;
 @Slf4j
 @Transactional
 public class AuthServiceImpl implements AuthService {
+
+    private static final long ACCESS_TOKEN_EXPIRES_IN_MS = 86_400_000L;
 
     private final UserRepository userRepository;
     private final AuthenticationManager authenticationManager;
@@ -49,11 +50,8 @@ public class AuthServiceImpl implements AuthService {
     private final TeacherRepository teacherRepository;
     private final ParentRepository parentRepository;
 
-    // Interim storage only. Move to DB/Redis for real production.
-    private final Map<String, String> refreshTokens = new HashMap<>();
     private final Map<String, String> passwordResetTokens = new HashMap<>();
     private final Map<String, String> emailVerificationTokens = new HashMap<>();
-    private final Map<String, Boolean> blacklistedTokens = new HashMap<>();
 
     @Override
     public LoginResponse login(LoginRequest request) {
@@ -70,16 +68,10 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
         user.setLastLogin(LocalDateTime.now());
+        user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
 
-        revokeUserRefreshTokens(user.getUsername());
-
-        String accessToken = jwtService.generateToken(user);
-        String refreshToken = jwtService.generateRefreshToken(user);
-
-        refreshTokens.put(refreshToken, user.getUsername());
-
-        return buildLoginResponse(user, accessToken, refreshToken);
+        return buildLoginResponse(user);
     }
 
     @Override
@@ -128,39 +120,36 @@ public class AuthServiceImpl implements AuthService {
 
         User savedUser = userRepository.save(user);
 
-        String accessToken = jwtService.generateToken(savedUser);
-        String refreshToken = jwtService.generateRefreshToken(savedUser);
-
-        refreshTokens.put(refreshToken, savedUser.getUsername());
-
         log.info("User registered successfully: {}", savedUser.getUsername());
-        return buildLoginResponse(savedUser, accessToken, refreshToken);
+        return buildLoginResponse(savedUser);
     }
 
     @Override
     public LoginResponse refreshToken(RefreshTokenRequest request) {
-        String refreshToken = request.getRefreshToken();
-        String username = refreshTokens.get(refreshToken);
+        if (request == null || request.getRefreshToken() == null || request.getRefreshToken().isBlank()) {
+            throw new BusinessException("Refresh token is required");
+        }
 
-        if (refreshToken == null || refreshToken.isBlank() || username == null) {
+        String refreshToken = request.getRefreshToken().trim();
+
+        try {
+            String usernameOrEmail = jwtService.extractUsername(refreshToken);
+
+            if (usernameOrEmail == null || usernameOrEmail.isBlank()) {
+                throw new BusinessException("Invalid refresh token");
+            }
+
+            User user = userRepository.findByUsernameOrEmail(usernameOrEmail)
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+            if (!jwtService.isTokenValid(refreshToken, user)) {
+                throw new BusinessException("Refresh token expired");
+            }
+
+            return buildLoginResponse(user);
+        } catch (JwtException | IllegalArgumentException ex) {
             throw new BusinessException("Invalid refresh token");
         }
-
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-        if (!jwtService.isTokenValid(refreshToken, user)) {
-            refreshTokens.remove(refreshToken);
-            throw new BusinessException("Refresh token expired");
-        }
-
-        String newAccessToken = jwtService.generateToken(user);
-        String newRefreshToken = jwtService.generateRefreshToken(user);
-
-        refreshTokens.remove(refreshToken);
-        refreshTokens.put(newRefreshToken, username);
-
-        return buildLoginResponse(user, newAccessToken, newRefreshToken);
     }
 
     @Override
@@ -169,15 +158,11 @@ public class AuthServiceImpl implements AuthService {
             return;
         }
 
-        blacklistedTokens.put(token, true);
-
         try {
-            String username = jwtService.extractUsername(token);
-            if (username != null && !username.isBlank()) {
-                revokeUserRefreshTokens(username);
-            }
+            String usernameOrEmail = jwtService.extractUsername(token);
+            log.info("Logout request received for user: {}", usernameOrEmail);
         } catch (JwtException | IllegalArgumentException ex) {
-            log.warn("Could not extract username during logout: {}", ex.getMessage());
+            log.warn("Logout called with invalid token: {}", ex.getMessage());
         }
     }
 
@@ -194,8 +179,6 @@ public class AuthServiceImpl implements AuthService {
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
-
-        revokeUserRefreshTokens(user.getUsername());
 
         log.info("Password changed for user: {}", user.getUsername());
     }
@@ -227,7 +210,6 @@ public class AuthServiceImpl implements AuthService {
         userRepository.save(user);
 
         passwordResetTokens.remove(token);
-        revokeUserRefreshTokens(user.getUsername());
 
         log.info("Password reset successful for: {}", email);
     }
@@ -250,22 +232,15 @@ public class AuthServiceImpl implements AuthService {
         log.info("Email verified for: {}", email);
     }
 
-    private void revokeUserRefreshTokens(String username) {
-        Iterator<Map.Entry<String, String>> iterator = refreshTokens.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<String, String> entry = iterator.next();
-            if (username.equals(entry.getValue())) {
-                iterator.remove();
-            }
-        }
-    }
+    private LoginResponse buildLoginResponse(User user) {
+        String accessToken = jwtService.generateToken(user);
+        String refreshToken = jwtService.generateRefreshToken(user);
 
-    private LoginResponse buildLoginResponse(User user, String accessToken, String refreshToken) {
         return LoginResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
                 .tokenType("Bearer")
-                .expiresIn(86400000L)
+                .expiresIn(ACCESS_TOKEN_EXPIRES_IN_MS)
                 .user(LoginResponse.UserResponse.fromUser(user))
                 .build();
     }

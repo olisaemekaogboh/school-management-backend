@@ -73,6 +73,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/announcements/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/sessions/active").permitAll()
 
+                        // Visibility admin endpoints
+                        .requestMatchers("/api/result-visibility/**").hasRole("ADMIN")
+
                         // Authenticated user self-service
                         .requestMatchers(
                                 "/api/auth/me",
@@ -122,7 +125,7 @@ public class SecurityConfig {
                         ).hasAnyRole("PARENT", "ADMIN")
 
                         // Results
-                        .requestMatchers("/api/results/me/**").hasAnyRole("STUDENT", "ADMIN")
+                        .requestMatchers("/api/results/me/**").hasAnyRole("STUDENT", "PARENT", "ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/results/**")
                         .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
                         .requestMatchers("/api/results/**").hasAnyRole("ADMIN", "TEACHER")
@@ -140,7 +143,7 @@ public class SecurityConfig {
 
                         // Session results
                         .requestMatchers(HttpMethod.GET, "/api/session-results/me/**")
-                        .hasAnyRole("STUDENT", "ADMIN")
+                        .hasAnyRole("STUDENT", "PARENT", "ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/session-results/student/**")
                         .hasAnyRole("ADMIN", "TEACHER", "STUDENT", "PARENT")
                         .requestMatchers(HttpMethod.GET, "/api/session-results/report/**")

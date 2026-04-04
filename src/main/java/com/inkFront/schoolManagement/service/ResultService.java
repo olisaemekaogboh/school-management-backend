@@ -1,7 +1,6 @@
 package com.inkFront.schoolManagement.service;
 
 import com.inkFront.schoolManagement.dto.ResultRequestDTO;
-import com.inkFront.schoolManagement.dto.ResultVisibilityUpdateDTO;
 import com.inkFront.schoolManagement.dto.TermAssessmentUpdateDTO;
 import com.inkFront.schoolManagement.model.Result;
 import com.inkFront.schoolManagement.model.SessionResult;
@@ -30,14 +29,6 @@ public interface ResultService {
             Result.Term term,
             boolean printable,
             String printLockMessage
-    );
-
-    TermResult updateTermVisibility(
-            Long studentId,
-            String session,
-            Result.Term term,
-            ResultVisibilityUpdateDTO request,
-            String publishedByName
     );
 
     TermResult calculateTermResult(Long studentId, String session, Result.Term term);

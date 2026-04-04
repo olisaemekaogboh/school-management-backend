@@ -58,10 +58,6 @@ public class SessionResult {
     @Column(length = 500)
     private String promotionRemark;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "visibility_status", nullable = false, length = 30)
-    private ResultVisibilityStatus resultVisibilityStatus = ResultVisibilityStatus.HIDDEN;
-
     @Column(nullable = false)
     private boolean printable = false;
 
@@ -69,14 +65,17 @@ public class SessionResult {
     private String printLockMessage =
             "Printable result is locked. The admin will unlock it when the result is ready.";
 
-    @Column(name = "visibility_message", length = 300)
-    private String visibilityMessage =
-            "Session result is currently hidden from students and parents.";
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private ResultVisibilityStatus visibilityStatus = ResultVisibilityStatus.HIDDEN;
 
-    @Column(name = "published_at")
+    @Column(length = 300)
+    private String visibilityMessage =
+            "Result is not yet published for student or parent access.";
+
     private LocalDateTime publishedAt;
 
-    @Column(name = "published_by_name", length = 150)
+    @Column(length = 150)
     private String publishedByName;
 
     @ElementCollection(fetch = FetchType.EAGER)
@@ -124,128 +123,113 @@ public class SessionResult {
     @Column(name = "score")
     private Map<String, Double> thirdTermSubjectScores = new HashMap<>();
 
-    @Column(updatable = false)
-    private LocalDateTime createdAt;
-
-    private LocalDateTime updatedAt;
-
-    public boolean isVisibleToStudentOrParent() {
-        return resultVisibilityStatus == ResultVisibilityStatus.PUBLISHED
-                || resultVisibilityStatus == ResultVisibilityStatus.PRINTABLE;
+    public ResultVisibilityStatus getResultVisibilityStatus() {
+        return visibilityStatus;
     }
 
-    public boolean isHiddenFromStudentAndParent() {
-        return resultVisibilityStatus == ResultVisibilityStatus.HIDDEN
-                || resultVisibilityStatus == ResultVisibilityStatus.STAFF_ONLY;
+    public void setResultVisibilityStatus(ResultVisibilityStatus visibilityStatus) {
+        this.visibilityStatus = visibilityStatus;
+    }
+
+    public boolean isVisibleToStudentOrParent() {
+        return visibilityStatus == ResultVisibilityStatus.PUBLISHED
+                || visibilityStatus == ResultVisibilityStatus.PRINTABLE;
     }
 
     public void markHidden(String message) {
-        this.resultVisibilityStatus = ResultVisibilityStatus.HIDDEN;
+        this.visibilityStatus = ResultVisibilityStatus.HIDDEN;
+        this.visibilityMessage = isBlank(message)
+                ? "Result is not yet published for student or parent access."
+                : message.trim();
         this.printable = false;
-        this.publishedAt = null;
-        this.publishedByName = null;
-        this.visibilityMessage = hasText(message)
-                ? message.trim()
-                : "Session result is currently hidden from students and parents.";
-        this.printLockMessage = "Printable result is locked. The admin will unlock it when the result is ready.";
+
+        if (this.printLockMessage == null || this.printLockMessage.isBlank()) {
+            this.printLockMessage =
+                    "Printable result is locked. The admin will unlock it when the result is ready.";
+        }
     }
 
     public void markStaffOnly(String message) {
-        this.resultVisibilityStatus = ResultVisibilityStatus.STAFF_ONLY;
+        this.visibilityStatus = ResultVisibilityStatus.STAFF_ONLY;
+        this.visibilityMessage = isBlank(message)
+                ? "Result is available to staff only and hidden from student or parent access."
+                : message.trim();
         this.printable = false;
-        this.publishedAt = null;
-        this.publishedByName = null;
-        this.visibilityMessage = hasText(message)
-                ? message.trim()
-                : "Session result is available to staff only.";
-        this.printLockMessage = "Printable result is locked. The admin will unlock it when the result is ready.";
+
+        if (this.printLockMessage == null || this.printLockMessage.isBlank()) {
+            this.printLockMessage =
+                    "Printable result is locked. The admin will unlock it when the result is ready.";
+        }
     }
 
-    public void markPublished(String message, String publisherName) {
-        this.resultVisibilityStatus = ResultVisibilityStatus.PUBLISHED;
+    public void markPublished(String message, String publishedByName) {
+        this.visibilityStatus = ResultVisibilityStatus.PUBLISHED;
+        this.visibilityMessage = isBlank(message)
+                ? "Result has been published for viewing."
+                : message.trim();
         this.printable = false;
         this.publishedAt = LocalDateTime.now();
-        this.publishedByName = normalizeText(publisherName);
-        this.visibilityMessage = hasText(message)
-                ? message.trim()
-                : "Session result has been published for student and parent viewing.";
-        this.printLockMessage = "Printable result is locked. View is allowed, printing is not yet enabled.";
+        this.publishedByName = publishedByName;
+
+        if (this.printLockMessage == null || this.printLockMessage.isBlank()) {
+            this.printLockMessage =
+                    "Printable result is locked. The admin will unlock it when the result is ready.";
+        }
     }
 
-    public void markPrintable(String message, String publisherName) {
-        this.resultVisibilityStatus = ResultVisibilityStatus.PRINTABLE;
+    public void markPrintable(String message, String publishedByName) {
+        this.visibilityStatus = ResultVisibilityStatus.PRINTABLE;
+        this.visibilityMessage = isBlank(message)
+                ? "Result has been published for viewing and printing."
+                : message.trim();
         this.printable = true;
-        this.publishedAt = LocalDateTime.now();
-        this.publishedByName = normalizeText(publisherName);
-        this.visibilityMessage = hasText(message)
-                ? message.trim()
-                : "Session result has been published and printing is enabled.";
         this.printLockMessage = "Printable result is available.";
+        this.publishedAt = LocalDateTime.now();
+        this.publishedByName = publishedByName;
     }
 
-    public void resetPublicationState(String message) {
-        this.resultVisibilityStatus = ResultVisibilityStatus.STAFF_ONLY;
+    public void resetPublicationState(String reason) {
+        this.visibilityStatus = ResultVisibilityStatus.HIDDEN;
+        this.visibilityMessage = isBlank(reason)
+                ? "Result was updated and has been hidden until it is republished."
+                : reason.trim();
         this.printable = false;
+        this.printLockMessage = "Printable result is locked until admin approves";
         this.publishedAt = null;
         this.publishedByName = null;
-        this.visibilityMessage = hasText(message)
-                ? message.trim()
-                : "Session result updated. Awaiting admin release.";
-        this.printLockMessage = "Printable result is locked. The admin will unlock it when the result is ready.";
     }
 
     public void calculateAnnualAverage() {
         double first = firstTermAverage != null ? firstTermAverage : 0.0;
         double second = secondTermAverage != null ? secondTermAverage : 0.0;
         double third = thirdTermAverage != null ? thirdTermAverage : 0.0;
+
         this.annualAverage = (first + second + third) / 3.0;
     }
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-        syncPublicationFlags();
+        if (visibilityStatus == null) {
+            visibilityStatus = ResultVisibilityStatus.HIDDEN;
+        }
+
+        if (visibilityMessage == null || visibilityMessage.isBlank()) {
+            visibilityMessage = "Result is not yet published for student or parent access.";
+        }
     }
 
     @PreUpdate
     protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-        syncPublicationFlags();
-    }
-
-    private void syncPublicationFlags() {
-        if (resultVisibilityStatus == null) {
-            resultVisibilityStatus = printable
-                    ? ResultVisibilityStatus.PRINTABLE
-                    : ResultVisibilityStatus.HIDDEN;
+        if (visibilityStatus == null) {
+            visibilityStatus = ResultVisibilityStatus.HIDDEN;
         }
 
-        if (resultVisibilityStatus != ResultVisibilityStatus.PRINTABLE) {
-            printable = false;
-        }
-
-        if (!hasText(visibilityMessage)) {
-            visibilityMessage = switch (resultVisibilityStatus) {
-                case HIDDEN -> "Session result is currently hidden from students and parents.";
-                case STAFF_ONLY -> "Session result is available to staff only.";
-                case PUBLISHED -> "Session result has been published for student and parent viewing.";
-                case PRINTABLE -> "Session result has been published and printing is enabled.";
-            };
-        }
-
-        if (!hasText(printLockMessage)) {
-            printLockMessage = printable
-                    ? "Printable result is available."
-                    : "Printable result is locked. The admin will unlock it when the result is ready.";
+        if (visibilityMessage == null || visibilityMessage.isBlank()) {
+            visibilityMessage = "Result is not yet published for student or parent access.";
         }
     }
 
-    private boolean hasText(String value) {
-        return value != null && !value.trim().isEmpty();
-    }
-
-    private String normalizeText(String value) {
-        return hasText(value) ? value.trim() : null;
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 }

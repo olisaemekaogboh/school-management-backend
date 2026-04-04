@@ -227,7 +227,7 @@ public class AccessControlService {
         }
 
         return termResult != null
-                && termResult.getVisibilityStatus() == TermResult.VisibilityStatus.PRINTABLE
+                && termResult.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE
                 && termResult.isPrintable();
     }
 

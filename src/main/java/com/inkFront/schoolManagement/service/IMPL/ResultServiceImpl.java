@@ -4,11 +4,11 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.inkFront.schoolManagement.dto.AssessmentItemDTO;
 import com.inkFront.schoolManagement.dto.ResultRequestDTO;
-import com.inkFront.schoolManagement.dto.ResultVisibilityUpdateDTO;
 import com.inkFront.schoolManagement.dto.TermAssessmentUpdateDTO;
 import com.inkFront.schoolManagement.exception.ResourceNotFoundException;
 import com.inkFront.schoolManagement.model.Attendance;
 import com.inkFront.schoolManagement.model.Result;
+import com.inkFront.schoolManagement.model.ResultVisibilityStatus;
 import com.inkFront.schoolManagement.model.SchoolClass;
 import com.inkFront.schoolManagement.model.SessionResult;
 import com.inkFront.schoolManagement.model.Student;
@@ -69,7 +69,10 @@ public class ResultServiceImpl implements ResultService {
                     newTermResult.setStudent(student);
                     newTermResult.setSession(request.getSession());
                     newTermResult.setTerm(request.getTerm());
-                    newTermResult.markStaffOnly("Result created and awaiting review.");
+                    newTermResult.setPrintable(false);
+                    newTermResult.setPrintLockMessage("Printable result is locked until admin approves");
+                    newTermResult.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
+                    newTermResult.setVisibilityMessage("Result is not yet published for student or parent access.");
                     resetApprovalState(newTermResult, "Result modified. Requires re-approval.");
                     return termResultRepository.save(newTermResult);
                 });
@@ -147,6 +150,10 @@ public class ResultServiceImpl implements ResultService {
         report.put("subjectAverages", sessionResult.getSubjectAverages());
         report.put("printable", sessionResult.isPrintable());
         report.put("printLockMessage", sessionResult.getPrintLockMessage());
+        report.put("visibilityStatus", sessionResult.getVisibilityStatus() != null ? sessionResult.getVisibilityStatus().name() : null);
+        report.put("visibilityMessage", sessionResult.getVisibilityMessage());
+        report.put("publishedAt", sessionResult.getPublishedAt());
+        report.put("publishedByName", sessionResult.getPublishedByName());
 
         return report;
     }
@@ -171,7 +178,10 @@ public class ResultServiceImpl implements ResultService {
                     newTermResult.setStudent(student);
                     newTermResult.setSession(session);
                     newTermResult.setTerm(term);
-                    newTermResult.markStaffOnly("Result created and awaiting review.");
+                    newTermResult.setPrintable(false);
+                    newTermResult.setPrintLockMessage("Printable result is locked until admin approves");
+                    newTermResult.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
+                    newTermResult.setVisibilityMessage("Result is not yet published for student or parent access.");
                     resetApprovalState(newTermResult, "Result modified. Requires re-approval.");
                     return termResultRepository.save(newTermResult);
                 });
@@ -210,27 +220,6 @@ public class ResultServiceImpl implements ResultService {
 
         log.info("Result saved successfully with ID: {}", savedResult.getId());
         return savedResult;
-    }
-
-    public TermResult updateTermVisibility(
-            Long studentId,
-            String session,
-            Result.Term term,
-            ResultVisibilityUpdateDTO request,
-            String publishedByName
-    ) {
-        Student student = studentRepository.findById(studentId)
-                .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
-
-        TermResult termResult = termResultRepository
-                .findDetailedByStudentAndSessionAndTerm(student, session, term)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Term result not found for student ID " + studentId +
-                                " in session " + session + " and term " + term
-                ));
-
-        applyVisibilityState(termResult, request, publishedByName);
-        return termResultRepository.save(termResult);
     }
 
     private Subject resolveSubject(String subjectName) {
@@ -290,10 +279,10 @@ public class ResultServiceImpl implements ResultService {
                 .findDetailedByStudentAndSessionAndTerm(student, session, term)
                 .orElseGet(() -> {
                     TermResult tr = new TermResult();
-                    tr.setStudent(student);
-                    tr.setSession(session);
-                    tr.setTerm(term);
-                    tr.markStaffOnly("Result calculated and awaiting review.");
+                    tr.setPrintable(false);
+                    tr.setPrintLockMessage("Printable result is locked until admin approves");
+                    tr.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
+                    tr.setVisibilityMessage("Result is not yet published for student or parent access.");
                     return tr;
                 });
 
@@ -399,6 +388,8 @@ public class ResultServiceImpl implements ResultService {
                     SessionResult sr = new SessionResult();
                     sr.setPrintable(false);
                     sr.setPrintLockMessage("Printable result is locked until admin approves");
+                    sr.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
+                    sr.setVisibilityMessage("Result is not yet published for student or parent access.");
                     return sr;
                 });
 
@@ -727,24 +718,22 @@ public class ResultServiceImpl implements ResultService {
             throw new RuntimeException("Result is incomplete. Required signatures are missing.");
         }
 
+        termResult.setPrintable(printable);
+        termResult.setPrintLockMessage(
+                printLockMessage != null && !printLockMessage.trim().isEmpty()
+                        ? printLockMessage.trim()
+                        : (printable
+                        ? "Printable result is available."
+                        : "Printable result is locked. The admin will unlock it when the result is ready.")
+        );
+
         if (printable) {
-            termResult.markPrintable(
-                    hasText(printLockMessage) ? printLockMessage.trim() : "Result has been published and printing is enabled.",
-                    termResult.getPublishedByName()
-            );
-        } else {
-            if (termResult.getVisibilityStatus() == TermResult.VisibilityStatus.PRINTABLE) {
-                termResult.markPublished(
-                        termResult.getVisibilityMessage(),
-                        termResult.getPublishedByName()
-                );
+            termResult.setVisibilityStatus(ResultVisibilityStatus.PRINTABLE);
+            if (termResult.getVisibilityMessage() == null || termResult.getVisibilityMessage().isBlank()) {
+                termResult.setVisibilityMessage("Result has been published for viewing and printing.");
             }
-            termResult.setPrintable(false);
-            termResult.setPrintLockMessage(
-                    hasText(printLockMessage)
-                            ? printLockMessage.trim()
-                            : "Printable result is locked. The admin will unlock it when the result is ready."
-            );
+        } else if (termResult.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE) {
+            termResult.setVisibilityStatus(ResultVisibilityStatus.PUBLISHED);
         }
 
         return termResultRepository.save(termResult);
@@ -811,7 +800,10 @@ public class ResultServiceImpl implements ResultService {
                     newTermResult.setStudent(student);
                     newTermResult.setSession(session);
                     newTermResult.setTerm(term);
-                    newTermResult.markStaffOnly("Result created and awaiting review.");
+                    newTermResult.setPrintable(false);
+                    newTermResult.setPrintLockMessage("Printable result is locked until admin approves");
+                    newTermResult.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
+                    newTermResult.setVisibilityMessage("Result is not yet published for student or parent access.");
                     resetApprovalState(newTermResult, "Result modified. Requires re-approval.");
                     return newTermResult;
                 });
@@ -931,10 +923,10 @@ public class ResultServiceImpl implements ResultService {
         report.put("signatures", signatures);
 
         report.put("completed", safeBoolean(termResult.isCompleted()));
-        report.put("visibilityStatus", termResult.getVisibilityStatus() != null ? termResult.getVisibilityStatus().name() : null);
-        report.put("visibilityMessage", termResult.getVisibilityMessage());
         report.put("printable", termResult.isPrintable());
         report.put("printLockMessage", termResult.getPrintLockMessage());
+        report.put("visibilityStatus", termResult.getVisibilityStatus() != null ? termResult.getVisibilityStatus().name() : null);
+        report.put("visibilityMessage", termResult.getVisibilityMessage());
         report.put("publishedAt", termResult.getPublishedAt());
         report.put("publishedByName", termResult.getPublishedByName());
 
@@ -1033,16 +1025,17 @@ public class ResultServiceImpl implements ResultService {
         termResult.setClassTeacherSignatureUrl(null);
         termResult.setAdminSignatureUrl(null);
 
-        termResult.setVisibilityStatus(TermResult.VisibilityStatus.STAFF_ONLY);
-        termResult.setVisibilityMessage("Result modified. Awaiting review before release.");
         termResult.setPrintable(false);
-        termResult.setPublishedAt(null);
-        termResult.setPublishedByName(null);
         termResult.setPrintLockMessage(
-                hasText(lockMessage)
+                lockMessage != null && !lockMessage.isBlank()
                         ? lockMessage
                         : "Result modified. Requires re-approval."
         );
+
+        termResult.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
+        termResult.setVisibilityMessage("Result modified. Requires admin republication.");
+        termResult.setPublishedAt(null);
+        termResult.setPublishedByName(null);
     }
 
     private void refreshCompletionStatus(TermResult termResult) {
@@ -1055,47 +1048,17 @@ public class ResultServiceImpl implements ResultService {
         if (!completed) {
             termResult.setPrintable(false);
 
-            if (termResult.getVisibilityStatus() == TermResult.VisibilityStatus.PRINTABLE) {
-                termResult.setVisibilityStatus(TermResult.VisibilityStatus.STAFF_ONLY);
+            if (termResult.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE) {
+                termResult.setVisibilityStatus(ResultVisibilityStatus.PUBLISHED);
             }
 
-            if (!hasText(termResult.getPrintLockMessage())) {
+            if (termResult.getPrintLockMessage() == null || termResult.getPrintLockMessage().isBlank()) {
                 termResult.setPrintLockMessage("Result is incomplete. Awaiting required signatures.");
             }
-
-            if (!hasText(termResult.getVisibilityMessage())) {
-                termResult.setVisibilityMessage("Result is incomplete and cannot be released yet.");
-            }
         }
     }
 
-    private void applyVisibilityState(
-            TermResult termResult,
-            ResultVisibilityUpdateDTO request,
-            String publishedByName
-    ) {
-        if (request == null || request.getVisibilityStatus() == null) {
-            throw new RuntimeException("Visibility status is required");
-        }
-
-        switch (request.getVisibilityStatus()) {
-            case HIDDEN -> termResult.markHidden(request.getVisibilityMessage());
-            case STAFF_ONLY -> termResult.markStaffOnly(request.getVisibilityMessage());
-            case PUBLISHED -> {
-                if (!Boolean.TRUE.equals(termResult.isCompleted())) {
-                    throw new RuntimeException("Only a fully approved result can be published to student and parent.");
-                }
-                termResult.markPublished(request.getVisibilityMessage(), publishedByName);
-            }
-            case PRINTABLE -> {
-                if (!Boolean.TRUE.equals(termResult.isCompleted())) {
-                    throw new RuntimeException("Only a fully approved result can be made printable.");
-                }
-                termResult.markPrintable(request.getVisibilityMessage(), publishedByName);
-            }
-        }
-    }
-
+    @Override
     public TermResult signByClassTeacher(
             Long studentId,
             String session,
@@ -1125,6 +1088,7 @@ public class ResultServiceImpl implements ResultService {
         return termResultRepository.save(termResult);
     }
 
+    @Override
     public TermResult signByAdmin(
             Long studentId,
             String session,
@@ -1149,18 +1113,11 @@ public class ResultServiceImpl implements ResultService {
 
         if (safeBoolean(termResult.isCompleted())) {
             termResult.setPrintLockMessage("Result fully approved.");
-            if (termResult.getVisibilityStatus() == TermResult.VisibilityStatus.HIDDEN) {
-                termResult.markStaffOnly("Result fully approved and available to staff for review.");
-            }
         } else {
             termResult.setPrintable(false);
             termResult.setPrintLockMessage("Result is incomplete. Awaiting class teacher signature.");
         }
 
         return termResultRepository.save(termResult);
-    }
-
-    private boolean hasText(String value) {
-        return value != null && !value.trim().isEmpty();
     }
 }

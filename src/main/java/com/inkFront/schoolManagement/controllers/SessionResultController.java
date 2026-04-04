@@ -9,6 +9,7 @@ import com.inkFront.schoolManagement.repository.SessionResultRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.security.AccessControlService;
 import com.inkFront.schoolManagement.security.SecurityUtils;
+import com.inkFront.schoolManagement.service.ResultCheckerPinService;
 import com.inkFront.schoolManagement.service.SessionResultService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -29,13 +30,40 @@ public class SessionResultController {
     private final SecurityUtils securityUtils;
     private final StudentRepository studentRepository;
     private final SessionResultRepository sessionResultRepository;
+    private final ResultCheckerPinService resultCheckerPinService;
 
     private User currentUser() {
         return securityUtils.getCurrentUser();
     }
 
+    private boolean isStudentOrParent(User user) {
+        return user != null
+                && user.getRole() != null
+                && (user.getRole() == User.Role.STUDENT || user.getRole() == User.Role.PARENT);
+    }
+
+    private String resolveUserDisplayName(User user) {
+        if (user == null) {
+            return "Unknown User";
+        }
+
+        String fullName = ((user.getFirstName() != null ? user.getFirstName() : "") + " " +
+                (user.getLastName() != null ? user.getLastName() : "")).replaceAll("\\s+", " ").trim();
+
+        if (!fullName.isBlank()) {
+            return fullName;
+        }
+
+        return user.getUsername();
+    }
+
     private ResponseEntity<Map<String, Object>> forbidden(String message) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("message", message));
+    }
+
+    private ResponseEntity<Map<String, Object>> badRequest(String message) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("message", message));
     }
 
@@ -71,6 +99,17 @@ public class SessionResultController {
         }
 
         return user.getUsername();
+    }
+
+    private void requireSessionPinIfNeeded(User user, Long studentId, String session, String pin) {
+        if (isStudentOrParent(user)) {
+            resultCheckerPinService.consumeSessionPin(
+                    studentId,
+                    session,
+                    pin,
+                    resolveUserDisplayName(user)
+            );
+        }
     }
 
     @PostMapping("/calculate/student/{studentId}")
@@ -171,13 +210,19 @@ public class SessionResultController {
     @GetMapping("/student/{studentId}")
     public ResponseEntity<?> getSessionResult(
             @PathVariable Long studentId,
-            @RequestParam String session) {
+            @RequestParam String session,
+            @RequestParam(required = false) String pin) {
         try {
             User user = currentUser();
             SessionResult sessionResult = findSessionResult(studentId, session);
+
             accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
+            requireSessionPinIfNeeded(user, studentId, session, pin);
+
             return ResponseEntity.ok(sessionResultService.getSessionResult(studentId, session));
         } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (IllegalArgumentException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to fetch session result", e);
@@ -187,17 +232,22 @@ public class SessionResultController {
     @GetMapping("/report/{studentId}")
     public ResponseEntity<?> generateSessionReport(
             @PathVariable Long studentId,
-            @RequestParam String session) {
+            @RequestParam String session,
+            @RequestParam(required = false) String pin) {
         try {
             User user = currentUser();
             SessionResult sessionResult = findSessionResult(studentId, session);
+
             accessControlService.requireStudentSessionResultPrintAccess(user, sessionResult);
+            requireSessionPinIfNeeded(user, studentId, session, pin);
 
             return ResponseEntity.ok(
                     sessionResultService.generateSessionReport(studentId, session)
             );
 
         } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (IllegalArgumentException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to generate session report", e);
@@ -252,7 +302,9 @@ public class SessionResultController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<?> getMySessionResult(@RequestParam String session) {
+    public ResponseEntity<?> getMySessionResult(
+            @RequestParam String session,
+            @RequestParam(required = false) String pin) {
         try {
             User user = currentUser();
             if (user.getStudent() == null) {
@@ -261,10 +313,14 @@ public class SessionResultController {
 
             Long studentId = user.getStudent().getId();
             SessionResult sessionResult = findSessionResult(studentId, session);
+
             accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
+            requireSessionPinIfNeeded(user, studentId, session, pin);
 
             return ResponseEntity.ok(sessionResultService.getSessionResult(studentId, session));
         } catch (AccessDeniedException e) {
+            return forbidden(e.getMessage());
+        } catch (IllegalArgumentException e) {
             return forbidden(e.getMessage());
         } catch (Exception e) {
             return serverError("Unable to fetch your session result", e);
