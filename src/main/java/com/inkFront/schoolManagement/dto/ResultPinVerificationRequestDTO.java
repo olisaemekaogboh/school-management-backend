@@ -1,6 +1,5 @@
 package com.inkFront.schoolManagement.dto;
 
-import com.inkFront.schoolManagement.model.Result;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -14,7 +13,7 @@ public class ResultPinVerificationRequestDTO {
     @NotBlank(message = "session is required")
     private String session;
 
-    private Result.Term term;
+    private String term;
 
     @NotBlank(message = "pin is required")
     private String pin;

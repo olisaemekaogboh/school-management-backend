@@ -62,7 +62,9 @@ public class ResultCheckerPinServiceImpl implements ResultCheckerPinService {
                 throw new IllegalArgumentException("studentId is required for STUDENT targetType");
             }
             student = studentRepository.findById(request.getStudentId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + request.getStudentId()));
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Student not found with id: " + request.getStudentId()
+                    ));
         }
 
         if (targetType == ResultCheckerPin.TargetType.CLASS) {
@@ -70,12 +72,16 @@ public class ResultCheckerPinServiceImpl implements ResultCheckerPinService {
                 throw new IllegalArgumentException("classId is required for CLASS targetType");
             }
             schoolClass = classRepository.findById(request.getClassId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Class not found with id: " + request.getClassId()));
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Class not found with id: " + request.getClassId()
+                    ));
         }
+
+        int pinCount = resolveRequestedPinCount(request);
 
         List<GeneratedResultCheckerPinDTO> response = new ArrayList<>();
 
-        for (int i = 0; i < request.getCount(); i++) {
+        for (int i = 0; i < pinCount; i++) {
             String rawPin = generateRawPin();
 
             ResultCheckerPin pin = new ResultCheckerPin();
@@ -84,9 +90,9 @@ public class ResultCheckerPinServiceImpl implements ResultCheckerPinService {
             pin.setTargetType(targetType);
             pin.setStudent(student);
             pin.setSchoolClass(schoolClass);
-            pin.setSession(request.getSession().trim());
+            pin.setSession(normalizeSession(request.getSession()));
             pin.setTerm(request.getTerm());
-            pin.setMaxUsage(request.getMaxUsage());
+            pin.setMaxUsage(resolveMaxUsage(request));
             pin.setUsedCount(0);
             pin.setActive(true);
             pin.setExpiresAt(request.getExpiresAt());
@@ -140,11 +146,12 @@ public class ResultCheckerPinServiceImpl implements ResultCheckerPinService {
     public ResultPinVerificationResponseDTO verifyTermPin(
             Long studentId,
             String session,
-            Result.Term term,
+            String term,
             String rawPin
     ) {
         Student student = findStudent(studentId);
-        ResultCheckerPin matched = resolveMatchingTermPin(student, session, term, rawPin);
+        Result.Term normalizedTerm = parseResultTerm(term);
+        ResultCheckerPin matched = resolveMatchingTermPin(student, session, normalizedTerm, rawPin);
 
         return new ResultPinVerificationResponseDTO(
                 true,
@@ -176,13 +183,14 @@ public class ResultCheckerPinServiceImpl implements ResultCheckerPinService {
     public void consumeTermPin(
             Long studentId,
             String session,
-            Result.Term term,
+            String term,
             String rawPin,
             String usedByName
     ) {
         Student student = findStudent(studentId);
-        ResultCheckerPin matched = resolveMatchingTermPin(student, session, term, rawPin);
-        consumePin(matched, student, session, term, usedByName);
+        Result.Term normalizedTerm = parseResultTerm(term);
+        ResultCheckerPin matched = resolveMatchingTermPin(student, session, normalizedTerm, rawPin);
+        consumePin(matched, student, normalizeSession(session), normalizedTerm, usedByName);
     }
 
     @Override
@@ -194,7 +202,7 @@ public class ResultCheckerPinServiceImpl implements ResultCheckerPinService {
     ) {
         Student student = findStudent(studentId);
         ResultCheckerPin matched = resolveMatchingSessionPin(student, session, rawPin);
-        consumePin(matched, student, session, null, usedByName);
+        consumePin(matched, student, normalizeSession(session), null, usedByName);
     }
 
     private void consumePin(
@@ -228,14 +236,13 @@ public class ResultCheckerPinServiceImpl implements ResultCheckerPinService {
             Result.Term term,
             String rawPin
     ) {
-        if (rawPin == null || rawPin.isBlank()) {
-            throw new IllegalArgumentException("A valid result checker PIN is required.");
-        }
+        String normalizedSession = normalizeSession(session);
+        String normalizedPin = normalizeRawPin(rawPin);
 
         List<ResultCheckerPin> candidates = resultCheckerPinRepository
                 .findByPinScopeAndSessionAndTermOrderByCreatedAtDesc(
                         ResultCheckerPin.PinScope.TERM,
-                        session,
+                        normalizedSession,
                         term
                 );
 
@@ -244,7 +251,7 @@ public class ResultCheckerPinServiceImpl implements ResultCheckerPinService {
                 .filter(pin -> matchesTarget(pin, student))
                 .filter(pin -> !pin.isExpired())
                 .filter(pin -> pin.getUsedCount() < pin.getMaxUsage())
-                .filter(pin -> passwordEncoder.matches(rawPin.trim(), pin.getPinHash()))
+                .filter(pin -> passwordEncoder.matches(normalizedPin, pin.getPinHash()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Invalid or unusable term result checker PIN."));
     }
@@ -254,14 +261,13 @@ public class ResultCheckerPinServiceImpl implements ResultCheckerPinService {
             String session,
             String rawPin
     ) {
-        if (rawPin == null || rawPin.isBlank()) {
-            throw new IllegalArgumentException("A valid result checker PIN is required.");
-        }
+        String normalizedSession = normalizeSession(session);
+        String normalizedPin = normalizeRawPin(rawPin);
 
         List<ResultCheckerPin> candidates = resultCheckerPinRepository
                 .findByPinScopeAndSessionOrderByCreatedAtDesc(
                         ResultCheckerPin.PinScope.SESSION,
-                        session
+                        normalizedSession
                 );
 
         return candidates.stream()
@@ -269,7 +275,7 @@ public class ResultCheckerPinServiceImpl implements ResultCheckerPinService {
                 .filter(pin -> matchesTarget(pin, student))
                 .filter(pin -> !pin.isExpired())
                 .filter(pin -> pin.getUsedCount() < pin.getMaxUsage())
-                .filter(pin -> passwordEncoder.matches(rawPin.trim(), pin.getPinHash()))
+                .filter(pin -> passwordEncoder.matches(normalizedPin, pin.getPinHash()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Invalid or unusable session result checker PIN."));
     }
@@ -307,6 +313,48 @@ public class ResultCheckerPinServiceImpl implements ResultCheckerPinService {
         } catch (Exception e) {
             throw new IllegalArgumentException("Invalid targetType. Allowed values: STUDENT, CLASS");
         }
+    }
+
+    private Result.Term parseResultTerm(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("term is required");
+        }
+
+        try {
+            return Result.Term.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid term. Allowed values: FIRST, SECOND, THIRD");
+        }
+    }
+
+    private String normalizeSession(String session) {
+        if (session == null || session.isBlank()) {
+            throw new IllegalArgumentException("session is required");
+        }
+        return session.trim();
+    }
+
+    private String normalizeRawPin(String rawPin) {
+        if (rawPin == null || rawPin.isBlank()) {
+            throw new IllegalArgumentException("A valid result checker PIN is required.");
+        }
+        return rawPin.trim();
+    }
+
+    private int resolveRequestedPinCount(ResultCheckerPinCreateDTO request) {
+        Integer count = request.getCount();
+        if (count == null || count < 1) {
+            throw new IllegalArgumentException("count must be at least 1");
+        }
+        return count;
+    }
+
+    private int resolveMaxUsage(ResultCheckerPinCreateDTO request) {
+        Integer maxUsage = request.getMaxUsage();
+        if (maxUsage == null || maxUsage < 1) {
+            return 1;
+        }
+        return maxUsage;
     }
 
     private String generateRawPin() {

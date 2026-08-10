@@ -1,6 +1,13 @@
 package com.inkFront.schoolManagement.security;
 
-import com.inkFront.schoolManagement.model.*;
+import com.inkFront.schoolManagement.model.Parent;
+import com.inkFront.schoolManagement.model.ResultVisibilityStatus;
+import com.inkFront.schoolManagement.model.SchoolClass;
+import com.inkFront.schoolManagement.model.SessionResult;
+import com.inkFront.schoolManagement.model.Student;
+import com.inkFront.schoolManagement.model.TeacherSubject;
+import com.inkFront.schoolManagement.model.TermResult;
+import com.inkFront.schoolManagement.model.User;
 import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
 import com.inkFront.schoolManagement.repository.TeacherSubjectRepository;
@@ -211,23 +218,27 @@ public class AccessControlService {
         }
 
         if (isOwnerStudent(user, studentId) || isParentOfStudent(user, studentId)) {
-            return termResult.isVisibleToStudentOrParent();
+            return termResult.getVisibilityStatus() == ResultVisibilityStatus.PUBLISHED
+                    || termResult.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE;
         }
 
         return false;
     }
 
     public boolean canPrintTermResult(User user, TermResult termResult) {
-        if (!canViewTermResult(user, termResult)) {
+        if (termResult == null) {
             return false;
         }
 
         if (isAdmin(user) || isTeacher(user)) {
-            return true;
+            return canViewTermResult(user, termResult);
         }
 
-        return termResult != null
-                && termResult.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE
+        if (!canViewTermResult(user, termResult)) {
+            return false;
+        }
+
+        return termResult.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE
                 && termResult.isPrintable();
     }
 
@@ -248,23 +259,27 @@ public class AccessControlService {
         }
 
         if (isOwnerStudent(user, studentId) || isParentOfStudent(user, studentId)) {
-            return sessionResult.isVisibleToStudentOrParent();
+            return sessionResult.getVisibilityStatus() == ResultVisibilityStatus.PUBLISHED
+                    || sessionResult.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE;
         }
 
         return false;
     }
 
     public boolean canPrintSessionResult(User user, SessionResult sessionResult) {
-        if (!canViewSessionResult(user, sessionResult)) {
+        if (sessionResult == null) {
             return false;
         }
 
         if (isAdmin(user) || isTeacher(user)) {
-            return true;
+            return canViewSessionResult(user, sessionResult);
         }
 
-        return sessionResult != null
-                && sessionResult.getResultVisibilityStatus() == ResultVisibilityStatus.PRINTABLE
+        if (!canViewSessionResult(user, sessionResult)) {
+            return false;
+        }
+
+        return sessionResult.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE
                 && sessionResult.isPrintable();
     }
 

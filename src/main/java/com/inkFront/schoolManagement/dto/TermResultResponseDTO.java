@@ -1,5 +1,6 @@
 package com.inkFront.schoolManagement.dto;
 
+import com.inkFront.schoolManagement.model.ResultVisibilityStatus;
 import com.inkFront.schoolManagement.model.Student;
 import com.inkFront.schoolManagement.model.TermResult;
 import lombok.AllArgsConstructor;
@@ -48,6 +49,18 @@ public class TermResultResponseDTO {
 
     private boolean printable;
     private String printLockMessage;
+    private ResultVisibilityStatus visibilityStatus;
+    private String visibilityMessage;
+    private LocalDateTime publishedAt;
+    private String publishedByName;
+
+    private Boolean classTeacherSigned;
+    private Boolean adminSigned;
+    private Boolean completed;
+    private LocalDateTime classTeacherSignedAt;
+    private LocalDateTime adminSignedAt;
+    private String classTeacherSignatureUrl;
+    private String adminSignatureUrl;
 
     private List<ResultResponseDTO> subjectResults;
 
@@ -69,7 +82,7 @@ public class TermResultResponseDTO {
                 ? termResult.getSubjectResults().stream()
                 .map(ResultResponseDTO::fromResult)
                 .collect(Collectors.toList())
-                : null;
+                : List.of();
 
         String studentFullName = student == null
                 ? null
@@ -104,6 +117,17 @@ public class TermResultResponseDTO {
                 .nextTermBegins(termResult.getNextTermBegins())
                 .printable(termResult.isPrintable())
                 .printLockMessage(termResult.getPrintLockMessage())
+                .visibilityStatus(termResult.getVisibilityStatus())
+                .visibilityMessage(termResult.getVisibilityMessage())
+                .publishedAt(termResult.getPublishedAt())
+                .publishedByName(termResult.getPublishedByName())
+                .classTeacherSigned(termResult.isClassTeacherSigned())
+                .adminSigned(termResult.isAdminSigned())
+                .completed(termResult.isCompleted())
+                .classTeacherSignedAt(termResult.getClassTeacherSignedAt())
+                .adminSignedAt(termResult.getAdminSignedAt())
+                .classTeacherSignatureUrl(termResult.getClassTeacherSignatureUrl())
+                .adminSignatureUrl(termResult.getAdminSignatureUrl())
                 .subjectResults(subjectResults)
                 .createdAt(termResult.getCreatedAt())
                 .updatedAt(termResult.getUpdatedAt())

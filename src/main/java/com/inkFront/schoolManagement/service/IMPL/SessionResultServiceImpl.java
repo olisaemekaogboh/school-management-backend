@@ -30,6 +30,9 @@ import java.util.*;
 @Transactional
 public class SessionResultServiceImpl implements SessionResultService {
 
+    private static final String DEFAULT_PRINT_LOCK_MESSAGE =
+            "Printable result is locked. The admin will unlock it when the result is ready.";
+
     private final StudentRepository studentRepository;
     private final TermResultRepository termResultRepository;
     private final SessionResultRepository sessionResultRepository;
@@ -130,14 +133,21 @@ public class SessionResultServiceImpl implements SessionResultService {
                 ));
 
         if (printable) {
+            String visibilityMessage = hasText(sessionResult.getVisibilityMessage())
+                    ? sessionResult.getVisibilityMessage()
+                    : "Session result has been released and is printable.";
+
             sessionResult.markPrintable(
-                    printLockMessage,
+                    visibilityMessage,
                     sessionResult.getPublishedByName()
             );
+            sessionResult.setPrintLockMessage(null);
         } else {
-            if (sessionResult.getResultVisibilityStatus() == ResultVisibilityStatus.PRINTABLE) {
+            if (sessionResult.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE) {
                 sessionResult.markPublished(
-                        sessionResult.getVisibilityMessage(),
+                        hasText(sessionResult.getVisibilityMessage())
+                                ? sessionResult.getVisibilityMessage()
+                                : "Session result has been released for viewing.",
                         sessionResult.getPublishedByName()
                 );
             }
@@ -145,13 +155,14 @@ public class SessionResultServiceImpl implements SessionResultService {
             sessionResult.setPrintLockMessage(
                     hasText(printLockMessage)
                             ? printLockMessage.trim()
-                            : "Printable result is locked. The admin will unlock it when the result is ready."
+                            : DEFAULT_PRINT_LOCK_MESSAGE
             );
         }
 
         SessionResult saved = sessionResultRepository.save(sessionResult);
         return SessionResultResponseDTO.fromEntity(saved);
     }
+
     @Override
     public SessionResultResponseDTO updateSessionVisibility(
             Long studentId,
@@ -177,16 +188,33 @@ public class SessionResultServiceImpl implements SessionResultService {
         ResultVisibilityStatus visibilityStatus = request.getVisibilityStatus();
 
         switch (visibilityStatus) {
-            case HIDDEN -> sessionResult.markHidden(request.getVisibilityMessage());
-            case STAFF_ONLY -> sessionResult.markStaffOnly(request.getVisibilityMessage());
-            case PUBLISHED -> sessionResult.markPublished(
-                    request.getVisibilityMessage(),
-                    publishedByName
-            );
-            case PRINTABLE -> sessionResult.markPrintable(
-                    request.getVisibilityMessage(),
-                    publishedByName
-            );
+            case HIDDEN -> {
+                sessionResult.markHidden(request.getVisibilityMessage());
+                sessionResult.setPrintable(false);
+                sessionResult.setPrintLockMessage(DEFAULT_PRINT_LOCK_MESSAGE);
+            }
+            case STAFF_ONLY -> {
+                sessionResult.markStaffOnly(request.getVisibilityMessage());
+                sessionResult.setPrintable(false);
+                sessionResult.setPrintLockMessage(DEFAULT_PRINT_LOCK_MESSAGE);
+            }
+            case PUBLISHED -> {
+                sessionResult.markPublished(
+                        request.getVisibilityMessage(),
+                        publishedByName
+                );
+                sessionResult.setPrintable(false);
+                if (!hasText(sessionResult.getPrintLockMessage())) {
+                    sessionResult.setPrintLockMessage(DEFAULT_PRINT_LOCK_MESSAGE);
+                }
+            }
+            case PRINTABLE -> {
+                sessionResult.markPrintable(
+                        request.getVisibilityMessage(),
+                        publishedByName
+                );
+                sessionResult.setPrintLockMessage(null);
+            }
             default -> throw new RuntimeException("Unsupported visibility status: " + visibilityStatus);
         }
 
@@ -523,7 +551,7 @@ public class SessionResultServiceImpl implements SessionResultService {
         annualSummary.put("promoted", sessionResult.isPromoted());
         annualSummary.put("remark", sessionResult.getPromotionRemark());
         annualSummary.put("subjectAverages", sessionResult.getSubjectAverages());
-        annualSummary.put("resultVisibilityStatus", sessionResult.getResultVisibilityStatus() != null ? sessionResult.getResultVisibilityStatus().name() : null);
+        annualSummary.put("resultVisibilityStatus", sessionResult.getVisibilityStatus() != null ? sessionResult.getVisibilityStatus().name() : null);
         annualSummary.put("visibilityMessage", sessionResult.getVisibilityMessage());
         annualSummary.put("printable", sessionResult.isPrintable());
         report.put("annualSummary", annualSummary);
@@ -542,7 +570,7 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         report.put("subjectAverages", sessionResult.getSubjectAverages());
         report.put("subjectAnnualTotals", sessionResult.getSubjectAnnualTotals());
-        report.put("resultVisibilityStatus", sessionResult.getResultVisibilityStatus() != null ? sessionResult.getResultVisibilityStatus().name() : null);
+        report.put("resultVisibilityStatus", sessionResult.getVisibilityStatus() != null ? sessionResult.getVisibilityStatus().name() : null);
         report.put("visibilityMessage", sessionResult.getVisibilityMessage());
         report.put("printable", sessionResult.isPrintable());
         report.put("printLockMessage", sessionResult.getPrintLockMessage());
@@ -707,13 +735,14 @@ public class SessionResultServiceImpl implements SessionResultService {
         return graduates;
     }
 
-    private void populateAttendance(SessionResult sessionResult,
-                                    Student student,
-                                    String session,
-                                    TermResult firstTerm,
-                                    TermResult secondTerm,
-                                    TermResult thirdTerm) {
-
+    private void populateAttendance(
+            SessionResult sessionResult,
+            Student student,
+            String session,
+            TermResult firstTerm,
+            TermResult secondTerm,
+            TermResult thirdTerm
+    ) {
         List<Attendance> allAttendance = new ArrayList<>();
 
         if (firstTerm != null) {
@@ -970,6 +999,7 @@ public class SessionResultServiceImpl implements SessionResultService {
             sessionResultRepository.saveAll(classResults);
         }
     }
+
     private void syncVisibilityFromTerms(
             SessionResult sessionResult,
             TermResult firstTerm,
@@ -983,6 +1013,8 @@ public class SessionResultServiceImpl implements SessionResultService {
 
         if (terms.isEmpty()) {
             sessionResult.resetPublicationState("Session result is awaiting term result preparation.");
+            sessionResult.setPrintable(false);
+            sessionResult.setPrintLockMessage(DEFAULT_PRINT_LOCK_MESSAGE);
             return;
         }
 
@@ -1009,6 +1041,7 @@ public class SessionResultServiceImpl implements SessionResultService {
                     "Session result is printable because all term results are printable.",
                     publisher
             );
+            sessionResult.setPrintLockMessage(null);
             return;
         }
 
@@ -1023,10 +1056,18 @@ public class SessionResultServiceImpl implements SessionResultService {
                     "Session result is viewable because one or more term results have been released.",
                     publisher
             );
+            sessionResult.setPrintable(false);
+            if (!hasText(sessionResult.getPrintLockMessage())) {
+                sessionResult.setPrintLockMessage(DEFAULT_PRINT_LOCK_MESSAGE);
+            }
             return;
         }
 
         sessionResult.markStaffOnly("Session result is available to staff only until admin releases it.");
+        sessionResult.setPrintable(false);
+        if (!hasText(sessionResult.getPrintLockMessage())) {
+            sessionResult.setPrintLockMessage(DEFAULT_PRINT_LOCK_MESSAGE);
+        }
     }
 
     private double safeDouble(Number value) {

@@ -72,11 +72,11 @@ public class TermResult {
     @Column(length = 1000)
     private String principalComment;
 
-    @Lob
+
     @Column(columnDefinition = "TEXT")
     private String characterTraitsJson;
 
-    @Lob
+
     @Column(columnDefinition = "TEXT")
     private String psychomotorTraitsJson;
 

@@ -1,5 +1,6 @@
 package com.inkFront.schoolManagement.dto;
 
+import com.inkFront.schoolManagement.model.ResultVisibilityStatus;
 import com.inkFront.schoolManagement.model.SessionResult;
 import com.inkFront.schoolManagement.model.Student;
 import lombok.AllArgsConstructor;
@@ -52,7 +53,7 @@ public class SessionResultResponseDTO {
     private boolean promoted;
     private String promotionRemark;
 
-    private String resultVisibilityStatus;
+    private ResultVisibilityStatus visibilityStatus;
     private String visibilityMessage;
     private boolean printable;
     private String printLockMessage;
@@ -77,7 +78,9 @@ public class SessionResultResponseDTO {
         dto.setId(sr.getId());
         dto.setStudentId(student != null ? student.getId() : null);
         dto.setStudentName(student != null
-                ? (safe(student.getFirstName()) + " " + safe(student.getLastName())).trim()
+                ? (safe(student.getFirstName()) + " " + safe(student.getMiddleName()) + " " + safe(student.getLastName()))
+                .replaceAll("\\s+", " ")
+                .trim()
                 : null);
         dto.setAdmissionNumber(student != null ? student.getAdmissionNumber() : null);
         dto.setStudentClass(student != null ? student.getStudentClass() : null);
@@ -111,9 +114,7 @@ public class SessionResultResponseDTO {
         dto.setPromoted(sr.isPromoted());
         dto.setPromotionRemark(sr.getPromotionRemark());
 
-        dto.setResultVisibilityStatus(
-                sr.getResultVisibilityStatus() != null ? sr.getResultVisibilityStatus().name() : null
-        );
+        dto.setVisibilityStatus(sr.getVisibilityStatus());
         dto.setVisibilityMessage(sr.getVisibilityMessage());
         dto.setPrintable(sr.isPrintable());
         dto.setPrintLockMessage(sr.getPrintLockMessage());

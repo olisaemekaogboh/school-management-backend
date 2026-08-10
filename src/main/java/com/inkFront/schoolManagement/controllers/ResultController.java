@@ -4,7 +4,11 @@ import com.inkFront.schoolManagement.dto.PrintableStatusUpdateDTO;
 import com.inkFront.schoolManagement.dto.ResultRequestDTO;
 import com.inkFront.schoolManagement.dto.ResultResponseDTO;
 import com.inkFront.schoolManagement.dto.TermAssessmentUpdateDTO;
-import com.inkFront.schoolManagement.model.*;
+import com.inkFront.schoolManagement.model.Result;
+import com.inkFront.schoolManagement.model.SchoolClass;
+import com.inkFront.schoolManagement.model.SessionResult;
+import com.inkFront.schoolManagement.model.TermResult;
+import com.inkFront.schoolManagement.model.User;
 import com.inkFront.schoolManagement.repository.ClassRepository;
 import com.inkFront.schoolManagement.repository.SessionResultRepository;
 import com.inkFront.schoolManagement.repository.StudentRepository;
@@ -54,6 +58,10 @@ public class ResultController {
                 && (user.getRole() == User.Role.STUDENT || user.getRole() == User.Role.PARENT);
     }
 
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
     private String currentUserDisplayName(User user) {
         if (user == null) {
             return "Unknown User";
@@ -69,11 +77,6 @@ public class ResultController {
 
     private ResponseEntity<Map<String, Object>> forbidden(String message) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(Map.of("message", message));
-    }
-
-    private ResponseEntity<Map<String, Object>> badRequest(String message) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("message", message));
     }
 
@@ -99,36 +102,88 @@ public class ResultController {
     }
 
     private SessionResult findSessionResult(Long studentId, String session) {
-        Student student = studentRepository.findById(studentId)
-                .orElseThrow(() -> new RuntimeException("Student not found with id: " + studentId));
-
-        return sessionResultRepository.findDetailedByStudentAndSession(student, session)
+        return sessionResultRepository.findDetailedByStudentAndSession(
+                        studentRepository.findById(studentId)
+                                .orElseThrow(() -> new RuntimeException("Student not found with id: " + studentId)),
+                        session
+                )
                 .orElseThrow(() -> new RuntimeException(
                         "Session result not found for student ID " + studentId + " in session " + session
                 ));
     }
 
-    private void requireTermPinIfNeeded(User user, Long studentId, String session, Result.Term term, String pin) {
-        if (isStudentOrParent(user)) {
-            resultCheckerPinService.consumeTermPin(
-                    studentId,
-                    session,
-                    term,
-                    pin,
-                    currentUserDisplayName(user)
-            );
-        }
+    private void consumeTermPin(Long studentId, String session, Result.Term term, String pin, User user) {
+        resultCheckerPinService.consumeTermPin(
+                studentId,
+                session,
+                String.valueOf(term),
+                pin,
+                currentUserDisplayName(user)
+        );
     }
 
-    private void requireSessionPinIfNeeded(User user, Long studentId, String session, String pin) {
-        if (isStudentOrParent(user)) {
-            resultCheckerPinService.consumeSessionPin(
-                    studentId,
-                    session,
-                    pin,
-                    currentUserDisplayName(user)
-            );
+    private void consumeSessionPin(Long studentId, String session, String pin, User user) {
+        resultCheckerPinService.consumeSessionPin(
+                studentId,
+                session,
+                pin,
+                currentUserDisplayName(user)
+        );
+    }
+
+    /**
+     * Access rule:
+     * - Admin/teacher/staff continue using normal visibility/access rules.
+     * - Student/parent may access either:
+     *   1. through normal released visibility access, OR
+     *   2. through a valid result checker PIN.
+     */
+    private void enforceTermResultAccess(
+            User user,
+            Long studentId,
+            String session,
+            Result.Term term,
+            String pin,
+            TermResult termResult
+    ) {
+        if (!isStudentOrParent(user)) {
+            accessControlService.requireStudentTermResultViewAccess(user, termResult);
+            return;
         }
+
+        if (hasText(pin)) {
+            consumeTermPin(studentId, session, term, pin.trim(), user);
+            return;
+        }
+
+        accessControlService.requireStudentTermResultViewAccess(user, termResult);
+    }
+
+    /**
+     * Access rule:
+     * - Admin/teacher/staff continue using normal visibility/access rules.
+     * - Student/parent may access either:
+     *   1. through normal released visibility access, OR
+     *   2. through a valid result checker PIN.
+     */
+    private void enforceSessionResultAccess(
+            User user,
+            Long studentId,
+            String session,
+            String pin,
+            SessionResult sessionResult
+    ) {
+        if (!isStudentOrParent(user)) {
+            accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
+            return;
+        }
+
+        if (hasText(pin)) {
+            consumeSessionPin(studentId, session, pin.trim(), user);
+            return;
+        }
+
+        accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
     }
 
     @PostMapping("/student/{studentId}")
@@ -203,8 +258,7 @@ public class ResultController {
             User user = currentUser();
             TermResult termResult = findTermResult(studentId, session, term);
 
-            accessControlService.requireStudentTermResultViewAccess(user, termResult);
-            requireTermPinIfNeeded(user, studentId, session, term, pin);
+            enforceTermResultAccess(user, studentId, session, term, pin, termResult);
 
             Map<String, Object> resultSheet = resultService.generateResultSheet(studentId, session, term);
             return ResponseEntity.ok(resultSheet);
@@ -222,7 +276,7 @@ public class ResultController {
             @PathVariable Long studentId,
             @RequestParam String session,
             @RequestParam Result.Term term,
-            @RequestBody PrintableStatusUpdateDTO dto) {
+            @Valid @RequestBody PrintableStatusUpdateDTO dto) {
         try {
             accessControlService.requireAdmin(currentUser());
 
@@ -253,8 +307,7 @@ public class ResultController {
             User user = currentUser();
             SessionResult sessionResult = findSessionResult(studentId, session);
 
-            accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
-            requireSessionPinIfNeeded(user, studentId, session, pin);
+            enforceSessionResultAccess(user, studentId, session, pin, sessionResult);
 
             return ResponseEntity.ok(sessionResultService.getSessionResult(studentId, session));
         } catch (AccessDeniedException e) {
@@ -281,8 +334,7 @@ public class ResultController {
             Long studentId = user.getStudent().getId();
             TermResult termResult = findTermResult(studentId, session, term);
 
-            accessControlService.requireStudentTermResultViewAccess(user, termResult);
-            requireTermPinIfNeeded(user, studentId, session, term, pin);
+            enforceTermResultAccess(user, studentId, session, term, pin, termResult);
 
             return ResponseEntity.ok(resultService.generateResultSheet(studentId, session, term));
         } catch (AccessDeniedException e) {
@@ -308,8 +360,7 @@ public class ResultController {
             Long studentId = user.getStudent().getId();
             SessionResult sessionResult = findSessionResult(studentId, session);
 
-            accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
-            requireSessionPinIfNeeded(user, studentId, session, pin);
+            enforceSessionResultAccess(user, studentId, session, pin, sessionResult);
 
             return ResponseEntity.ok(sessionResultService.getSessionResult(studentId, session));
         } catch (AccessDeniedException e) {

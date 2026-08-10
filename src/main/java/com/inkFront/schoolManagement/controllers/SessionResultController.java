@@ -11,6 +11,7 @@ import com.inkFront.schoolManagement.security.AccessControlService;
 import com.inkFront.schoolManagement.security.SecurityUtils;
 import com.inkFront.schoolManagement.service.ResultCheckerPinService;
 import com.inkFront.schoolManagement.service.SessionResultService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -42,13 +43,19 @@ public class SessionResultController {
                 && (user.getRole() == User.Role.STUDENT || user.getRole() == User.Role.PARENT);
     }
 
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
     private String resolveUserDisplayName(User user) {
         if (user == null) {
             return "Unknown User";
         }
 
         String fullName = ((user.getFirstName() != null ? user.getFirstName() : "") + " " +
-                (user.getLastName() != null ? user.getLastName() : "")).replaceAll("\\s+", " ").trim();
+                (user.getLastName() != null ? user.getLastName() : ""))
+                .replaceAll("\\s+", " ")
+                .trim();
 
         if (!fullName.isBlank()) {
             return fullName;
@@ -59,11 +66,6 @@ public class SessionResultController {
 
     private ResponseEntity<Map<String, Object>> forbidden(String message) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(Map.of("message", message));
-    }
-
-    private ResponseEntity<Map<String, Object>> badRequest(String message) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("message", message));
     }
 
@@ -92,7 +94,9 @@ public class SessionResultController {
         }
 
         String fullName = ((user.getFirstName() != null ? user.getFirstName() : "") + " " +
-                (user.getLastName() != null ? user.getLastName() : "")).replaceAll("\\s+", " ").trim();
+                (user.getLastName() != null ? user.getLastName() : ""))
+                .replaceAll("\\s+", " ")
+                .trim();
 
         if (!fullName.isBlank()) {
             return fullName;
@@ -101,15 +105,69 @@ public class SessionResultController {
         return user.getUsername();
     }
 
-    private void requireSessionPinIfNeeded(User user, Long studentId, String session, String pin) {
-        if (isStudentOrParent(user)) {
-            resultCheckerPinService.consumeSessionPin(
-                    studentId,
-                    session,
-                    pin,
-                    resolveUserDisplayName(user)
-            );
+    private void consumeSessionPin(Long studentId, String session, String pin, User user) {
+        resultCheckerPinService.consumeSessionPin(
+                studentId,
+                session,
+                pin,
+                resolveUserDisplayName(user)
+        );
+    }
+
+    /**
+     * Student/parent access rule:
+     * - If a PIN is supplied, let the PIN unlock access.
+     * - Otherwise, fall back to normal visibility access rules.
+     *
+     * Staff/admin access rule:
+     * - Use normal role/visibility access rules only.
+     */
+    private void enforceSessionViewAccess(
+            User user,
+            Long studentId,
+            String session,
+            String pin,
+            SessionResult sessionResult
+    ) {
+        if (!isStudentOrParent(user)) {
+            accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
+            return;
         }
+
+        if (hasText(pin)) {
+            consumeSessionPin(studentId, session, pin.trim(), user);
+            return;
+        }
+
+        accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
+    }
+
+    /**
+     * Student/parent print/report access rule:
+     * - If a PIN is supplied, let the PIN unlock access.
+     * - Otherwise, fall back to normal print access rules.
+     *
+     * Staff/admin access rule:
+     * - Use normal role/print access rules only.
+     */
+    private void enforceSessionPrintAccess(
+            User user,
+            Long studentId,
+            String session,
+            String pin,
+            SessionResult sessionResult
+    ) {
+        if (!isStudentOrParent(user)) {
+            accessControlService.requireStudentSessionResultPrintAccess(user, sessionResult);
+            return;
+        }
+
+        if (hasText(pin)) {
+            consumeSessionPin(studentId, session, pin.trim(), user);
+            return;
+        }
+
+        accessControlService.requireStudentSessionResultPrintAccess(user, sessionResult);
     }
 
     @PostMapping("/calculate/student/{studentId}")
@@ -216,8 +274,7 @@ public class SessionResultController {
             User user = currentUser();
             SessionResult sessionResult = findSessionResult(studentId, session);
 
-            accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
-            requireSessionPinIfNeeded(user, studentId, session, pin);
+            enforceSessionViewAccess(user, studentId, session, pin, sessionResult);
 
             return ResponseEntity.ok(sessionResultService.getSessionResult(studentId, session));
         } catch (AccessDeniedException e) {
@@ -238,8 +295,7 @@ public class SessionResultController {
             User user = currentUser();
             SessionResult sessionResult = findSessionResult(studentId, session);
 
-            accessControlService.requireStudentSessionResultPrintAccess(user, sessionResult);
-            requireSessionPinIfNeeded(user, studentId, session, pin);
+            enforceSessionPrintAccess(user, studentId, session, pin, sessionResult);
 
             return ResponseEntity.ok(
                     sessionResultService.generateSessionReport(studentId, session)
@@ -258,7 +314,7 @@ public class SessionResultController {
     public ResponseEntity<?> setSessionPrintable(
             @PathVariable Long studentId,
             @RequestParam String session,
-            @RequestBody PrintableStatusUpdateDTO dto) {
+            @Valid @RequestBody PrintableStatusUpdateDTO dto) {
         try {
             accessControlService.requireAdmin(currentUser());
 
@@ -281,7 +337,7 @@ public class SessionResultController {
     public ResponseEntity<?> updateSessionVisibility(
             @PathVariable Long studentId,
             @RequestParam String session,
-            @RequestBody ResultVisibilityUpdateDTO dto) {
+            @Valid @RequestBody ResultVisibilityUpdateDTO dto) {
         try {
             User user = currentUser();
             accessControlService.requireAdmin(user);
@@ -314,8 +370,7 @@ public class SessionResultController {
             Long studentId = user.getStudent().getId();
             SessionResult sessionResult = findSessionResult(studentId, session);
 
-            accessControlService.requireStudentSessionResultViewAccess(user, sessionResult);
-            requireSessionPinIfNeeded(user, studentId, session, pin);
+            enforceSessionViewAccess(user, studentId, session, pin, sessionResult);
 
             return ResponseEntity.ok(sessionResultService.getSessionResult(studentId, session));
         } catch (AccessDeniedException e) {

@@ -1,6 +1,8 @@
 package com.inkFront.schoolManagement.controllers;
 
-import com.inkFront.schoolManagement.dto.*;
+import com.inkFront.schoolManagement.dto.GeneratedResultCheckerPinDTO;
+import com.inkFront.schoolManagement.dto.ResultCheckerPinCreateDTO;
+import com.inkFront.schoolManagement.dto.ResultPinVerificationRequestDTO;
 import com.inkFront.schoolManagement.security.AccessControlService;
 import com.inkFront.schoolManagement.security.SecurityUtils;
 import com.inkFront.schoolManagement.service.ResultCheckerPinService;
@@ -24,17 +26,22 @@ public class ResultCheckerPinController {
     private final SecurityUtils securityUtils;
 
     private ResponseEntity<Map<String, Object>> forbidden(String message) {
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", message));
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("message", message));
     }
 
     private ResponseEntity<Map<String, Object>> badRequest(String message) {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", message));
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("message", message));
     }
 
     private String currentUserDisplayName() {
         var user = securityUtils.getCurrentUser();
-        String fullName = ((user.getFirstName() != null ? user.getFirstName() : "") + " " +
-                (user.getLastName() != null ? user.getLastName() : ""))
+
+        String firstName = user.getFirstName() != null ? user.getFirstName() : "";
+        String lastName = user.getLastName() != null ? user.getLastName() : "";
+
+        String fullName = (firstName + " " + lastName)
                 .replaceAll("\\s+", " ")
                 .trim();
 
@@ -93,6 +100,8 @@ public class ResultCheckerPinController {
                     )
             );
         } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
+        } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }
     }
@@ -108,6 +117,8 @@ public class ResultCheckerPinController {
                     )
             );
         } catch (IllegalArgumentException e) {
+            return badRequest(e.getMessage());
+        } catch (AccessDeniedException e) {
             return forbidden(e.getMessage());
         }
     }

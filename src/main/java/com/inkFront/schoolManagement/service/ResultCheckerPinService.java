@@ -4,7 +4,6 @@ import com.inkFront.schoolManagement.dto.GeneratedResultCheckerPinDTO;
 import com.inkFront.schoolManagement.dto.ResultCheckerPinCreateDTO;
 import com.inkFront.schoolManagement.dto.ResultCheckerPinResponseDTO;
 import com.inkFront.schoolManagement.dto.ResultPinVerificationResponseDTO;
-import com.inkFront.schoolManagement.model.Result;
 
 import java.util.List;
 
@@ -22,7 +21,7 @@ public interface ResultCheckerPinService {
     ResultPinVerificationResponseDTO verifyTermPin(
             Long studentId,
             String session,
-            Result.Term term,
+            String term,
             String rawPin
     );
 
@@ -35,7 +34,7 @@ public interface ResultCheckerPinService {
     void consumeTermPin(
             Long studentId,
             String session,
-            Result.Term term,
+            String term,
             String rawPin,
             String usedByName
     );

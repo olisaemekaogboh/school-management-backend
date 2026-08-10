@@ -37,6 +37,9 @@ import java.util.*;
 @Transactional
 public class ResultServiceImpl implements ResultService {
 
+    private static final String DEFAULT_PRINT_LOCK_MESSAGE =
+            "Printable result is locked. The admin will unlock it when the result is ready.";
+
     private final StudentRepository studentRepository;
     private final ResultRepository resultRepository;
     private final TermResultRepository termResultRepository;
@@ -64,18 +67,7 @@ public class ResultServiceImpl implements ResultService {
 
         TermResult termResult = termResultRepository
                 .findDetailedByStudentAndSessionAndTerm(student, request.getSession(), request.getTerm())
-                .orElseGet(() -> {
-                    TermResult newTermResult = new TermResult();
-                    newTermResult.setStudent(student);
-                    newTermResult.setSession(request.getSession());
-                    newTermResult.setTerm(request.getTerm());
-                    newTermResult.setPrintable(false);
-                    newTermResult.setPrintLockMessage("Printable result is locked until admin approves");
-                    newTermResult.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
-                    newTermResult.setVisibilityMessage("Result is not yet published for student or parent access.");
-                    resetApprovalState(newTermResult, "Result modified. Requires re-approval.");
-                    return termResultRepository.save(newTermResult);
-                });
+                .orElseGet(() -> createNewTermResult(student, request.getSession(), request.getTerm()));
 
         Result result = resultRepository
                 .findDetailedByStudentAndSubjectAndSessionAndTerm(
@@ -173,18 +165,7 @@ public class ResultServiceImpl implements ResultService {
 
         TermResult termResult = termResultRepository
                 .findDetailedByStudentAndSessionAndTerm(student, session, term)
-                .orElseGet(() -> {
-                    TermResult newTermResult = new TermResult();
-                    newTermResult.setStudent(student);
-                    newTermResult.setSession(session);
-                    newTermResult.setTerm(term);
-                    newTermResult.setPrintable(false);
-                    newTermResult.setPrintLockMessage("Printable result is locked until admin approves");
-                    newTermResult.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
-                    newTermResult.setVisibilityMessage("Result is not yet published for student or parent access.");
-                    resetApprovalState(newTermResult, "Result modified. Requires re-approval.");
-                    return termResultRepository.save(newTermResult);
-                });
+                .orElseGet(() -> createNewTermResult(student, session, term));
 
         Result result = resultRepository
                 .findDetailedByStudentAndSubjectAndSessionAndTerm(student, subject, session, term)
@@ -280,7 +261,7 @@ public class ResultServiceImpl implements ResultService {
                 .orElseGet(() -> {
                     TermResult tr = new TermResult();
                     tr.setPrintable(false);
-                    tr.setPrintLockMessage("Printable result is locked until admin approves");
+                    tr.setPrintLockMessage(DEFAULT_PRINT_LOCK_MESSAGE);
                     tr.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
                     tr.setVisibilityMessage("Result is not yet published for student or parent access.");
                     return tr;
@@ -384,14 +365,7 @@ public class ResultServiceImpl implements ResultService {
 
         SessionResult sessionResult = sessionResultRepository
                 .findDetailedByStudentAndSession(student, session)
-                .orElseGet(() -> {
-                    SessionResult sr = new SessionResult();
-                    sr.setPrintable(false);
-                    sr.setPrintLockMessage("Printable result is locked until admin approves");
-                    sr.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
-                    sr.setVisibilityMessage("Result is not yet published for student or parent access.");
-                    return sr;
-                });
+                .orElseGet(() -> createNewSessionResult(student, session));
 
         sessionResult.setStudent(student);
         sessionResult.setSession(session);
@@ -420,6 +394,7 @@ public class ResultServiceImpl implements ResultService {
         Map<String, Double> secondTermSubjectScores = new HashMap<>();
         Map<String, Double> thirdTermSubjectScores = new HashMap<>();
         Map<String, Double> subjectAnnualTotals = new HashMap<>();
+        Map<String, Integer> subjectCount = new HashMap<>();
         Map<String, Double> subjectAverages = new HashMap<>();
 
         List<Result> firstTermResults =
@@ -434,7 +409,8 @@ public class ResultServiceImpl implements ResultService {
                 String subjectName = result.getSubject().getName();
                 double total = safeDouble(result.getTotal());
                 firstTermSubjectScores.put(subjectName, total);
-                subjectAnnualTotals.put(subjectName, subjectAnnualTotals.getOrDefault(subjectName, 0.0) + total);
+                subjectAnnualTotals.merge(subjectName, total, Double::sum);
+                subjectCount.merge(subjectName, 1, Integer::sum);
             }
         }
 
@@ -443,7 +419,8 @@ public class ResultServiceImpl implements ResultService {
                 String subjectName = result.getSubject().getName();
                 double total = safeDouble(result.getTotal());
                 secondTermSubjectScores.put(subjectName, total);
-                subjectAnnualTotals.put(subjectName, subjectAnnualTotals.getOrDefault(subjectName, 0.0) + total);
+                subjectAnnualTotals.merge(subjectName, total, Double::sum);
+                subjectCount.merge(subjectName, 1, Integer::sum);
             }
         }
 
@@ -452,12 +429,15 @@ public class ResultServiceImpl implements ResultService {
                 String subjectName = result.getSubject().getName();
                 double total = safeDouble(result.getTotal());
                 thirdTermSubjectScores.put(subjectName, total);
-                subjectAnnualTotals.put(subjectName, subjectAnnualTotals.getOrDefault(subjectName, 0.0) + total);
+                subjectAnnualTotals.merge(subjectName, total, Double::sum);
+                subjectCount.merge(subjectName, 1, Integer::sum);
             }
         }
 
         for (Map.Entry<String, Double> entry : subjectAnnualTotals.entrySet()) {
-            subjectAverages.put(entry.getKey(), entry.getValue() / 3.0);
+            String subjectName = entry.getKey();
+            int count = subjectCount.getOrDefault(subjectName, 1);
+            subjectAverages.put(subjectName, entry.getValue() / count);
         }
 
         sessionResult.setFirstTermSubjectScores(firstTermSubjectScores);
@@ -469,19 +449,29 @@ public class ResultServiceImpl implements ResultService {
         calculateSessionAttendance(sessionResult);
 
         sessionResult.setAnnualTotal(firstTermTotal + secondTermTotal + thirdTermTotal);
-        sessionResult.setAnnualAverage((firstTermAverage + secondTermAverage + thirdTermAverage) / 3.0);
+
+        int divisor = 0;
+        if (firstTerm != null) divisor++;
+        if (secondTerm != null) divisor++;
+        if (thirdTerm != null) divisor++;
+
+        sessionResult.setAnnualAverage(
+                divisor == 0 ? 0.0 : (firstTermAverage + secondTermAverage + thirdTermAverage) / divisor
+        );
 
         boolean promoted = sessionResult.getAnnualAverage() >= 40.0;
         sessionResult.setPromoted(promoted);
         sessionResult.setPromotionRemark(promoted ? "Promoted to next class" : "Not promoted");
 
-        calculateAnnualPositions(sessionResult);
+        syncSessionVisibilityFromTerms(sessionResult, firstTerm, secondTerm, thirdTerm);
 
         SessionResult savedResult = sessionResultRepository.save(sessionResult);
+        calculateAnnualPositions(savedResult);
+
         log.info("Session result calculated for student: {}, annual average: {}",
                 studentId, savedResult.getAnnualAverage());
 
-        return savedResult;
+        return sessionResultRepository.findById(savedResult.getId()).orElse(savedResult);
     }
 
     private double safeDouble(Number value) {
@@ -530,6 +520,20 @@ public class ResultServiceImpl implements ResultService {
             } else if (attendance.getStatus() == Attendance.AttendanceStatus.ABSENT) {
                 absent++;
             }
+        }
+
+        if (uniqueSchoolDays.isEmpty()) {
+            List<LocalDate> allDates = new ArrayList<>();
+            allDates.addAll(attendanceRepository.findDistinctDatesBySessionAndTerm(session, Result.Term.FIRST));
+            allDates.addAll(attendanceRepository.findDistinctDatesBySessionAndTerm(session, Result.Term.SECOND));
+            allDates.addAll(attendanceRepository.findDistinctDatesBySessionAndTerm(session, Result.Term.THIRD));
+
+            uniqueSchoolDays.addAll(
+                    allDates.stream()
+                            .filter(Objects::nonNull)
+                            .map(LocalDate::toString)
+                            .toList()
+            );
         }
 
         sessionResult.setTotalSchoolDays(uniqueSchoolDays.size());
@@ -712,28 +716,29 @@ public class ResultServiceImpl implements ResultService {
                                 " in session " + session + " and term " + term
                 ));
 
-        boolean completed = Boolean.TRUE.equals(termResult.isCompleted());
-
-        if (printable && !completed) {
+        if (printable && !termResult.isCompleted()) {
             throw new RuntimeException("Result is incomplete. Required signatures are missing.");
         }
 
-        termResult.setPrintable(printable);
-        termResult.setPrintLockMessage(
-                printLockMessage != null && !printLockMessage.trim().isEmpty()
-                        ? printLockMessage.trim()
-                        : (printable
-                        ? "Printable result is available."
-                        : "Printable result is locked. The admin will unlock it when the result is ready.")
-        );
-
         if (printable) {
+            termResult.setPrintable(true);
+            termResult.setPrintLockMessage(null);
             termResult.setVisibilityStatus(ResultVisibilityStatus.PRINTABLE);
+
             if (termResult.getVisibilityMessage() == null || termResult.getVisibilityMessage().isBlank()) {
                 termResult.setVisibilityMessage("Result has been published for viewing and printing.");
             }
-        } else if (termResult.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE) {
-            termResult.setVisibilityStatus(ResultVisibilityStatus.PUBLISHED);
+        } else {
+            termResult.setPrintable(false);
+            termResult.setPrintLockMessage(
+                    hasText(printLockMessage)
+                            ? printLockMessage.trim()
+                            : DEFAULT_PRINT_LOCK_MESSAGE
+            );
+
+            if (termResult.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE) {
+                termResult.setVisibilityStatus(ResultVisibilityStatus.PUBLISHED);
+            }
         }
 
         return termResultRepository.save(termResult);
@@ -801,7 +806,7 @@ public class ResultServiceImpl implements ResultService {
                     newTermResult.setSession(session);
                     newTermResult.setTerm(term);
                     newTermResult.setPrintable(false);
-                    newTermResult.setPrintLockMessage("Printable result is locked until admin approves");
+                    newTermResult.setPrintLockMessage(DEFAULT_PRINT_LOCK_MESSAGE);
                     newTermResult.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
                     newTermResult.setVisibilityMessage("Result is not yet published for student or parent access.");
                     resetApprovalState(newTermResult, "Result modified. Requires re-approval.");
@@ -1119,5 +1124,108 @@ public class ResultServiceImpl implements ResultService {
         }
 
         return termResultRepository.save(termResult);
+    }
+
+    private TermResult createNewTermResult(Student student, String session, Result.Term term) {
+        TermResult newTermResult = new TermResult();
+        newTermResult.setStudent(student);
+        newTermResult.setSession(session);
+        newTermResult.setTerm(term);
+        newTermResult.setPrintable(false);
+        newTermResult.setPrintLockMessage(DEFAULT_PRINT_LOCK_MESSAGE);
+        newTermResult.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
+        newTermResult.setVisibilityMessage("Result is not yet published for student or parent access.");
+        resetApprovalState(newTermResult, "Result modified. Requires re-approval.");
+        return termResultRepository.save(newTermResult);
+    }
+
+    private SessionResult createNewSessionResult(Student student, String session) {
+        SessionResult sr = new SessionResult();
+        sr.setStudent(student);
+        sr.setSession(session);
+        sr.setPrintable(false);
+        sr.setPrintLockMessage(DEFAULT_PRINT_LOCK_MESSAGE);
+        sr.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
+        sr.setVisibilityMessage("Result is not yet published for student or parent access.");
+        return sr;
+    }
+
+    private void syncSessionVisibilityFromTerms(
+            SessionResult sessionResult,
+            TermResult firstTerm,
+            TermResult secondTerm,
+            TermResult thirdTerm
+    ) {
+        List<TermResult> terms = new ArrayList<>();
+        if (firstTerm != null) terms.add(firstTerm);
+        if (secondTerm != null) terms.add(secondTerm);
+        if (thirdTerm != null) terms.add(thirdTerm);
+
+        if (terms.isEmpty()) {
+            sessionResult.setVisibilityStatus(ResultVisibilityStatus.HIDDEN);
+            sessionResult.setVisibilityMessage("Session result is awaiting term result preparation.");
+            sessionResult.setPrintable(false);
+            sessionResult.setPrintLockMessage(DEFAULT_PRINT_LOCK_MESSAGE);
+            sessionResult.setPublishedAt(null);
+            sessionResult.setPublishedByName(null);
+            return;
+        }
+
+        boolean allPrintable = terms.stream()
+                .allMatch(termResult ->
+                        termResult.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE
+                                && termResult.isPrintable()
+                );
+
+        boolean anyFamilyVisible = terms.stream()
+                .anyMatch(termResult ->
+                        termResult.getVisibilityStatus() == ResultVisibilityStatus.PUBLISHED
+                                || termResult.getVisibilityStatus() == ResultVisibilityStatus.PRINTABLE
+                );
+
+        if (allPrintable) {
+            String publisher = terms.stream()
+                    .map(TermResult::getPublishedByName)
+                    .filter(this::hasText)
+                    .findFirst()
+                    .orElse(null);
+
+            sessionResult.setVisibilityStatus(ResultVisibilityStatus.PRINTABLE);
+            sessionResult.setVisibilityMessage("Session result is printable because all term results are printable.");
+            sessionResult.setPrintable(true);
+            sessionResult.setPrintLockMessage(null);
+            sessionResult.setPublishedByName(publisher);
+            if (sessionResult.getPublishedAt() == null) {
+                sessionResult.setPublishedAt(LocalDateTime.now());
+            }
+            return;
+        }
+
+        if (anyFamilyVisible) {
+            String publisher = terms.stream()
+                    .map(TermResult::getPublishedByName)
+                    .filter(this::hasText)
+                    .findFirst()
+                    .orElse(null);
+
+            sessionResult.setVisibilityStatus(ResultVisibilityStatus.PUBLISHED);
+            sessionResult.setVisibilityMessage("Session result is viewable because one or more term results have been released.");
+            sessionResult.setPrintable(false);
+            sessionResult.setPrintLockMessage(DEFAULT_PRINT_LOCK_MESSAGE);
+            sessionResult.setPublishedByName(publisher);
+            if (sessionResult.getPublishedAt() == null) {
+                sessionResult.setPublishedAt(LocalDateTime.now());
+            }
+            return;
+        }
+
+        sessionResult.setVisibilityStatus(ResultVisibilityStatus.STAFF_ONLY);
+        sessionResult.setVisibilityMessage("Session result is available to staff only until admin releases it.");
+        sessionResult.setPrintable(false);
+        sessionResult.setPrintLockMessage(DEFAULT_PRINT_LOCK_MESSAGE);
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 }
